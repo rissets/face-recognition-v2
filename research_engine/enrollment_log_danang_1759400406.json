@@ -1,0 +1,22 @@
+{
+  "user_name": "danang",
+  "samples_collected": 5,
+  "quality_logs": [
+    {
+      "timestamp": 1759400391.350409,
+      "quality": {
+        "brightness": 0.9337625885009766,
+        "contrast": 0.9354665270797021,
+        "sharpness": 0.11282286834610836,
+        "face_size_score": 0.9515,
+        "face_position_score": 0.6198684438250357,
+        "eye_visibility_score": 1.0,
+        "overall_score": 0.8189111739922967
+      },
+      "obstacles": [],
+      "blinks": 0,
+      "is_valid": false
+    }
+  ],
+  "average_quality": 0.8189111739922967
+}
