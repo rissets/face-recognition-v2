@@ -1,0 +1,1 @@
+# Streaming app for WebRTC functionality

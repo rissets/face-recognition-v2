@@ -1,0 +1,52 @@
+Django
+djangorestframework
+django-unfold
+django-cors-headers
+channels
+channels-redis
+celery
+redis
+daphne
+uvicorn
+websockets
+cryptography
+PyJWT
+djangorestframework-simplejwt
+
+# Face Recognition Dependencies
+insightface
+opencv-python
+mediapipe
+numpy
+faiss-cpu
+Pillow
+scikit-learn
+
+# Vector Database
+chromadb
+psycopg2-binary
+pgvector
+
+# Background Tasks
+celery[redis]
+django-celery-beat
+django-celery-results
+
+# Security & Encryption
+cryptography
+django-cryptography
+django-encrypted-model-fields
+
+# WebRTC
+aiortc
+aioice
+
+# Testing
+pytest
+pytest-django
+pytest-asyncio
+factory-boy
+
+# Development
+python-decouple
+django-debug-toolbar
