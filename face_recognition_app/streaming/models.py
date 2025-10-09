@@ -33,6 +33,7 @@ class StreamingSession(models.Model):
             ('enrollment', 'Enrollment'),
             ('authentication', 'Authentication'),
             ('verification', 'Verification'),
+            ('identification', 'Identification'),
         ]
     )
     

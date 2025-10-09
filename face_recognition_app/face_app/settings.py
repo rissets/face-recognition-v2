@@ -73,6 +73,7 @@ DEFAULT_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.humanize",
 ]
 
 THIRD_PARTY_APPS = [
@@ -307,6 +308,16 @@ WEBRTC_CONFIG = {
     "MAX_BITRATE": 1000000,  # 1 Mbps
 }
 
+# Streaming / Face Session Limits & Thresholds
+FACE_STREAMING_LIMITS = {
+    "MAX_ACTIVE_STREAMING_SESSIONS_PER_USER": 3,           # Active (initiating/connecting/connected/processing)
+    "MAX_CREATES_PER_MINUTE": 8,                           # Burst control per user
+    "AUTH_FRAME_BUDGET": 120,                              # WS frame budget before fail
+    "MAX_WS_FPS": 11,                                      # Throttle WS ingestion
+    "MAX_LOW_QUALITY_CONSECUTIVE": 25,                     # Future use for abort on low quality
+    "FAIL_LOW_QUALITY_THRESHOLD": 0.30,                    # If implemented for early abort
+}
+
 # DRF Spectacular Configuration
 SPECTACULAR_SETTINGS = {
     "TITLE": "Face Recognition API",
@@ -444,7 +455,7 @@ UNFOLD = {
         "show_all_applications": True,
         "navigation": [
             {
-                "title": _("Navigation"),
+                "title": _("Overview"),
                 "separator": True,
                 "items": [
                     {
@@ -453,28 +464,162 @@ UNFOLD = {
                         "link": reverse_lazy("admin:index"),
                     },
                     {
+                        "title": _("System Configuration"),
+                        "icon": "settings",
+                        "link": reverse_lazy("admin:core_systemconfiguration_changelist"),
+                    },
+                    {
+                        "title": _("Health Checks"),
+                        "icon": "favorite",
+                        "link": reverse_lazy("admin:core_healthcheck_changelist"),
+                    },
+                    {
+                        "title": _("System Metrics"),
+                        "icon": "analytics",
+                        "link": reverse_lazy("admin:analytics_systemmetrics_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": _("Users & Enrollment"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
                         "title": _("Users"),
                         "icon": "people",
                         "link": reverse_lazy("admin:users_customuser_changelist"),
                     },
                     {
-                        "title": _("Face Recognition"),
-                        "icon": "face",
-                        "link": reverse_lazy(
-                            "admin:recognition_faceembedding_changelist"
-                        ),
+                        "title": _("Profiles"),
+                        "icon": "person",
+                        "link": reverse_lazy("admin:users_userprofile_changelist"),
                     },
                     {
-                        "title": _("Analytics"),
+                        "title": _("Devices"),
+                        "icon": "devices",
+                        "link": reverse_lazy("admin:users_userdevice_changelist"),
+                    },
+                    {
+                        "title": _("Enrollment Sessions"),
+                        "icon": "how_to_reg",
+                        "link": reverse_lazy("admin:recognition_enrollmentsession_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": _("Face Recognition"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Face Recognition"),
+                        "icon": "face",
+                        "link": reverse_lazy("admin:recognition_faceembedding_changelist"),
+                    },
+                    {
+                        "title": _("Authentication Attempts"),
+                        "icon": "verified_user",
+                        "link": reverse_lazy("admin:recognition_authenticationattempt_changelist"),
+                    },
+                    {
+                        "title": _("Liveness Detections"),
+                        "icon": "visibility",
+                        "link": reverse_lazy("admin:recognition_livenessdetection_changelist"),
+                    },
+                    {
+                        "title": _("Obstacle Detections"),
+                        "icon": "warning",
+                        "link": reverse_lazy("admin:recognition_obstacledetection_changelist"),
+                    },
+                    {
+                        "title": _("Models"),
+                        "icon": "science",
+                        "link": reverse_lazy("admin:recognition_facerecognitionmodel_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": _("Analytics"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Authentication Logs"),
                         "icon": "analytics",
-                        "link": reverse_lazy(
-                            "admin:analytics_authenticationlog_changelist"
-                        ),
+                        "link": reverse_lazy("admin:analytics_authenticationlog_changelist"),
+                    },
+                    {
+                        "title": _("Behavior Analytics"),
+                        "icon": "insights",
+                        "link": reverse_lazy("admin:analytics_userbehavioranalytics_changelist"),
+                    },
+                    {
+                        "title": _("Face Recognition Stats"),
+                        "icon": "leaderboard",
+                        "link": reverse_lazy("admin:analytics_facerecognitionstats_changelist"),
+                    },
+                    {
+                        "title": _("Model Performance"),
+                        "icon": "timeline",
+                        "link": reverse_lazy("admin:analytics_modelperformance_changelist"),
+                    },
+                    {
+                        "title": _("Data Quality Metrics"),
+                        "icon": "data_usage",
+                        "link": reverse_lazy("admin:analytics_dataqualitymetrics_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": _("Security & Streaming"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Security Alerts"),
+                        "icon": "shield",
+                        "link": reverse_lazy("admin:analytics_securityalert_changelist"),
+                    },
+                    {
+                        "title": _("Security Events"),
+                        "icon": "report",
+                        "link": reverse_lazy("admin:core_securityevent_changelist"),
+                    },
+                    {
+                        "title": _("Streaming Sessions"),
+                        "icon": "videocam",
+                        "link": reverse_lazy("admin:streaming_streamingsession_changelist"),
+                    },
+                    {
+                        "title": _("WebRTC Signals"),
+                        "icon": "rss_feed",
+                        "link": reverse_lazy("admin:streaming_webrtcsignal_changelist"),
                     },
                 ],
             },
         ],
     },
+    "QUICK_ACTIONS": [
+        {
+            "title": _("Start Enrollment Session"),
+            "description": _("Create a new enrollment session for a user."),
+            "icon": "fiber_new",
+            "link": reverse_lazy("admin:recognition_enrollmentsession_add"),
+        },
+        {
+            "title": _("Log Security Alert"),
+            "description": _("Record a manual security alert for follow-up."),
+            "icon": "add_alert",
+            "link": reverse_lazy("admin:analytics_securityalert_add"),
+        },
+        {
+            "title": _("Capture Health Check"),
+            "description": _("Add the latest health status for a critical service."),
+            "icon": "favorite",
+            "link": reverse_lazy("admin:core_healthcheck_add"),
+        },
+    ],
 }
 
 # Default primary key field type

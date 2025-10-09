@@ -79,7 +79,7 @@ class StreamingSessionCreateSerializer(serializers.ModelSerializer):
     
     def validate_session_type(self, value):
         """Validate session type"""
-        valid_types = ['enrollment', 'authentication', 'verification']
+        valid_types = ['enrollment', 'authentication', 'verification', 'identification']
         if value not in valid_types:
             raise serializers.ValidationError(
                 f"Invalid session type. Must be one of: {', '.join(valid_types)}"

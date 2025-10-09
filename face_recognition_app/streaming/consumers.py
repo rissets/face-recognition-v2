@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import logging
+import time
 
 import cv2
 import numpy as np
@@ -14,6 +15,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from core.face_recognition_engine import FaceRecognitionEngine
 
 from streaming.models import StreamingSession, WebRTCSignal
+from django.conf import settings
 
 logger = logging.getLogger("streaming")
 
@@ -27,6 +29,17 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
         self.streaming_session = None
         self.face_engine = FaceRecognitionEngine()
         self.room_group_name = None
+        self._last_frame_ts = 0.0
+        limits = getattr(settings, 'FACE_STREAMING_LIMITS', {})
+        self._throttle_interval = 0.09  # ~11 fps max (can derive from MAX_WS_FPS)
+        max_fps = limits.get('MAX_WS_FPS')
+        if max_fps and max_fps > 0:
+            self._throttle_interval = max(0.001, 1.0 / float(max_fps))
+        self._consecutive_low_quality = 0
+        self._max_low_quality = limits.get('MAX_LOW_QUALITY_CONSECUTIVE', 25)
+        self._fail_low_quality_threshold = limits.get('FAIL_LOW_QUALITY_THRESHOLD', 0.30)
+        self._auth_frame_budget = limits.get('AUTH_FRAME_BUDGET', 120)
+        self._frames_processed_ws = 0
 
     async def connect(self):
         """Accept WebSocket connection"""
@@ -35,15 +48,29 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
 
         # Validate session
         try:
-            self.streaming_session = await self.get_streaming_session(
-                self.session_token
-            )
+            self.streaming_session = await self.get_streaming_session(self.session_token)
             if not self.streaming_session:
-                await self.close(code=4004)
+                await self.close(code=4404)
                 return
         except Exception as e:
             logger.error(f"Error validating session: {e}")
-            await self.close(code=4004)
+            await self.close(code=4500)
+            return
+
+        # Security: ensure authenticated user matches session owner unless origin is public_login
+        origin_flag = (self.streaming_session.session_data or {}).get('session_origin') or (self.streaming_session.session_data or {}).get('origin')
+        user_mismatch = (
+            self.scope.get('user')
+            and self.scope['user'].is_authenticated
+            and self.streaming_session.user
+            and self.scope['user'] != self.streaming_session.user
+        )
+        anonymous_disallowed = (
+            (not getattr(self.scope.get('user'), 'is_authenticated', False))
+            and origin_flag not in ['public_login', 'webrtc_public_auth']
+        )
+        if user_mismatch or anonymous_disallowed:
+            await self.close(code=4403)
             return
 
         # Join room group
@@ -103,9 +130,15 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
     async def handle_frame_data(self, data):
         """Process frame data for face recognition"""
         try:
+            now = asyncio.get_event_loop().time()
+            # Throttle
+            if (now - self._last_frame_ts) < self._throttle_interval:
+                return  # silently drop to lower load
+            self._last_frame_ts = now
+
             frame_data = data.get("frame_data")
             if not frame_data:
-                await self.send_error("No frame data provided")
+                await self.send_error("No frame data provided", code="NO_FRAME")
                 return
 
             # Update session status
@@ -120,11 +153,67 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
             # Process based on session type
             if self.streaming_session.session_type == "enrollment":
                 result = await self.process_enrollment_frame(frame)
-            elif self.streaming_session.session_type == "authentication":
+            elif self.streaming_session.session_type in ["authentication", "verification", "identification"]:
                 result = await self.process_authentication_frame(frame)
             else:
-                await self.send_error("Unknown session type")
+                await self.send_error("Unknown session type", code="BAD_TYPE")
                 return
+
+            self._frames_processed_ws += 1
+
+            # Unified quality score extraction
+            quality_score = result.get('quality_score')
+            if quality_score is not None:
+                if quality_score < self._fail_low_quality_threshold:
+                    self._consecutive_low_quality += 1
+                else:
+                    self._consecutive_low_quality = 0
+
+                if self._consecutive_low_quality >= self._max_low_quality:
+                    # Early abort for persistently low quality
+                    await self.finalize_streaming_session('failed')
+                    await self.send(json.dumps({
+                        'type': 'session_final',
+                        'result': result,
+                        'frames_processed': self._frames_processed_ws,
+                        'error': 'Terminated due to consistently low image quality',
+                        'reason': 'low_quality_abort'
+                    }))
+                    return
+
+            # Finalization detection for auth
+            if self.streaming_session.session_type != 'enrollment':
+                if result.get('success'):
+                    await self.finalize_streaming_session('completed')
+                    final_payload = {
+                        'type': 'session_final',
+                        'result': result,
+                        'frames_processed': self._frames_processed_ws,
+                        'reason': 'authenticated'
+                    }
+                    # Public login JWT issuance
+                    origin_flag = (self.streaming_session.session_data or {}).get('session_origin') or (self.streaming_session.session_data or {}).get('origin')
+                    if origin_flag in ['public_login', 'webrtc_public_auth'] and self.streaming_session.user:
+                        try:
+                            from rest_framework_simplejwt.tokens import RefreshToken
+                            refresh = RefreshToken.for_user(self.streaming_session.user)
+                            final_payload['access'] = str(refresh.access_token)
+                            final_payload['refresh'] = str(refresh)
+                        except Exception as e:
+                            final_payload['jwt_issue_error'] = str(e)
+                    await self.send(json.dumps(final_payload))
+                    return
+                # Fail fast if frame budget exceeded
+                if self._frames_processed_ws > self._auth_frame_budget and not result.get('success'):
+                    await self.finalize_streaming_session('failed')
+                    await self.send(json.dumps({
+                        'type': 'session_final',
+                        'result': result,
+                        'frames_processed': self._frames_processed_ws,
+                        'error': 'Authentication not achieved within frame budget',
+                        'reason': 'frame_budget_exceeded'
+                    }))
+                    return
 
             # Send result
             await self.send(
@@ -133,6 +222,7 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
                         "type": "frame_result",
                         "result": result,
                         "timestamp": data.get("timestamp"),
+                        "frames_processed": self._frames_processed_ws,
                     }
                 )
             )
@@ -211,26 +301,32 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
             )
 
             if error:
-                return {"success": False, "error": error}
+                return {"success": False, "error": error, 'stage': 'processing'}
 
             # Save embedding if quality is good
+            embedding_saved = False
             if result["quality_score"] >= 0.7:  # configurable threshold
                 embedding_saved = await self.save_enrollment_embedding(user, result)
-                if embedding_saved:
-                    return {
-                        "success": True,
-                        "quality_score": result["quality_score"],
-                        "liveness_data": result["liveness_data"],
-                        "embedding_saved": True,
-                    }
 
-            return {
+            # Fetch updated enrollment session progress
+            progress = await self.get_enrollment_progress(user)
+            completed = False
+            if progress:
+                if progress['completed_samples'] >= progress['target_samples']:
+                    completed = True
+                    await self.finalize_streaming_session('completed')
+
+            payload = {
                 "success": True,
                 "quality_score": result["quality_score"],
                 "liveness_data": result["liveness_data"],
-                "embedding_saved": False,
+                "embedding_saved": embedding_saved,
+                "progress": progress,
                 "feedback": self.get_quality_feedback(result),
             }
+            if completed:
+                payload['finalized'] = True
+            return payload
 
         except Exception as e:
             logger.error(f"Error processing enrollment frame: {e}")
@@ -239,16 +335,20 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
     async def process_authentication_frame(self, frame):
         """Process frame for authentication"""
         try:
-            # Get target user if in verification mode
             target_user_id = None
             session_data = self.streaming_session.session_data or {}
+            auth_type = session_data.get("auth_type") or self.streaming_session.session_type
 
-            if session_data.get("auth_type") == "verification":
+            if auth_type == "verification":
                 target_email = session_data.get("target_email")
                 if target_email:
                     target_user = await self.get_user_by_email(target_email)
                     if target_user:
                         target_user_id = str(target_user.id)
+            elif auth_type == "authentication":
+                session_user = await self.get_session_user()
+                if session_user:
+                    target_user_id = str(session_user.id)
 
             # Authenticate with face recognition engine
             auth_result = await asyncio.get_event_loop().run_in_executor(
@@ -296,6 +396,30 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
     async def send_error(self, message):
         """Send error message to client"""
         await self.send(text_data=json.dumps({"type": "error", "error": message}))
+
+    async def finalize_streaming_session(self, status_value: str):
+        """Mark streaming session finalized"""
+        try:
+            if self.streaming_session and self.streaming_session.status not in ['completed', 'failed']:
+                await self.update_session_status(status_value)
+        except Exception as e:
+            logger.error(f"Finalize session error: {e}")
+
+    @database_sync_to_async
+    def get_enrollment_progress(self, user):
+        try:
+            from recognition.models import EnrollmentSession
+            session = EnrollmentSession.objects.filter(user=user, status__in=['pending','in_progress','completed']).order_by('-started_at').first()
+            if not session:
+                return None
+            return {
+                'completed_samples': session.completed_samples,
+                'target_samples': session.target_samples,
+                'status': session.status
+            }
+        except Exception as e:
+            logger.error(f"Progress fetch error: {e}")
+            return None
 
     @database_sync_to_async
     def get_streaming_session(self, session_token):
@@ -410,20 +534,33 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
         try:
             from analytics.models import AuthenticationLog
             from recognition.models import AuthenticationAttempt
+            from django.contrib.auth import get_user_model
+
+            User = get_user_model()
 
             # Get target user
             target_user = None
             if target_user_id:
                 try:
-                    from django.contrib.auth import get_user_model
-                    User = get_user_model()
                     target_user = User.objects.get(id=target_user_id)
                 except User.DoesNotExist:
                     pass
 
+            matched_user = None
+            matched_user_id = auth_result.get("user_id")
+            if matched_user_id:
+                try:
+                    matched_user = User.objects.get(id=matched_user_id)
+                except User.DoesNotExist:
+                    matched_user = None
+
+            log_user = None
+            if auth_result.get("success"):
+                log_user = matched_user or target_user
+
             # Create authentication attempt
             AuthenticationAttempt.objects.create(
-                user=target_user if auth_result["success"] else None,
+                user=log_user,
                 session_id=self.session_token,
                 similarity_score=auth_result.get("similarity_score", 0.0),
                 liveness_score=auth_result.get("liveness_data", {}).get(
@@ -438,7 +575,7 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
 
             # Create authentication log
             AuthenticationLog.objects.create(
-                user=target_user if auth_result["success"] else None,
+                user=log_user,
                 auth_method="face",
                 success=auth_result["success"],
                 failure_reason=auth_result.get("error", "")
@@ -452,6 +589,21 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
                 quality_score=auth_result.get("quality_score", 0.0),
                 session_id=self.session_token,
             )
+
+            session_modified = False
+            session = self.streaming_session
+            if session:
+                session_data = session.session_data or {}
+                if matched_user and not session.user:
+                    session.user = matched_user
+                    session_modified = True
+                if matched_user:
+                    session_data["recognized_user_id"] = str(matched_user.id)
+                    session_data["recognized_user_email"] = matched_user.email
+                    session_modified = True
+                if session_modified:
+                    session.session_data = session_data
+                    session.save(update_fields=["user", "session_data"])
 
         except Exception as e:
             logger.error(f"Error saving authentication attempt: {e}")

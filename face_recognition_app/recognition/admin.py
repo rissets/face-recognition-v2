@@ -168,3 +168,143 @@ class AuthenticationAttemptAdmin(ModelAdmin):
             f'{failed_attempts.count()} failed attempts selected for export.'
         )
     export_failed_attempts.short_description = "Export failed attempts"
+
+
+@admin.register(LivenessDetection)
+class LivenessDetectionAdmin(ModelAdmin):
+    """Admin for liveness detection history."""
+
+    list_display = ('attempt_display', 'user_display', 'blinks_detected', 'liveness_score', 'is_live', 'created_at')
+    list_filter = ('is_live', ('created_at', admin.DateFieldListFilter))
+    search_fields = ('authentication_attempt__user__email', 'authentication_attempt__session_id')
+    readonly_fields = ('created_at',)
+
+    fieldsets = (
+        ('Association', {
+            'fields': ('authentication_attempt', 'is_live', 'liveness_score')
+        }),
+        ('Blink & Frame Metrics', {
+            'fields': ('blinks_detected', 'blink_quality_scores', 'frames_processed', 'valid_frames'),
+            'classes': ('collapse',)
+        }),
+        ('Eye Aspect Ratio', {
+            'fields': ('ear_history', 'ear_baseline'),
+            'classes': ('collapse',)
+        }),
+        ('Challenge', {
+            'fields': ('challenge_type', 'challenge_completed'),
+            'classes': ('collapse',)
+        }),
+        ('Debug', {
+            'fields': ('debug_data',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamp', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def attempt_display(self, obj):
+        return obj.authentication_attempt_id
+
+    attempt_display.short_description = 'Attempt ID'
+
+    def user_display(self, obj):
+        attempt = obj.authentication_attempt
+        if attempt and attempt.user:
+            return attempt.user.email
+        return '-'
+
+    user_display.short_description = 'User'
+
+
+@admin.register(ObstacleDetection)
+class ObstacleDetectionAdmin(ModelAdmin):
+    """Admin for recorded obstacle detections."""
+
+    list_display = (
+        'attempt_display',
+        'user_display',
+        'glasses_detected',
+        'mask_detected',
+        'hat_detected',
+        'hand_covering',
+        'created_at',
+    )
+    list_filter = (
+        'glasses_detected',
+        'mask_detected',
+        'hat_detected',
+        'hand_covering',
+        ('created_at', admin.DateFieldListFilter),
+    )
+    search_fields = ('authentication_attempt__user__email', 'authentication_attempt__session_id')
+    readonly_fields = ('created_at',)
+
+    fieldsets = (
+        ('Association', {
+            'fields': ('authentication_attempt', 'has_obstacles', 'obstacle_score')
+        }),
+        ('Obstacle Flags', {
+            'fields': (
+                'glasses_detected', 'glasses_confidence',
+                'mask_detected', 'mask_confidence',
+                'hat_detected', 'hat_confidence',
+                'hand_covering', 'hand_confidence'
+            )
+        }),
+        ('Details', {
+            'fields': ('detection_details',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamp', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def attempt_display(self, obj):
+        return obj.authentication_attempt_id
+
+    attempt_display.short_description = 'Attempt ID'
+
+    def user_display(self, obj):
+        attempt = obj.authentication_attempt
+        if attempt and attempt.user:
+            return attempt.user.email
+        return '-'
+
+    user_display.short_description = 'User'
+
+
+@admin.register(FaceRecognitionModel)
+class FaceRecognitionModelAdmin(ModelAdmin):
+    """Admin for face recognition model registry"""
+
+    list_display = ('name', 'version', 'model_type', 'is_active', 'is_default', 'created_at')
+    list_filter = ('model_type', 'is_active', 'is_default', ('created_at', admin.DateFieldListFilter))
+    search_fields = ('name', 'version', 'model_type')
+    readonly_fields = ('created_at', 'updated_at')
+
+    fieldsets = (
+        ('Model', {
+            'fields': ('name', 'version', 'model_type', 'description', 'is_active', 'is_default')
+        }),
+        ('Configuration', {
+            'fields': ('configuration',),
+            'classes': ('collapse',)
+        }),
+        ('Performance', {
+            'fields': ('accuracy', 'precision', 'recall', 'f1_score'),
+            'classes': ('collapse',)
+        }),
+        ('Ownership', {
+            'fields': ('created_by',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )

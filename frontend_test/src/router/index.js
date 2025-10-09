@@ -7,8 +7,27 @@ const routes = [
     redirect: '/dashboard'
   },
   {
+    path: '/webrtc/enrollment',
+    component: () => import('../views/WebRTCEnrollmentView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/webrtc/auth',
+    component: () => import('../views/WebRTCAuthorizationView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/enhanced-auth',
+    component: () => import('../views/EnhancedAuthView.vue'),
+    meta: { requiresAuth: false }
+  },
+  {
     path: '/login',
     component: () => import('../views/LoginView.vue')
+  },
+  {
+    path: '/register',
+    component: () => import('../views/RegistrationFlowView.vue')
   },
   {
     path: '/dashboard',

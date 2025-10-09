@@ -5,7 +5,10 @@
         <RouterLink to="/" class="brand-link">FaceRec Tester</RouterLink>
       </div>
       <div class="nav-links">
-        <RouterLink v-if="!isAuthenticated" to="/login">Login</RouterLink>
+        <template v-if="!isAuthenticated">
+          <RouterLink to="/login">Login</RouterLink>
+          <RouterLink to="/register">Register</RouterLink>
+        </template>
         <template v-else>
           <RouterLink to="/dashboard">Overview</RouterLink>
           <RouterLink to="/enrollment">Enrollment</RouterLink>
@@ -13,6 +16,9 @@
           <RouterLink to="/recognition-data">Data</RouterLink>
           <RouterLink to="/analytics">Analytics</RouterLink>
           <RouterLink to="/streaming">Streaming</RouterLink>
+          <RouterLink to="/webrtc/enrollment">WebRTC Enroll</RouterLink>
+          <RouterLink to="/webrtc/auth">WebRTC Auth</RouterLink>
+          <RouterLink to="/enhanced-auth" class="enhanced-link">Enhanced Demo</RouterLink>
           <RouterLink to="/account">Account</RouterLink>
           <RouterLink to="/system">System</RouterLink>
         </template>

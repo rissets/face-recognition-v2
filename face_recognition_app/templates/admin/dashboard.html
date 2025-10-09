@@ -1,0 +1,355 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static humanize %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/dashboard.css' %}">
+{% endblock %}
+
+{% block content %}
+  <div class="fr-dashboard">
+    <section class="fr-dashboard__cards">
+      {% for card in dashboard_cards %}
+        <article class="fr-card">
+          <header class="fr-card__header">
+            <div class="fr-card__title">{{ card.title }}</div>
+            <span class="fr-card__icon">{{ card.icon }}</span>
+          </header>
+          <div class="fr-card__value">{{ card.display }}</div>
+          <footer class="fr-card__footer">
+            <span class="fr-card__delta {% if card.delta.value > 0 %}positive{% elif card.delta.value < 0 %}negative{% endif %}">
+              {% if card.delta.value > 0 %}
+                ▲
+              {% elif card.delta.value < 0 %}
+                ▼
+              {% endif %}
+              {{ card.delta.display }}
+            </span>
+            <span class="fr-card__delta-label">{{ card.delta.label }}</span>
+            <span class="fr-card__description">{{ card.description }}</span>
+          </footer>
+        </article>
+      {% endfor %}
+    </section>
+
+    <section class="fr-dashboard__charts">
+      <div class="fr-chart">
+        <header class="fr-chart__header">
+          <h3>{{ chart_success_rate.title }}</h3>
+          <p>{{ chart_success_rate.subtitle }}</p>
+        </header>
+        <canvas id="{{ chart_success_rate.canvas_id }}" height="220"></canvas>
+      </div>
+      <div class="fr-chart">
+        <header class="fr-chart__header">
+          <h3>{{ chart_failures.title }}</h3>
+          <p>{{ chart_failures.subtitle }}</p>
+        </header>
+        <canvas id="{{ chart_failures.canvas_id }}" height="220"></canvas>
+      </div>
+      <div class="fr-chart">
+        <header class="fr-chart__header">
+          <h3>{{ chart_requests.title }}</h3>
+          <p>{{ chart_requests.subtitle }}</p>
+        </header>
+        <canvas id="{{ chart_requests.canvas_id }}" height="220"></canvas>
+      </div>
+    </section>
+
+    <section class="fr-dashboard__charts fr-dashboard__charts--secondary">
+      <div class="fr-chart">
+        <header class="fr-chart__header">
+          <h3>{{ chart_auth_methods.title }}</h3>
+          <p>{{ chart_auth_methods.subtitle }}</p>
+        </header>
+        <canvas id="{{ chart_auth_methods.canvas_id }}" height="220"></canvas>
+      </div>
+      <div class="fr-chart">
+        <header class="fr-chart__header">
+          <h3>{{ chart_device_types.title }}</h3>
+          <p>{{ chart_device_types.subtitle }}</p>
+        </header>
+        <canvas id="{{ chart_device_types.canvas_id }}" height="220"></canvas>
+      </div>
+      <div class="fr-chart">
+        <header class="fr-chart__header">
+          <h3>{{ chart_risk_levels.title }}</h3>
+          <p>{{ chart_risk_levels.subtitle }}</p>
+        </header>
+        <canvas id="{{ chart_risk_levels.canvas_id }}" height="220"></canvas>
+      </div>
+    </section>
+
+    <section class="fr-dashboard__gauges">
+      {% for gauge in gauges %}
+        <div class="fr-gauge">
+        <div class="fr-gauge__label">{{ gauge.label }}</div>
+        <div class="fr-gauge__bar">
+          <div class="fr-gauge__fill" style="width: {{ gauge.percentage }}%;"></div>
+          <div class="fr-gauge__value">{{ gauge.value|floatformat:2 }}</div>
+        </div>
+      </div>
+    {% endfor %}
+    </section>
+
+    <section class="fr-dashboard__grid">
+      <article class="fr-panel">
+        <header class="fr-panel__header">
+          <h3>{% trans "Authentication summary (7 days)" %}</h3>
+        </header>
+        <div class="fr-panel__body">
+          <ul class="fr-stats">
+            <li>
+              <span class="fr-stats__label">{% trans "Total attempts" %}</span>
+              <span class="fr-stats__value">{{ auth_summary.total_attempts|intcomma }}</span>
+            </li>
+            <li>
+              <span class="fr-stats__label">{% trans "Success rate" %}</span>
+              <span class="fr-stats__value">{{ auth_summary.success_rate|floatformat:1 }}%</span>
+            </li>
+            <li>
+              <span class="fr-stats__label">{% trans "Average similarity" %}</span>
+              <span class="fr-stats__value">{{ auth_summary.average_similarity|floatformat:2 }}</span>
+            </li>
+            <li>
+              <span class="fr-stats__label">{% trans "Average liveness" %}</span>
+              <span class="fr-stats__value">{{ auth_summary.average_liveness|floatformat:2 }}</span>
+            </li>
+            <li>
+              <span class="fr-stats__label">{% trans "Average quality" %}</span>
+              <span class="fr-stats__value">{{ auth_summary.average_quality|floatformat:2 }}</span>
+            </li>
+          </ul>
+          <div class="fr-failures">
+            <h4>{% trans "Leading failure codes" %}</h4>
+            <ul>
+              {% for failure in auth_summary.failures %}
+                <li>
+                  <span class="fr-failures__label">{{ failure.label }}</span>
+                  <span class="fr-failures__value">{{ failure.value|intcomma }}</span>
+                </li>
+              {% empty %}
+                <li class="fr-failures__empty">{% trans "No failures recorded for this period." %}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fr-panel">
+        <header class="fr-panel__header">
+          <h3>{% trans "Engine overview" %}</h3>
+        </header>
+        <div class="fr-panel__body">
+          <ul class="fr-engine">
+            <li>
+              <span>{% trans "Face enrolled users" %}</span>
+              <strong>{{ engine_overview.enrolled_users|intcomma }}</strong>
+            </li>
+            <li>
+              <span>{% trans "Face auth enabled" %}</span>
+              <strong>{{ engine_overview.face_enabled|intcomma }}</strong>
+            </li>
+            <li>
+              <span>{% trans "Active embeddings" %}</span>
+              <strong>{{ engine_overview.active_embeddings|intcomma }}</strong>
+            </li>
+            <li>
+              <span>{% trans "Total embeddings stored" %}</span>
+              <strong>{{ engine_overview.total_embeddings|intcomma }}</strong>
+            </li>
+            <li>
+              <span>{% trans "Active enrollment sessions" %}</span>
+              <strong>{{ engine_overview.enrollments_active|intcomma }}</strong>
+            </li>
+            <li>
+              <span>{% trans "Completed enrollments" %}</span>
+              <strong>{{ engine_overview.enrollments_completed|intcomma }}</strong>
+            </li>
+          </ul>
+          <div class="fr-metrics">
+            <h4>{% trans "Latest system metrics" %}</h4>
+            <ul>
+              {% for metric in engine_overview.recent_metrics %}
+                <li>
+                  <span class="fr-metrics__name">{{ metric.metric_name }}</span>
+                  <span class="fr-metrics__value">
+                    {{ metric.value }} {% if metric.unit %}<small>{{ metric.unit }}</small>{% endif %}
+                  </span>
+                  <span class="fr-metrics__meta">{{ metric.timestamp|naturaltime }}</span>
+                </li>
+              {% empty %}
+                <li class="fr-metrics__empty">{% trans "No runtime metrics collected yet." %}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="fr-dashboard__lists">
+      <article class="fr-panel">
+        <header class="fr-panel__header">
+          <h3>{% trans "Recent authentication attempts" %}</h3>
+        </header>
+        <div class="fr-panel__body">
+          <table class="fr-table">
+            <thead>
+              <tr>
+                <th>{% trans "User" %}</th>
+                <th>{% trans "Result" %}</th>
+                <th>{% trans "Similarity" %}</th>
+                <th>{% trans "Quality" %}</th>
+                <th>{% trans "Liveness" %}</th>
+                <th>{% trans "When" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for attempt in recent_attempts %}
+                <tr>
+                  <td>{{ attempt.user }}</td>
+                  <td>
+                    <span class="fr-result fr-result--{{ attempt.result }}">{{ attempt.result_label }}</span>
+                  </td>
+                  <td>{{ attempt.similarity|floatformat:2 }}</td>
+                  <td>{{ attempt.quality|floatformat:2 }}</td>
+                  <td>{{ attempt.liveness|floatformat:2 }}</td>
+                  <td>{{ attempt.created_at|naturaltime }}</td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="6" class="fr-table__empty">{% trans "No authentication attempts found." %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="fr-panel">
+        <header class="fr-panel__header">
+          <h3>{% trans "Active streaming sessions" %}</h3>
+        </header>
+        <div class="fr-panel__body">
+          <table class="fr-table">
+            <thead>
+              <tr>
+                <th>{% trans "Session" %}</th>
+                <th>{% trans "Type" %}</th>
+                <th>{% trans "Status" %}</th>
+                <th>{% trans "User" %}</th>
+                <th>{% trans "Created" %}</th>
+                <th>{% trans "Completed" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for session in recent_sessions %}
+                <tr>
+                  <td class="fr-table__token">{{ session.session_token }}</td>
+                  <td>{{ session.session_type|title }}</td>
+                  <td>{{ session.status|title }}</td>
+                  <td>{{ session.user__email|default:_("Anonymous") }}</td>
+                  <td>{{ session.created_at|naturaltime }}</td>
+                  <td>
+                    {% if session.completed_at %}
+                      {{ session.completed_at|naturaltime }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="6" class="fr-table__empty">{% trans "No recent streaming sessions." %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="fr-panel">
+        <header class="fr-panel__header">
+          <h3>{% trans "High-risk user profiles" %}</h3>
+        </header>
+        <div class="fr-panel__body">
+          <table class="fr-table">
+            <thead>
+              <tr>
+                <th>{% trans "User" %}</th>
+                <th>{% trans "Risk level" %}</th>
+                <th>{% trans "Suspicious events" %}</th>
+                <th>{% trans "Success rate" %}</th>
+                <th>{% trans "Last assessed" %}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for profile in top_risk_profiles %}
+                <tr>
+                  <td>
+                    <div>{{ profile.user }}</div>
+                    <div class="fr-table__meta">{{ profile.email }}</div>
+                  </td>
+                  <td>
+                    <span class="fr-result fr-result--{{ profile.risk_level|lower }}">{{ profile.risk_level }}</span>
+                  </td>
+                  <td>{{ profile.suspicious_activity_count|intcomma }}</td>
+                  <td>{{ profile.auth_success_rate|floatformat:1 }}%</td>
+                  <td>
+                    {% if profile.last_assessed %}
+                      {{ profile.last_assessed|naturaltime }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="5" class="fr-table__empty">{% trans "No risk analytics available yet." %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="fr-panel">
+        <header class="fr-panel__header">
+          <h3>{% trans "Open security alerts" %}</h3>
+        </header>
+        <div class="fr-panel__body">
+          <ul class="fr-alerts">
+            {% for alert in recent_alerts %}
+              <li class="fr-alert fr-alert--{{ alert.severity }}">
+                <div class="fr-alert__header">
+                  <span class="fr-alert__severity">{{ alert.severity|title }}</span>
+                  <span class="fr-alert__time">{{ alert.created_at|naturaltime }}</span>
+                </div>
+                <div class="fr-alert__title">{{ alert.title }}</div>
+                <div class="fr-alert__meta">
+                  <span>{% trans "Type" %}: {{ alert.alert_type|title }}</span>
+                  {% if alert.user__email %}
+                    <span>{% trans "User" %}: {{ alert.user__email }}</span>
+                  {% endif %}
+                  <span>{% trans "Acknowledged" %}: {{ alert.acknowledged|yesno:_("Yes,No") }}</span>
+                  <span>{% trans "Resolved" %}: {{ alert.resolved|yesno:_("Yes,No") }}</span>
+                </div>
+              </li>
+            {% empty %}
+              <li class="fr-alerts__empty">{% trans "Great! There are no alerts requiring attention." %}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </article>
+    </section>
+  </div>
+
+  {{ chart_success_rate.data|json_script:"chart-success-rate-data" }}
+  {{ chart_failures.data|json_script:"chart-failures-data" }}
+  {{ chart_requests.data|json_script:"chart-request-volume-data" }}
+  {{ chart_auth_methods.data|json_script:"chart-auth-methods-data" }}
+  {{ chart_device_types.data|json_script:"chart-device-types-data" }}
+  {{ chart_risk_levels.data|json_script:"chart-risk-levels-data" }}
+
+  <script defer src="{% static 'admin/dashboard.js' %}"></script>
+{% endblock %}

@@ -21,6 +21,9 @@
           <RouterLink class="btn secondary" to="/account" v-if="authStore.isAuthenticated">
             Kelola Akun
           </RouterLink>
+          <RouterLink class="btn secondary" to="/register" v-else>
+            Daftar Akun Baru
+          </RouterLink>
         </div>
         <div v-if="errorMessage" class="status-error">{{ errorMessage }}</div>
       </form>
@@ -28,7 +31,7 @@
 
     <section class="section">
       <h2>Login Via Face Recognition</h2>
-      <p>Sudah pernah enrol wajah? Masuk langsung dengan kamera.</p>
+      <p>Sudah pernah enrol wajah? Masuk langsung dengan kamera. Email bersifat opsional bila ingin mengunci ke akun tertentu.</p>
       <div class="face-login-panel">
         <div v-if="showFaceLogin" class="face-login-card">
           <FaceLoginInline :email="email" @cancel="closeFaceLogin" @completed="handleFaceLoginSuccess" />
@@ -58,10 +61,10 @@
           <strong>Profil Saat Ini</strong>
           <span class="mono">{{ formattedProfile }}</span>
         </div>
-        <div class="info-card">
-          <strong>Tidak punya akun?</strong>
-          <span>Buka menu <RouterLink to="/account">Account</RouterLink> untuk melakukan registrasi user baru.</span>
-        </div>
+        <RouterLink class="info-card" to="/register">
+          <strong>Belum punya akun?</strong>
+          <span>Daftar dan langsung lanjut ke enrollment wajah Anda.</span>
+        </RouterLink>
       </div>
     </section>
   </div>
@@ -113,12 +116,10 @@ async function submit() {
 }
 
 function beginFaceLogin() {
-  if (!email.value) {
-    faceLoginSuccess.value = false
-    faceLoginMessage.value = 'Isi email terlebih dahulu sebelum memulai face login.'
-    return
-  }
-  faceLoginMessage.value = 'Pastikan kamera siap dan lakukan kedipan mata untuk verifikasi.'
+  faceLoginSuccess.value = false
+  faceLoginMessage.value = email.value
+    ? 'Verifikasi wajah untuk akun ini. Kamera akan aktif dan lakukan kedipan mata.'
+    : 'Mode identifikasi aktif. Kamera akan mencari wajah yang terdaftar tanpa email.'
   faceLoginSuccess.value = false
   showFaceLogin.value = true
 }

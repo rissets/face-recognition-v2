@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api/'
+export const API_BASE_URL = 'http://127.0.0.1:8000/api/'
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -169,11 +169,17 @@ export const faceAuthApi = {
   createSession(payload) {
     return apiClient.post('auth/face/create/', payload)
   },
+  createWebRTCSession(payload) {
+    return apiClient.post('auth/face/webrtc/create/', payload)
+  },
   processFrame(payload) {
     return apiClient.post('auth/face/process-frame/', payload)
   },
   createPublicSession(payload) {
     return apiClient.post('auth/face/public/create/', payload)
+  },
+  createPublicWebRTCSession(payload) {
+    return apiClient.post('auth/face/webrtc/public/create/', payload)
   }
 }
 
@@ -225,5 +231,22 @@ export const analyticsApi = {
 export const systemApi = {
   status() {
     return apiClient.get('system/status/')
+  }
+}
+
+export const detectionApi = {
+  // Get liveness detection history
+  livenessHistory() {
+    return apiClient.get('detection/liveness-history/')
+  },
+  
+  // Get obstacle detection history
+  obstacleHistory() {
+    return apiClient.get('detection/obstacle-history/')
+  },
+  
+  // Get detection analytics
+  analytics(days = 30) {
+    return apiClient.get('detection/analytics/', { params: { days } })
   }
 }

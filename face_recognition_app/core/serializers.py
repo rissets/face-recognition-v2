@@ -182,8 +182,8 @@ class FrameDataSerializer(serializers.Serializer):
 
 class EnrollmentRequestSerializer(serializers.Serializer):
     """Serializer for enrollment request"""
-    device_info = serializers.JSONField(default=dict)
-    target_samples = serializers.IntegerField(default=5, min_value=3, max_value=10)
+    device_info = serializers.JSONField(required=False, default=dict)
+    target_samples = serializers.IntegerField(required=False, default=5, min_value=3, max_value=10)
     
     def create(self, validated_data):
         """Create new enrollment session"""
@@ -211,17 +211,20 @@ class EnrollmentRequestSerializer(serializers.Serializer):
 
 class AuthenticationRequestSerializer(serializers.Serializer):
     """Serializer for authentication request"""
-    email = serializers.EmailField(required=False)
+    # email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
     device_info = serializers.JSONField(default=dict)
     session_type = serializers.ChoiceField(
-        choices=['verification', 'identification'],
-        default='identification'
+        choices=['authentication', 'verification', 'identification'],
+        default='authentication'
     )
     
-    def validate(self, attrs):
-        if attrs['session_type'] == 'verification' and not attrs.get('email'):
-            raise serializers.ValidationError("Email required for verification mode")
-        return attrs
+    # def validate(self, attrs):
+    #     email = attrs.get('email')
+    #     if not email:
+    #         attrs['email'] = None
+    #     if attrs['session_type'] == 'verification' and not attrs.get('email'):
+    #         raise serializers.ValidationError("Email required for verification mode")
+    #     return attrs
 
 
 class AuthenticationLogSerializer(serializers.ModelSerializer):

@@ -109,7 +109,7 @@ class StreamingSessionSerializer(serializers.ModelSerializer):
         )
         extra_kwargs = {
             'session_type': {
-                'help_text': 'Type of streaming session (enrollment, authentication, monitoring)'
+                'help_text': 'Type of streaming session (enrollment, authentication, verification, identification, monitoring)'
             },
             'status': {
                 'help_text': 'Current status of the streaming session'
@@ -236,7 +236,7 @@ class StreamingSessionCreateSerializer(serializers.ModelSerializer):
     
     def validate_session_type(self, value):
         """Validate session type"""
-        valid_types = ['enrollment', 'authentication', 'monitoring']
+        valid_types = ['enrollment', 'authentication', 'verification', 'identification', 'monitoring']
         if value not in valid_types:
             raise serializers.ValidationError(
                 f"Invalid session type. Must be one of: {', '.join(valid_types)}"

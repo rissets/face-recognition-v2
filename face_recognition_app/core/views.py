@@ -18,8 +18,10 @@ from django.utils import timezone
 from django.db import transaction
 from django.core.cache import cache
 from django.conf import settings
+from django.core.files.base import ContentFile
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
 from drf_spectacular.types import OpenApiTypes
+from django.utils.functional import SimpleLazyObject
 
 from core.serializers import (
     UserRegistrationSerializer, UserProfileSerializer,
@@ -28,6 +30,11 @@ from core.serializers import (
     AuthenticationAttemptSerializer, SystemStatusSerializer,
     WebRTCSignalSerializer, StreamingSessionSerializer,
     SecurityAlertSerializer
+)
+# Import enhanced detection views
+from .enhanced_views import (
+    LivenessDetectionHistoryView, ObstacleDetectionHistoryView,
+    detection_analytics_view
 )
 # Create aliases for missing serializers to avoid errors
 FrameProcessRequestSerializer = FrameDataSerializer
@@ -51,8 +58,8 @@ User = get_user_model()
 MIN_LIVENESS_FRAMES = 2  # Reduce minimum frames for faster verification
 MIN_LIVENESS_BLINKS = 0  # Allow liveness via motion without mandatory blink
 
-# Initialize face recognition engine
-face_engine = FaceRecognitionEngine()
+# Initialize face recognition engine lazily to avoid heavy imports during management commands
+face_engine = SimpleLazyObject(lambda: FaceRecognitionEngine())
 
 
 class UserRegistrationView(generics.CreateAPIView):
@@ -131,10 +138,16 @@ class EnrollmentSessionCreateView(APIView):
         ).first()
         
         if active_session:
+            # Reuse existing session instead of failing so clients can recover
+            active_session.add_log_entry("Reusing active enrollment session", 'info')
             return Response({
-                'error': 'Active enrollment session already exists',
-                'session_token': active_session.session_token
-            }, status=status.HTTP_400_BAD_REQUEST)
+                'session_token': active_session.session_token,
+                'target_samples': active_session.target_samples,
+                'completed_samples': active_session.completed_samples,
+                'session_status': active_session.status,
+                'expires_at': active_session.expires_at,
+                'reused': True
+            }, status=status.HTTP_200_OK)
         
         session = serializer.save()
         
@@ -145,6 +158,67 @@ class EnrollmentSessionCreateView(APIView):
             'session_token': session.session_token,
             'target_samples': session.target_samples,
             'expires_at': session.expires_at
+        }, status=status.HTTP_201_CREATED)
+
+
+class WebRTCEnrollmentSessionCreateView(APIView):
+    """Create a WebRTC streaming session for enrollment (parallel to HTTP frame mode)"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        # Create a streaming session record dedicated for enrollment WebRTC
+        from streaming.models import StreamingSession
+        from django.utils import timezone
+        import uuid as _uuid
+
+        limits = getattr(settings, 'FACE_STREAMING_LIMITS', {})
+        max_active = limits.get('MAX_ACTIVE_STREAMING_SESSIONS_PER_USER', 3)
+
+        active_qs = StreamingSession.objects.filter(
+            user=request.user,
+            status__in=['initiating', 'connecting', 'connected', 'processing']
+        )
+        if active_qs.filter(session_type='enrollment').exists():
+            existing = active_qs.filter(session_type='enrollment').first()
+            return Response({
+                'session_token': existing.session_token,
+                'session_type': existing.session_type,
+                'status': existing.status,
+                'webrtc_url': f"/ws/face-recognition/{existing.session_token}/",
+                'note': 'Reusing active enrollment session'
+            })
+
+        if active_qs.count() >= max_active:
+            return Response({'error': 'Active streaming session limit reached'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # Rate limiting (simple cache counter per minute)
+        from django.core.cache import cache
+        key = f"webrtc_enroll_creates_{request.user.id}"
+        creates = cache.get(key, 0)
+        if creates >= limits.get('MAX_CREATES_PER_MINUTE', 8):
+            return Response({'error': 'Too many enrollment session creates, slow down'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        cache.set(key, creates + 1, timeout=60)
+
+        session_token = str(_uuid.uuid4())
+        streaming_session = StreamingSession.objects.create(
+            user=request.user,
+            session_token=session_token,
+            session_type='enrollment',
+            status='initiating',
+            remote_address=request.META.get('REMOTE_ADDR'),
+            session_data={
+                'origin': 'webrtc_enrollment',
+                'frames_processed': 0,
+                'samples_saved': 0,
+            }
+        )
+
+        face_engine.reset_liveness_detector()
+        return Response({
+            'session_token': streaming_session.session_token,
+            'session_type': streaming_session.session_type,
+            'status': streaming_session.status,
+            'webrtc_url': f"/ws/face-recognition/{streaming_session.session_token}/"
         }, status=status.HTTP_201_CREATED)
 
 
@@ -214,6 +288,15 @@ class EnrollmentFrameProcessView(APIView):
                 'session_status': session.status,
                 'completed_samples': session.completed_samples
             })
+
+        face_snapshot = result.pop('face_snapshot', None)
+        preview_image = None
+        if face_snapshot:
+            preview_image = "data:image/jpeg;base64," + base64.b64encode(face_snapshot).decode('ascii')
+
+        embedding_vector = result['embedding']
+        bbox_array = result['bbox']
+        bbox_list = bbox_array.tolist() if hasattr(bbox_array, 'tolist') else list(bbox_array)
         
         # Save embedding if quality is good
         with transaction.atomic():
@@ -227,14 +310,31 @@ class EnrollmentFrameProcessView(APIView):
                 sample_number=session.completed_samples,
                 quality_score=result['quality_score'],
                 confidence_score=result['confidence'],
-                face_bbox=result['bbox'].tolist(),
+                face_bbox=bbox_list,
                 liveness_score=result['liveness_data'].get('blinks_detected', 0) / 5.0,
                 anti_spoofing_score=result['quality_score']  # Simplified
             )
             
             # Save embedding vector
-            embedding.set_embedding_vector(result['embedding'])
+            embedding.set_embedding_vector(embedding_vector)
+            if face_snapshot:
+                embedding.face_image.save(
+                    f"embedding_{embedding.id}.jpg",
+                    ContentFile(face_snapshot),
+                    save=False
+                )
             embedding.save()
+
+            if face_snapshot:
+                user_obj = request.user
+                current_picture = getattr(user_obj, 'profile_picture', None)
+                if not current_picture or not getattr(current_picture, 'name', ''):
+                    user_obj.profile_picture.save(
+                        f"profile_{user_obj.id}.jpg",
+                        ContentFile(face_snapshot),
+                        save=False
+                    )
+                    user_obj.save(update_fields=['profile_picture', 'updated_at'])
             
             # Save to embedding store
             metadata = {
@@ -246,7 +346,7 @@ class EnrollmentFrameProcessView(APIView):
             
             embedding_id = face_engine.save_embedding(
                 str(request.user.id),
-                result['embedding'],
+                embedding_vector,
                 metadata
             )
             
@@ -279,7 +379,8 @@ class EnrollmentFrameProcessView(APIView):
             'quality_score': result['quality_score'],
             'liveness_data': result['liveness_data'],
             'liveness_verified': result.get('liveness_verified', False),
-            'obstacles': result.get('obstacles', [])
+            'obstacles': result.get('obstacles', []),
+            'preview_image': preview_image
         })
 
     def _decode_frame_data(self, frame_data):
@@ -331,23 +432,25 @@ class AuthenticationCreateView(APIView):
         
         # Create streaming session
         session_token = str(uuid.uuid4())
+        session_data = {
+            'auth_type': session_type,
+            'device_info': device_info,
+            'frames_processed': 0,
+            'liveness_blinks': 0,
+            'min_frames_required': MIN_LIVENESS_FRAMES,
+            'required_blinks': MIN_LIVENESS_BLINKS,
+            'session_origin': 'authenticated'
+        }
+        if email:
+            session_data['target_email'] = email
         
         streaming_session = StreamingSession.objects.create(
             user=request.user,  # Add user to session
             session_token=session_token,
-            session_type='authentication',
+            session_type=session_type,
             status='initiating',  # Explicitly set status
             remote_address=request.META.get('REMOTE_ADDR'),
-            session_data={
-                'auth_type': session_type,
-                'target_email': email,
-                'device_info': device_info,
-                'frames_processed': 0,
-                'liveness_blinks': 0,
-                'min_frames_required': MIN_LIVENESS_FRAMES,
-                'required_blinks': MIN_LIVENESS_BLINKS,
-                'session_origin': 'authenticated'
-            }
+            session_data=session_data
         )
         
         # Reset face recognition engine
@@ -357,6 +460,212 @@ class AuthenticationCreateView(APIView):
             'session_token': session_token,
             'session_type': session_type,
             'webrtc_config': settings.WEBRTC_CONFIG
+        }, status=status.HTTP_201_CREATED)
+
+
+class WebRTCAuthenticationCreateView(APIView):
+    """Create WebRTC streaming session for authentication/verification"""
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AuthenticationRequestSerializer
+
+    def post(self, request):
+        serializer = AuthenticationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        session_type = serializer.validated_data['session_type']
+        email = serializer.validated_data.get('email')
+        device_info = serializer.validated_data['device_info']
+
+        from streaming.models import StreamingSession
+        import uuid as _uuid
+
+        limits = getattr(settings, 'FACE_STREAMING_LIMITS', {})
+        max_active = limits.get('MAX_ACTIVE_STREAMING_SESSIONS_PER_USER', 3)
+        active_qs = StreamingSession.objects.filter(
+            user=request.user,
+            status__in=['initiating', 'connecting', 'connected', 'processing']
+        )
+        existing = active_qs.filter(session_type=session_type).first()
+        if existing:
+            return Response({
+                'session_token': existing.session_token,
+                'session_type': existing.session_type,
+                'status': existing.status,
+                'webrtc_url': f"/ws/face-recognition/{existing.session_token}/",
+                'note': 'Reusing active authentication session'
+            })
+        if active_qs.count() >= max_active:
+            return Response({'error': 'Active streaming session limit reached'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        from django.core.cache import cache
+        key = f"webrtc_auth_creates_{request.user.id}"
+        max_creates = limits.get('MAX_CREATES_PER_MINUTE', 8)
+        if max_creates and max_creates > 0:
+            creates = cache.get(key, 0)
+            if creates >= max_creates:
+                retry_after = limits.get('RATE_WINDOW_SECONDS', 60) or 60
+                response = Response(
+                    {'error': 'Too many auth session creates, slow down'},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS
+                )
+                response['Retry-After'] = retry_after
+                return response
+            cache.set(key, creates + 1, timeout=limits.get('RATE_WINDOW_SECONDS', 60) or 60)
+
+        session_token = str(_uuid.uuid4())
+        session_data = {
+            'auth_type': session_type,
+            'device_info': device_info,
+            'frames_processed': 0,
+            'liveness_blinks': 0,
+            'min_frames_required': MIN_LIVENESS_FRAMES,
+            'required_blinks': MIN_LIVENESS_BLINKS,
+            'origin': 'webrtc_auth',
+            'session_origin': 'authenticated'
+        }
+        if email:
+            session_data['target_email'] = email
+
+        streaming_session = StreamingSession.objects.create(
+            user=request.user,
+            session_token=session_token,
+            session_type=session_type,
+            status='initiating',
+            remote_address=request.META.get('REMOTE_ADDR'),
+            session_data=session_data
+        )
+
+        face_engine.reset_liveness_detector()
+        return Response({
+            'session_token': streaming_session.session_token,
+            'session_type': streaming_session.session_type,
+            'status': streaming_session.status,
+            'webrtc_url': f"/ws/face-recognition/{streaming_session.session_token}/"
+        }, status=status.HTTP_201_CREATED)
+
+
+class PublicWebRTCAuthenticationCreateView(APIView):
+    """Create WebRTC streaming session for public face login (no prior JWT)"""
+    permission_classes = [permissions.AllowAny]
+    serializer_class = AuthenticationRequestSerializer
+
+    def post(self, request):
+        serializer = AuthenticationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        session_type = serializer.validated_data['session_type']
+        email = serializer.validated_data.get('email')
+        device_info = serializer.validated_data['device_info']
+
+        client_ip = (
+            request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip()
+            or request.META.get('REMOTE_ADDR')
+            or ''
+        ) or None
+
+        target_user = None
+        if email:
+            try:
+                target_user = User.objects.get(email=email, is_active=True)
+            except User.DoesNotExist:
+                return Response({'error': 'User not found or inactive'}, status=status.HTTP_404_NOT_FOUND)
+
+            if not target_user.can_authenticate_with_face():
+                return Response({'error': 'Face authentication not enabled for this user'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            # Default to identification when no email provided
+            if session_type in ['verification', 'authentication']:
+                session_type = 'identification'
+
+        from streaming.models import StreamingSession
+        import uuid as _uuid
+
+        filters = {
+            'session_type': session_type,
+            'status__in': ['initiating', 'connecting', 'connected', 'processing'],
+            'session_data__session_origin': 'public_login'
+        }
+        if target_user:
+            filters['user'] = target_user
+        else:
+            filters['user__isnull'] = True
+        if client_ip:
+            filters['remote_address'] = client_ip
+
+        existing_session = StreamingSession.objects.filter(**filters).order_by('-created_at').first()
+        if existing_session:
+            session_data = existing_session.session_data or {}
+            session_data.update({
+                'auth_type': session_type,
+                'device_info': device_info,
+                'frames_processed': 0,
+                'session_origin': 'public_login',
+                'origin': session_data.get('origin', 'webrtc_public_auth'),
+                'reused_at': timezone.now().isoformat()
+            })
+            if email:
+                session_data['target_email'] = email
+            else:
+                session_data.pop('target_email', None)
+
+            existing_session.session_data = session_data
+            existing_session.save(update_fields=['session_data'])
+
+            face_engine.reset_liveness_detector()
+            return Response({
+                'session_token': existing_session.session_token,
+                'session_type': existing_session.session_type,
+                'status': existing_session.status,
+                'webrtc_url': f"/ws/face-recognition/{existing_session.session_token}/",
+                'note': 'Reusing active public session'
+            }, status=status.HTTP_200_OK)
+
+        session_token = str(_uuid.uuid4())
+        limits = getattr(settings, 'FACE_STREAMING_LIMITS', {})
+        from django.core.cache import cache
+        rate_key_id = None
+        if target_user:
+            rate_key_id = f"user_{target_user.id}"
+        else:
+            rate_key_id = client_ip or request.headers.get('X-Forwarded-For')
+        rate_key_id = rate_key_id or 'anon'
+        key = f"webrtc_public_creates_{rate_key_id}"
+        max_creates = limits.get('MAX_CREATES_PER_MINUTE', 8)
+        if max_creates and max_creates > 0:
+            creates = cache.get(key, 0)
+            if creates >= max_creates:
+                retry_after = limits.get('RATE_WINDOW_SECONDS', 60) or 60
+                response = Response(
+                    {'error': 'Too many public auth session creates, slow down'},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS
+                )
+                response['Retry-After'] = retry_after
+                return response
+            cache.set(key, creates + 1, timeout=limits.get('RATE_WINDOW_SECONDS', 60) or 60)
+
+        session_data = {
+            'auth_type': session_type,
+            'target_email': email,
+            'device_info': device_info,
+            'frames_processed': 0,
+            'session_origin': 'public_login',
+            'origin': 'webrtc_public_auth'
+        }
+        if not email:
+            session_data.pop('target_email', None)
+
+        StreamingSession.objects.create(
+            user=target_user,
+            session_token=session_token,
+            session_type=session_type,
+            status='initiating',
+            remote_address=client_ip or request.META.get('REMOTE_ADDR'),
+            session_data=session_data
+        )
+
+        face_engine.reset_liveness_detector()
+        return Response({
+            'session_token': session_token,
+            'session_type': session_type,
+            'status': 'initiating',
+            'webrtc_url': f"/ws/face-recognition/{session_token}/"
         }, status=status.HTTP_201_CREATED)
 
 
@@ -373,35 +682,39 @@ class PublicAuthenticationCreateView(APIView):
         email = serializer.validated_data.get('email')
         device_info = serializer.validated_data['device_info']
 
-        if not email:
-            return Response({'error': 'Email is required for face login'}, status=status.HTTP_400_BAD_REQUEST)
+        target_user = None
+        if email:
+            try:
+                target_user = User.objects.get(email=email, is_active=True)
+            except User.DoesNotExist:
+                return Response({'error': 'User not found or inactive'}, status=status.HTTP_404_NOT_FOUND)
 
-        try:
-            target_user = User.objects.get(email=email, is_active=True)
-        except User.DoesNotExist:
-            return Response({'error': 'User not found or inactive'}, status=status.HTTP_404_NOT_FOUND)
-
-        if not target_user.face_auth_enabled or not target_user.face_enrolled:
-            return Response({'error': 'Face authentication not enabled for this user'}, status=status.HTTP_400_BAD_REQUEST)
+            if not target_user.can_authenticate_with_face():
+                return Response({'error': 'Face authentication not enabled for this user'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            if session_type in ['verification', 'authentication']:
+                session_type = 'identification'
 
         session_token = str(uuid.uuid4())
+        session_data = {
+            'auth_type': session_type,
+            'device_info': device_info,
+            'frames_processed': 0,
+            'liveness_blinks': 0,
+            'min_frames_required': MIN_LIVENESS_FRAMES,
+            'required_blinks': MIN_LIVENESS_BLINKS,
+            'session_origin': 'public_login'
+        }
+        if email:
+            session_data['target_email'] = email
 
         StreamingSession.objects.create(
             user=target_user,
             session_token=session_token,
-            session_type='authentication',
+            session_type=session_type,
             status='initiating',
             remote_address=request.META.get('REMOTE_ADDR'),
-            session_data={
-                'auth_type': session_type,
-                'target_email': email,
-                'device_info': device_info,
-                'frames_processed': 0,
-                'liveness_blinks': 0,
-                'min_frames_required': MIN_LIVENESS_FRAMES,
-                'required_blinks': MIN_LIVENESS_BLINKS,
-                'session_origin': 'public_login'
-            }
+            session_data=session_data
         )
 
         face_engine.reset_liveness_detector()
@@ -506,22 +819,29 @@ class AuthenticationFrameProcessView(APIView):
                 'error': f'Invalid frame data: {str(e)}'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get target user for verification mode
-        target_user = streaming_session.user
-        if streaming_session.session_data.get('auth_type') == 'verification':
-            target_email = streaming_session.session_data.get('target_email')
+        session_data = streaming_session.session_data or {}
+        auth_type = session_data.get('auth_type') or streaming_session.session_type
+        session_owner = streaming_session.user
+
+        # Determine target user based on auth type
+        target_user = None
+        if auth_type == 'verification':
+            target_email = session_data.get('target_email')
             if target_email:
                 try:
                     target_user = User.objects.get(email=target_email, is_active=True)
                 except User.DoesNotExist:
-                    pass
+                    target_user = None
+        elif auth_type == 'authentication':
+            target_user = session_owner
+        else:
+            target_user = None
         
         # Authenticate with face recognition engine
         user_id = str(target_user.id) if target_user else None
         auth_result = face_engine.authenticate_user(frame, user_id)
 
         # Track frame metrics for the session
-        session_data = streaming_session.session_data or {}
         frames_processed = int(session_data.get('frames_processed', 0) or 0) + 1
 
         liveness_data = auth_result.get('liveness_data') or {}
@@ -627,79 +947,134 @@ class AuthenticationFrameProcessView(APIView):
                 except User.DoesNotExist:
                     authenticated_user = None
 
-            attempt = AuthenticationAttempt.objects.create(
-                user=authenticated_user,
-                session_id=session_token,
-                ip_address=request.META.get('REMOTE_ADDR'),
-                user_agent=request.META.get('HTTP_USER_AGENT', ''),
-                similarity_score=auth_result.get('similarity_score', 0.0),
-                liveness_score=normalized_liveness,
-                quality_score=auth_result.get('quality_score', 0.0),
-                result='success',
-                processing_time=0.0,
-                obstacles_detected=auth_result.get('obstacles', []),
-                face_bbox=auth_result.get('bbox', []) if 'bbox' in auth_result else None,
-                metadata=auth_result
-            )
+            if authenticated_user and not authenticated_user.can_authenticate_with_face():
+                failure_reason = 'Face authentication disabled for this user'
+                auth_result['success'] = False
+                auth_result['error'] = failure_reason
+                authenticated_user = None
+            else:
+                attempt = AuthenticationAttempt.objects.create(
+                    user=authenticated_user,
+                    session_id=session_token,
+                    ip_address=request.META.get('REMOTE_ADDR'),
+                    user_agent=request.META.get('HTTP_USER_AGENT', ''),
+                    similarity_score=auth_result.get('similarity_score', 0.0),
+                    liveness_score=normalized_liveness,
+                    quality_score=auth_result.get('quality_score', 0.0),
+                    result='success',
+                    processing_time=0.0,
+                    obstacles_detected=auth_result.get('obstacles', []),
+                    face_bbox=auth_result.get('bbox', []) if 'bbox' in auth_result else None,
+                    metadata=auth_result
+                )
 
-            if authenticated_user:
-                attempt.user = authenticated_user
-                attempt.save(update_fields=['user'])
-                authenticated_user.last_face_auth = timezone.now()
-                authenticated_user.save(update_fields=['last_face_auth'])
+                # Create liveness detection record
+                LivenessDetection.objects.create(
+                    authentication_attempt=attempt,
+                    blinks_detected=total_blinks,
+                    blink_quality_scores=liveness_data.get('quality_scores', []),
+                    ear_history=liveness_data.get('ear_history', []),
+                    ear_baseline=liveness_data.get('ear_baseline'),
+                    frames_processed=frames_processed,
+                    valid_frames=frames_processed,  # Assuming all processed frames are valid
+                    challenge_type='blink',
+                    challenge_completed=liveness_met,
+                    liveness_score=normalized_liveness,
+                    is_live=liveness_met,
+                    debug_data={
+                        'motion_events': total_motion_events,
+                        'motion_score': liveness_data.get('motion_score', 0.0),
+                        'motion_verified': motion_verified,
+                        'engine_liveness_verified': engine_liveness_verified,
+                        'liveness_data': liveness_data
+                    }
+                )
 
-            AuthenticationLog.objects.create(
-                user=authenticated_user,
-                attempted_email=attempted_email,
-                auth_method='face',
-                success=True,
-                failure_reason='',
-                ip_address=request.META.get('REMOTE_ADDR'),
-                user_agent=request.META.get('HTTP_USER_AGENT', ''),
-                similarity_score=auth_result.get('similarity_score', 0.0),
-                liveness_score=normalized_liveness,
-                quality_score=auth_result.get('quality_score', 0.0),
-                session_id=session_token
-            )
+                # Create obstacle detection record
+                obstacles = auth_result.get('obstacles', [])
+                obstacle_confidence = auth_result.get('obstacle_confidence', {})
+                ObstacleDetection.objects.create(
+                    authentication_attempt=attempt,
+                    glasses_detected='glasses' in obstacles,
+                    glasses_confidence=obstacle_confidence.get('glasses', 0.0),
+                    mask_detected='mask' in obstacles,
+                    mask_confidence=obstacle_confidence.get('mask', 0.0),
+                    hat_detected='hat' in obstacles,
+                    hat_confidence=obstacle_confidence.get('hat', 0.0),
+                    hand_covering='hand_covering' in obstacles,
+                    hand_confidence=obstacle_confidence.get('hand_covering', 0.0),
+                    has_obstacles=len(obstacles) > 0,
+                    obstacle_score=max(obstacle_confidence.values()) if obstacle_confidence else 0.0,
+                    detection_details={
+                        'detected_obstacles': obstacles,
+                        'confidence_scores': obstacle_confidence,
+                        'processing_method': 'advanced_mediapipe'
+                    }
+                )
 
-            session_data['final_status'] = 'success'
-            session_data['liveness_verified'] = True
-            streaming_session.session_data = session_data
-            streaming_session.status = 'completed'
-            streaming_session.completed_at = timezone.now()
-            streaming_session.save(update_fields=['status', 'completed_at', 'session_data'])
-            cache.set(f"face_session_{session_token}", session_data, timeout=300)
+                if authenticated_user:
+                    attempt.user = authenticated_user
+                    attempt.save(update_fields=['user'])
+                    authenticated_user.last_face_auth = timezone.now()
+                    authenticated_user.save(update_fields=['last_face_auth'])
+                    if not streaming_session.user:
+                        streaming_session.user = authenticated_user
+                        streaming_session.save(update_fields=['user'])
+                    session_data['recognized_user_id'] = str(authenticated_user.id)
+                    session_data['recognized_user_email'] = authenticated_user.email
 
-            response_data = {
-                'success': True,
-                'similarity_score': auth_result.get('similarity_score', 0.0),
-                'quality_score': auth_result.get('quality_score', 0.0),
-                'liveness_data': liveness_data,
-                'liveness_score': normalized_liveness,
-                'frames_processed': frames_processed,
-                'liveness_blinks': total_blinks,
-                'liveness_motion_events': total_motion_events,
-                'motion_verified': motion_verified,
-                'session_finalized': True,
-                'requires_more_frames': False,
-                'message': 'Authentication successful',
-                'requires_new_session': False,
-                'match_fallback_used': auth_result.get('match_fallback_used', False)
-            }
+                AuthenticationLog.objects.create(
+                    user=authenticated_user,
+                    attempted_email=attempted_email,
+                    auth_method='face',
+                    success=True,
+                    failure_reason='',
+                    ip_address=request.META.get('REMOTE_ADDR'),
+                    user_agent=request.META.get('HTTP_USER_AGENT', ''),
+                    similarity_score=auth_result.get('similarity_score', 0.0),
+                    liveness_score=normalized_liveness,
+                    quality_score=auth_result.get('quality_score', 0.0),
+                    session_id=session_token
+                )
 
-            if authenticated_user:
-                response_data['user'] = {
-                    'id': authenticated_user.id,
-                    'email': authenticated_user.email,
-                    'full_name': authenticated_user.get_full_name(),
+                session_data['final_status'] = 'success'
+                session_data['liveness_verified'] = True
+                streaming_session.session_data = session_data
+                streaming_session.status = 'completed'
+                streaming_session.completed_at = timezone.now()
+                streaming_session.save(update_fields=['status', 'completed_at', 'session_data'])
+                cache.set(f"face_session_{session_token}", session_data, timeout=300)
+
+                response_data = {
+                    'success': True,
+                    'similarity_score': auth_result.get('similarity_score', 0.0),
+                    'quality_score': auth_result.get('quality_score', 0.0),
+                    'liveness_data': liveness_data,
+                    'liveness_score': normalized_liveness,
+                    'frames_processed': frames_processed,
+                    'liveness_blinks': total_blinks,
+                    'liveness_motion_events': total_motion_events,
+                    'motion_verified': motion_verified,
+                    'session_finalized': True,
+                    'requires_more_frames': False,
+                    'message': 'Authentication successful',
+                    'requires_new_session': False,
+                    'match_fallback_used': auth_result.get('match_fallback_used', False)
                 }
 
-            if authenticated_user and session_data.get('session_origin') == 'public_login':
-                refresh = RefreshToken.for_user(authenticated_user)
-                response_data['refresh_token'] = str(refresh)
-                response_data['access_token'] = str(refresh.access_token)
+                if authenticated_user:
+                    response_data['user'] = {
+                        'id': authenticated_user.id,
+                        'email': authenticated_user.email,
+                        'full_name': authenticated_user.get_full_name(),
+                    }
 
-            return Response(response_data)
+                if authenticated_user and session_data.get('session_origin') == 'public_login':
+                    refresh = RefreshToken.for_user(authenticated_user)
+                    response_data['refresh_token'] = str(refresh)
+                    response_data['access_token'] = str(refresh.access_token)
+
+                return Response(response_data)
 
         # Final failure (either liveness after requirements or similarity mismatch)
         lower_reason = failure_reason.lower()
@@ -716,6 +1091,8 @@ class AuthenticationFrameProcessView(APIView):
             failure_result_code = 'failed_no_face'
         elif 'system' in lower_reason:
             failure_result_code = 'failed_system_error'
+        elif 'disabled' in lower_reason:
+            failure_result_code = 'failed_disabled'
 
         attempt = AuthenticationAttempt.objects.create(
             user=target_user,
@@ -730,6 +1107,52 @@ class AuthenticationFrameProcessView(APIView):
             obstacles_detected=auth_result.get('obstacles', []),
             face_bbox=auth_result.get('bbox', []) if 'bbox' in auth_result else None,
             metadata=auth_result
+        )
+
+        # Create liveness detection record for failed attempt
+        LivenessDetection.objects.create(
+            authentication_attempt=attempt,
+            blinks_detected=total_blinks,
+            blink_quality_scores=liveness_data.get('quality_scores', []),
+            ear_history=liveness_data.get('ear_history', []),
+            ear_baseline=liveness_data.get('ear_baseline'),
+            frames_processed=frames_processed,
+            valid_frames=frames_processed,  # Assuming all processed frames are valid
+            challenge_type='blink',
+            challenge_completed=liveness_met,
+            liveness_score=normalized_liveness,
+            is_live=liveness_met,
+            debug_data={
+                'motion_events': total_motion_events,
+                'motion_score': liveness_data.get('motion_score', 0.0),
+                'motion_verified': motion_verified,
+                'engine_liveness_verified': engine_liveness_verified,
+                'liveness_data': liveness_data,
+                'failure_reason': failure_reason
+            }
+        )
+
+        # Create obstacle detection record for failed attempt
+        obstacles = auth_result.get('obstacles', [])
+        obstacle_confidence = auth_result.get('obstacle_confidence', {})
+        ObstacleDetection.objects.create(
+            authentication_attempt=attempt,
+            glasses_detected='glasses' in obstacles,
+            glasses_confidence=obstacle_confidence.get('glasses', 0.0),
+            mask_detected='mask' in obstacles,
+            mask_confidence=obstacle_confidence.get('mask', 0.0),
+            hat_detected='hat' in obstacles,
+            hat_confidence=obstacle_confidence.get('hat', 0.0),
+            hand_covering='hand_covering' in obstacles,
+            hand_confidence=obstacle_confidence.get('hand_covering', 0.0),
+            has_obstacles=len(obstacles) > 0,
+            obstacle_score=max(obstacle_confidence.values()) if obstacle_confidence else 0.0,
+            detection_details={
+                'detected_obstacles': obstacles,
+                'confidence_scores': obstacle_confidence,
+                'processing_method': 'advanced_mediapipe',
+                'failure_reason': failure_reason
+            }
         )
 
         AuthenticationLog.objects.create(
@@ -935,7 +1358,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                     device_info = request.data.get('device_info', {})
                     
                     # Create or update device record
-                    device_id = device_info.get('device_id', 'unknown')
+                    device_id = device_info.get('device_id', 'unknown111')
                     device, created = UserDevice.objects.get_or_create(
                         user=user,
                         device_id=device_id,

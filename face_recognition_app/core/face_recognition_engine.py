@@ -816,6 +816,8 @@ class FaceRecognitionEngine:
                     f"Quality {quality_score:.2f} below threshold "
                     f"{self.capture_quality_threshold:.2f} but accepted due to tolerance"
                 )
+
+            face_snapshot = self._capture_face_snapshot(frame, bbox)
             
             return {
                 'embedding': embedding,
@@ -829,7 +831,8 @@ class FaceRecognitionEngine:
                     motion_score_threshold=self.liveness_motion_score * 0.7
                 ),
                 'obstacles': obstacles,
-                'obstacle_confidence': obstacle_confidence
+                'obstacle_confidence': obstacle_confidence,
+                'face_snapshot': face_snapshot
             }, None
             
         except Exception as e:
@@ -995,6 +998,40 @@ class FaceRecognitionEngine:
                 'error': f"Authentication error: {str(e)}",
                 'similarity_score': 0.0
             }
+    
+    def _capture_face_snapshot(self, frame, bbox, padding_ratio: float = 0.15):
+        """Capture a cropped face snapshot from the frame as JPEG bytes."""
+        try:
+            if frame is None or bbox is None:
+                return None
+            
+            h, w = frame.shape[:2]
+            x1, y1, x2, y2 = [int(coord) for coord in bbox]
+            face_width = max(1, x2 - x1)
+            face_height = max(1, y2 - y1)
+            
+            pad_x = int(face_width * padding_ratio)
+            pad_y = int(face_height * padding_ratio)
+            
+            x1 = max(0, x1 - pad_x)
+            y1 = max(0, y1 - pad_y)
+            x2 = min(w, x2 + pad_x)
+            y2 = min(h, y2 + pad_y)
+            
+            face_roi = frame[y1:y2, x1:x2]
+            if face_roi.size == 0:
+                return None
+            
+            snapshot = cv2.resize(face_roi, (320, 320), interpolation=cv2.INTER_AREA)
+            success, buffer = cv2.imencode(".jpg", snapshot, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+            if not success:
+                return None
+            
+            return buffer.tobytes()
+        
+        except Exception as exc:
+            logger.error(f"Error capturing face snapshot: {exc}")
+            return None
     
     def _assess_image_quality(self, frame, bbox):
         """Assess image quality"""
