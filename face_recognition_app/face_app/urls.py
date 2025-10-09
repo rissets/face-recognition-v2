@@ -18,14 +18,29 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path('api/v1/', include('core.urls')),
-    path('api/v1/recognition/', include('recognition.urls')),
-    path('api/v1/analytics/', include('analytics.urls')),
-    path('api/v1/streaming/', include('streaming.urls')),
-    path('api/v1/users/', include('users.urls')),
+    
+    # API Documentation
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+    
+    # API Endpoints
+    path('api/', include('core.urls')),
+    path('api/recognition/', include('recognition.urls')),
+    path('api/analytics/', include('analytics.urls')),
+    path('api/streaming/', include('streaming.urls')),
+    path('api/users/', include('users.urls')),
+    
+    # Test Interface
+    # path('test/', include('core.test_urls')),
 ]
 
 # Serve media files in development

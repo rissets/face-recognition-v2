@@ -23,7 +23,7 @@ class AuthenticationLog(models.Model):
         null=True,
         blank=True
     )
-    attempted_email = models.EmailField(blank=True)  # For failed attempts
+    attempted_email = models.EmailField(blank=True, null=True)  # For failed attempts
     
     # Authentication details
     auth_method = models.CharField(
@@ -84,6 +84,8 @@ class AuthenticationLog(models.Model):
     session_id = models.CharField(max_length=255, blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    timestamp = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Authentication Log"

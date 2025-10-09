@@ -50,3 +50,6 @@ factory-boy
 # Development
 python-decouple
 django-debug-toolbar
+
+# API Documentation
+drf-spectacular[sidecar]

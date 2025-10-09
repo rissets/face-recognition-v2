@@ -2,6 +2,7 @@
 Serializers for Face Recognition API
 """
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
 from recognition.models import (
     FaceEmbedding, EnrollmentSession, AuthenticationAttempt,
@@ -14,6 +15,22 @@ import base64
 import uuid
 
 User = get_user_model()
+
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Custom JWT serializer that accepts email instead of username"""
+    email = serializers.EmailField()
+    password = serializers.CharField()
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Remove the username field and use email instead
+        self.fields.pop('username', None)
+    
+    def validate(self, attrs):
+        # Map email to username for the parent validation
+        attrs['username'] = attrs.get('email')
+        return super().validate(attrs)
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):

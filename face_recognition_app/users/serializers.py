@@ -1,8 +1,10 @@
 """
-User serializers for profile and device management
+User serializers for authentication and profile management
 """
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.types import OpenApiTypes
 from .models import UserProfile, UserDevice
 
 User = get_user_model()
@@ -61,13 +63,14 @@ class UserDeviceSerializer(serializers.ModelSerializer):
             'id', 'user', 'device_id', 'first_seen', 'last_seen', 'login_count'
         ]
     
-    def get_duration_since_last_seen(self, obj):
-        """Calculate time since last seen"""
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_duration_since_last_seen(self, obj) -> int:
+        """Calculate time since last seen in seconds"""
         if obj.last_seen:
             from django.utils import timezone
             delta = timezone.now() - obj.last_seen
             return int(delta.total_seconds())
-        return None
+        return 0
     
     def validate_device_name(self, value):
         """Validate device name"""

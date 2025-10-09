@@ -2,8 +2,14 @@
 Streaming Models for WebRTC Sessions
 """
 import uuid
+import secrets
 from django.db import models
 from django.conf import settings
+
+
+def generate_session_token():
+    """Generate a unique session token"""
+    return f"session_{secrets.token_urlsafe(32)}"
 
 
 class StreamingSession(models.Model):
@@ -11,7 +17,7 @@ class StreamingSession(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
     # Session info
-    session_token = models.CharField(max_length=255, unique=True)
+    session_token = models.CharField(max_length=255, unique=True, default=generate_session_token)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, 
         on_delete=models.CASCADE, 

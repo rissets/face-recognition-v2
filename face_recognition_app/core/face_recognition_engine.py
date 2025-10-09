@@ -19,6 +19,13 @@ import uuid
 
 
 logger = logging.getLogger('face_recognition')
+VERBOSE_DEBUG = getattr(settings, 'FACE_ENGINE_VERBOSE_DEBUG', False)
+
+
+def debug_log(message: str):
+    """Emit debug logs only when verbose mode is enabled"""
+    if VERBOSE_DEBUG:
+        logger.debug(message)
 
 
 def json_serializable(obj):
@@ -70,12 +77,14 @@ class LivenessDetector:
         self.LEFT_EYE_POINTS = [33, 160, 158, 133, 153, 144]  
         self.RIGHT_EYE_POINTS = [362, 385, 387, 263, 373, 380]
         
-        # Blink detection parameters
-        self.EAR_THRESHOLD = 0.8
-        self.ADAPTIVE_FACTOR = 0.75
+        # Blink detection parameters - lowered threshold for better detection
+        self.EAR_THRESHOLD = 0.18  # More sensitive blink detection
+        self.ADAPTIVE_FACTOR = 0.5
         self.CONSECUTIVE_FRAMES = 2
         self.MIN_BLINK_DURATION = 1
         self.MAX_BLINK_DURATION = 10
+        self.MOTION_SENSITIVITY = 0.12  # Normalized center shift required to count as motion
+        self.MOTION_EVENT_INTERVAL = 0.35  # Seconds between motion events to avoid over-counting
         
         # Tracking variables
         self.reset()
@@ -92,6 +101,12 @@ class LivenessDetector:
         self.last_blink_time = 0
         self.eye_visibility_score = 0.0
         self.blink_quality_scores = []
+        self.motion_events = 0
+        self.motion_score = 0.0
+        self.motion_history = []
+        self.last_bbox_center = None
+        self.last_bbox_size = None
+        self.last_motion_time = 0.0
         
     def calculate_ear(self, landmarks, eye_indices):
         """Calculate Eye Aspect Ratio"""
@@ -106,7 +121,7 @@ class LivenessDetector:
                     confidence_scores.append(1.0)  # MediaPipe doesn't provide visibility scores
             
             if len(eye_points) < 6:
-                logger.debug(f"Insufficient eye points: {len(eye_points)}")
+                debug_log(f"Insufficient eye points: {len(eye_points)}")
                 return None, 0.0
                 
             eye_points = np.array(eye_points)
@@ -114,7 +129,7 @@ class LivenessDetector:
             
             # Validate eye shape
             if not self._validate_eye_shape(eye_points):
-                logger.debug("Eye shape validation failed")
+                debug_log("Eye shape validation failed")
                 return None, 0.0
             
             # Enhanced 6-point EAR calculation
@@ -123,13 +138,13 @@ class LivenessDetector:
             C = np.linalg.norm(eye_points[0] - eye_points[3])  # outer_corner to inner_corner
             
             if C < 0.001:
-                logger.debug("Eye width too small")
+                debug_log("Eye width too small")
                 return None, 0.0
             
             ear = (A + B) / (2.0 * C)
             quality = min(1.0, C * 15)  # Quality based on eye width
             
-            logger.debug(f"EAR: A={A:.4f}, B={B:.4f}, C={C:.4f}, EAR={ear:.4f}, Quality={quality:.3f}")
+            debug_log(f"EAR: A={A:.4f}, B={B:.4f}, C={C:.4f}, EAR={ear:.4f}, Quality={quality:.3f}")
             return ear, quality
             
         except Exception as e:
@@ -146,7 +161,7 @@ class LivenessDetector:
             vertical_dist = abs(outer_corner[1] - inner_corner[1])
             
             if horizontal_dist < vertical_dist * 2:
-                logger.debug("Eye orientation validation failed")
+                debug_log("Eye orientation validation failed")
                 return False
             
             # Top points should be above bottom points
@@ -157,10 +172,53 @@ class LivenessDetector:
             
         except Exception:
             return False
+
+    def _update_motion(self, bbox):
+        """Track head movement using bounding box centre shifts"""
+        if bbox is None:
+            return
+
+        try:
+            x1, y1, x2, y2 = bbox
+            width = max(1.0, float(x2 - x1))
+            height = max(1.0, float(y2 - y1))
+            center_x = (x1 + x2) / 2.0
+            center_y = (y1 + y2) / 2.0
+
+            current_center = np.array([center_x, center_y], dtype=np.float32)
+            current_size = np.hypot(width, height)
+
+            if self.last_bbox_center is None:
+                self.last_bbox_center = current_center
+                self.last_bbox_size = current_size
+                return
+
+            delta = np.linalg.norm(current_center - self.last_bbox_center)
+            normalized_shift = delta / max(current_size, 1.0)
+
+            self.motion_history.append(normalized_shift)
+            if len(self.motion_history) > 30:
+                self.motion_history.pop(0)
+
+            now = time.time()
+            if (normalized_shift >= self.MOTION_SENSITIVITY and
+                    (now - self.last_motion_time) >= self.MOTION_EVENT_INTERVAL):
+                self.motion_events += 1
+                self.motion_score = min(1.0, self.motion_score + normalized_shift)
+                self.last_motion_time = now
+
+            # Always keep latest bbox for next frame comparison
+            self.last_bbox_center = current_center
+            self.last_bbox_size = current_size
+
+        except Exception as exc:
+            logger.error(f"Error updating motion data: {exc}")
         
-    def detect_blink(self, frame):
+    def detect_blink(self, frame, bbox=None):
         """Enhanced blink detection"""
         try:
+            self._update_motion(bbox)
+
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = self.face_mesh.process(rgb_frame)
             
@@ -214,17 +272,25 @@ class LivenessDetector:
                             'ear': avg_ear,
                             'quality': avg_quality,
                             'threshold': adaptive_threshold,
-                            'frame_count': self.frame_counter
+                            'frame_count': self.frame_counter,
+                            'motion_events': self.motion_events,
+                            'motion_score': self.motion_score,
+                            'motion_verified': self.motion_events > 0,
+                            'blink_verified': self.total_blinks > 0
                         }
             else:
-                logger.debug("No face landmarks detected")
+                debug_log("No face landmarks detected")
             
             return {
                 'blinks_detected': self.total_blinks,
                 'ear': 0.0,
                 'quality': 0.0,
                 'threshold': self.EAR_THRESHOLD,
-                'frame_count': self.frame_counter
+                'frame_count': self.frame_counter,
+                'motion_events': self.motion_events,
+                'motion_score': self.motion_score,
+                'motion_verified': self.motion_events > 0,
+                'blink_verified': self.total_blinks > 0
             }
             
         except Exception as e:
@@ -235,13 +301,29 @@ class LivenessDetector:
                 'quality': 0.0,
                 'threshold': self.EAR_THRESHOLD,
                 'frame_count': self.frame_counter,
+                'motion_events': self.motion_events,
+                'motion_score': self.motion_score,
+                'motion_verified': self.motion_events > 0,
+                'blink_verified': self.total_blinks > 0,
                 'error': str(e)
             }
     
-    def is_live(self, blink_count_threshold=2):
-        """Determine if subject is live based on blinks"""
-        is_alive = self.total_blinks >= blink_count_threshold
-        logger.debug(f"Liveness check: {self.total_blinks} >= {blink_count_threshold} = {is_alive}")
+    def is_live(self, blink_count_threshold=2, motion_event_threshold=1, motion_score_threshold=0.25):
+        """Determine if subject is live based on blinks or natural motion"""
+        blink_ok = blink_count_threshold <= 0 or self.total_blinks >= blink_count_threshold
+        motion_ok = (
+            motion_event_threshold <= 0 or
+            self.motion_events >= motion_event_threshold or
+            self.motion_score >= motion_score_threshold
+        )
+        is_alive = blink_ok or motion_ok
+        debug_log(
+            "Liveness check - "
+            f"blinks: {self.total_blinks}/{blink_count_threshold}, "
+            f"motion_events: {self.motion_events}/{motion_event_threshold}, "
+            f"motion_score: {self.motion_score:.3f}/{motion_score_threshold}, "
+            f"result={is_alive}"
+        )
         return is_alive
     
     def get_debug_info(self):
@@ -252,7 +334,9 @@ class LivenessDetector:
             'ear_threshold': self.EAR_THRESHOLD,
             'consecutive_frames': self.CONSECUTIVE_FRAMES,
             'ear_history_length': len(self.ear_history),
-            'last_ear': self.ear_history[-1] if self.ear_history else 0.0
+            'last_ear': self.ear_history[-1] if self.ear_history else 0.0,
+            'motion_events': self.motion_events,
+            'motion_score': self.motion_score
         }
 
 
@@ -312,25 +396,25 @@ class ObstacleDetector:
                 for face_landmarks in results.multi_face_landmarks:
                     # Glasses detection
                     glasses_conf = self._detect_glasses_advanced(face_roi, face_landmarks)
-                    if glasses_conf > 0.3:
+                    if glasses_conf > 0.5:
                         obstacles.append('glasses')
                         confidence_scores['glasses'] = glasses_conf
                     
                     # Mask detection
                     mask_conf = self._detect_mask_advanced(face_roi, face_landmarks)
-                    if mask_conf > 0.4:
+                    if mask_conf > 0.5:
                         obstacles.append('mask')
                         confidence_scores['mask'] = mask_conf
                     
                     # Hat detection
                     hat_conf = self._detect_hat_advanced(face_roi, face_landmarks)
-                    if hat_conf > 0.3:
+                    if hat_conf > 0.5:
                         obstacles.append('hat')
                         confidence_scores['hat'] = hat_conf
                     
                     # Hand covering detection
                     hand_conf = self._detect_hand_covering(face_roi, face_landmarks)
-                    if hand_conf > 0.3:
+                    if hand_conf > 0.5:
                         obstacles.append('hand_covering')
                         confidence_scores['hand_covering'] = hand_conf
             else:
@@ -556,7 +640,7 @@ class ChromaEmbeddingStore:
                 ids=[embedding_id]
             )
             
-            logger.debug(f"Added embedding for user {user_id}")
+            debug_log(f"Added embedding for user {user_id}")
             return embedding_id
             
         except Exception as e:
@@ -585,7 +669,8 @@ class ChromaEmbeddingStore:
                             'embedding_id': embedding_id,
                             'similarity': similarity,
                             'distance': distance,
-                            'metadata': results['metadatas'][0][i] if results['metadatas'] else {}
+                            'metadata': results['metadatas'][0][i] if results['metadatas'] else {},
+                            'source': 'chroma'
                         })
             
             return matches
@@ -639,6 +724,21 @@ class FaceRecognitionEngine:
         self.faiss_index = faiss.IndexFlatIP(self.dimension)
         self.user_embeddings = {}
         self.user_names = []
+        self.faiss_ids = []
+
+        # Tunable thresholds (with safe defaults if config missing)
+        self.liveness_blink_threshold = max(0, int(self.config.get('LIVENESS_THRESHOLD', 1)))
+        self.liveness_motion_events = max(0, int(self.config.get('LIVENESS_MOTION_EVENTS', 1)))
+        self.liveness_motion_score = float(self.config.get('LIVENESS_MOTION_SCORE', 0.2))
+        self.capture_quality_threshold = float(self.config.get('CAPTURE_QUALITY_THRESHOLD', 0.65))
+        self.quality_tolerance = float(self.config.get('QUALITY_TOLERANCE', 0.12))
+        self.auth_quality_threshold = float(self.config.get('AUTH_QUALITY_THRESHOLD', 0.4))
+        self.verification_threshold = float(self.config.get('VERIFICATION_THRESHOLD', 0.35))
+        self.fallback_verification_threshold = float(
+            self.config.get('FALLBACK_VERIFICATION_THRESHOLD', max(0.28, self.verification_threshold - 0.1))
+        )
+        self.blocking_obstacles = set(self.config.get('BLOCKING_OBSTACLES', ['mask', 'hand_covering']))
+        self.allowed_obstacles = set(self.config.get('NON_BLOCKING_OBSTACLES', ['glasses', 'hat']))
         
         logger.info("Face recognition engine initialized")
     
@@ -698,17 +798,24 @@ class FaceRecognitionEngine:
             
             # Check obstacles
             obstacles, obstacle_confidence = self.obstacle_detector.detect_obstacles(frame, bbox)
-            if obstacles:
-                return None, f"Obstacles detected: {', '.join(obstacles)}"
+            blocking_obstacles = [o for o in obstacles if o in self.blocking_obstacles]
+            if blocking_obstacles:
+                return None, f"Obstacles detected: {', '.join(blocking_obstacles)}"
             
             # Check liveness
-            liveness_result = self.liveness_detector.detect_blink(frame)
+            liveness_result = self.liveness_detector.detect_blink(frame, bbox)
             
             # Quality assessment
             quality_score = self._assess_image_quality(frame, bbox)
             
-            if quality_score < self.config['CAPTURE_QUALITY_THRESHOLD']:
-                return None, f"Image quality too low: {quality_score:.2f}"
+            if quality_score < self.capture_quality_threshold:
+                acceptance_floor = max(0.35, self.capture_quality_threshold - self.quality_tolerance)
+                if quality_score < acceptance_floor:
+                    return None, f"Image quality too low: {quality_score:.2f}"
+                debug_log(
+                    f"Quality {quality_score:.2f} below threshold "
+                    f"{self.capture_quality_threshold:.2f} but accepted due to tolerance"
+                )
             
             return {
                 'embedding': embedding,
@@ -716,6 +823,11 @@ class FaceRecognitionEngine:
                 'confidence': confidence,
                 'quality_score': quality_score,
                 'liveness_data': liveness_result,
+                'liveness_verified': self.liveness_detector.is_live(
+                    blink_count_threshold=max(0, self.liveness_blink_threshold - 1),
+                    motion_event_threshold=max(0, self.liveness_motion_events - 1),
+                    motion_score_threshold=self.liveness_motion_score * 0.7
+                ),
                 'obstacles': obstacles,
                 'obstacle_confidence': obstacle_confidence
             }, None
@@ -742,48 +854,101 @@ class FaceRecognitionEngine:
             
             # Check obstacles
             obstacles, obstacle_confidence = self.obstacle_detector.detect_obstacles(frame, bbox)
-            if obstacles:
+            blocking_obstacles = [o for o in obstacles if o in self.blocking_obstacles]
+            if blocking_obstacles:
                 return {
                     'success': False,
-                    'error': f"Obstacles detected: {', '.join(obstacles)}",
+                    'error': f"Obstacles detected: {', '.join(blocking_obstacles)}",
                     'obstacles': obstacles,
-                    'similarity_score': 0.0
+                    'similarity_score': 0.0,
+                    'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
+                    'quality_score': 0.0
                 }
+
+            # Quality assessment (needed even when liveness still pending)
+            quality_score = self._assess_image_quality(frame, bbox)
             
             # Check liveness
-            liveness_result = self.liveness_detector.detect_blink(frame)
-            if not self.liveness_detector.is_live():
+            liveness_result = self.liveness_detector.detect_blink(frame, bbox)
+            liveness_verified = self.liveness_detector.is_live(
+                blink_count_threshold=self.liveness_blink_threshold,
+                motion_event_threshold=self.liveness_motion_events,
+                motion_score_threshold=self.liveness_motion_score
+            )
+            if not liveness_verified:
                 return {
                     'success': False,
-                    'error': "Liveness check failed",
+                    'error': "Liveness check in progress",
                     'liveness_data': liveness_result,
-                    'similarity_score': 0.0
+                    'similarity_score': 0.0,
+                    'liveness_verified': False,
+                    'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
+                    'quality_score': quality_score
                 }
             
-            # Quality assessment
-            quality_score = self._assess_image_quality(frame, bbox)
-            if quality_score < 0.5:  # Lower threshold for authentication
-                return {
-                    'success': False,
-                    'error': f"Image quality too low: {quality_score:.2f}",
-                    'similarity_score': 0.0
-                }
+            if quality_score < self.auth_quality_threshold:
+                acceptance_floor = max(0.3, self.auth_quality_threshold - self.quality_tolerance)
+                if quality_score < acceptance_floor:
+                    return {
+                        'success': False,
+                        'error': f"Image quality too low: {quality_score:.2f}",
+                        'similarity_score': 0.0,
+                        'liveness_data': liveness_result,
+                        'liveness_verified': liveness_verified,
+                        'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
+                        'quality_score': quality_score
+                    }
+
+                debug_log(
+                    f"Authentication quality {quality_score:.2f} below threshold "
+                    f"{self.auth_quality_threshold:.2f} but accepted due to tolerance"
+                )
             
             # Find matching user
             matches = self.embedding_store.search_similar(
                 embedding, 
                 top_k=5, 
-                threshold=self.config['VERIFICATION_THRESHOLD']
+                threshold=self.verification_threshold
             )
+            
+            # Retry with relaxed threshold if nothing found
+            fallback_used = False
+            if not matches and self.fallback_verification_threshold < self.verification_threshold:
+                matches = self.embedding_store.search_similar(
+                    embedding,
+                    top_k=5,
+                    threshold=self.fallback_verification_threshold
+                )
+                if matches:
+                    fallback_used = True
+                    for match in matches:
+                        match['below_primary_threshold'] = True
+            
+            # FAISS fallback if Chroma returns nothing
+            if not matches:
+                faiss_matches = self._search_faiss(
+                    embedding,
+                    top_k=5,
+                    threshold=self.fallback_verification_threshold
+                )
+                if faiss_matches:
+                    matches = faiss_matches
+                    fallback_used = True
             
             if not matches:
                 return {
                     'success': False,
                     'error': "No matching face found",
-                    'similarity_score': 0.0
+                    'similarity_score': 0.0,
+                    'liveness_data': liveness_result,
+                    'liveness_verified': liveness_verified,
+                    'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
+                    'quality_score': quality_score
                 }
             
             best_match = matches[0]
+            match_user_id = best_match['embedding_id'].split('_')[0]
+            best_similarity = best_match.get('similarity', 0.0)
             
             # If specific user_id provided, verify it matches
             if user_id:
@@ -797,19 +962,30 @@ class FaceRecognitionEngine:
                     return {
                         'success': False,
                         'error': "Face does not match user",
-                        'similarity_score': 0.0
+                        'similarity_score': best_similarity,
+                        'liveness_data': liveness_result,
+                        'liveness_verified': liveness_verified,
+                        'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
+                        'quality_score': quality_score
                     }
                 
                 best_match = user_match
+                match_user_id = user_id
+                best_similarity = best_match.get('similarity', best_similarity)
             
             return {
                 'success': True,
-                'user_id': best_match['embedding_id'].split('_')[0],
+                'user_id': match_user_id,
                 'similarity_score': best_match['similarity'],
                 'confidence': confidence,
                 'quality_score': quality_score,
                 'liveness_data': liveness_result,
-                'match_data': best_match
+                'liveness_verified': liveness_verified,
+                'match_data': best_match,
+                'match_fallback_used': fallback_used,
+                'obstacles': obstacles,
+                'obstacle_confidence': obstacle_confidence,
+                'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox
             }
             
         except Exception as e:
@@ -842,7 +1018,7 @@ class FaceRecognitionEngine:
             # Sharpness (Laplacian variance)
             laplacian = cv2.Laplacian(gray, cv2.CV_64F)
             sharpness = laplacian.var()
-            sharpness_score = min(1.0, sharpness / 1000.0)
+            sharpness_score = min(1.0, sharpness / 100.0)
             
             # Face size score
             face_area = (x2 - x1) * (y2 - y1)
@@ -856,9 +1032,12 @@ class FaceRecognitionEngine:
             
             quality_score = sum(w * s for w, s in zip(weights, scores))
             
-            logger.debug(f"Quality assessment - Brightness: {brightness_score:.2f}, "
-                        f"Contrast: {contrast_score:.2f}, Sharpness: {sharpness_score:.2f}, "
-                        f"Size: {size_score:.2f}, Overall: {quality_score:.2f}")
+            debug_log(
+                "Quality assessment - "
+                f"Brightness: {brightness_score:.2f}, "
+                f"Contrast: {contrast_score:.2f}, Sharpness: {sharpness_score:.2f}, "
+                f"Size: {size_score:.2f}, Overall: {quality_score:.2f}"
+            )
             
             return quality_score
             
@@ -874,7 +1053,7 @@ class FaceRecognitionEngine:
             
             if embedding_id:
                 # Also save to FAISS for fallback
-                self._add_to_faiss(user_id, embedding)
+                self._add_to_faiss(user_id, embedding, embedding_id=embedding_id)
                 logger.info(f"Saved embedding for user {user_id}")
                 return embedding_id
             
@@ -884,11 +1063,19 @@ class FaceRecognitionEngine:
             logger.error(f"Error saving embedding: {e}")
             return None
     
-    def _add_to_faiss(self, user_id: str, embedding: np.ndarray):
+    def _add_to_faiss(self, user_id: str, embedding: np.ndarray, embedding_id: str = None):
         """Add embedding to FAISS index"""
         try:
-            embedding_normalized = embedding / np.linalg.norm(embedding)
+            norm = np.linalg.norm(embedding)
+            if norm == 0:
+                logger.warning("Attempted to add zero-norm embedding to FAISS; skipping")
+                return
+            
+            embedding_normalized = embedding / norm
             self.faiss_index.add(embedding_normalized.reshape(1, -1))
+            
+            embedding_identifier = embedding_id or f"{user_id}_faiss_{len(self.faiss_ids)}"
+            self.faiss_ids.append((embedding_identifier, user_id))
             
             if user_id not in self.user_embeddings:
                 self.user_embeddings[user_id] = []
@@ -898,10 +1085,119 @@ class FaceRecognitionEngine:
             
         except Exception as e:
             logger.error(f"Error adding to FAISS: {e}")
+
+    def _search_faiss(self, embedding: np.ndarray, top_k: int = 5, threshold: float = 0.3):
+        """Search FAISS index as fallback when vector DB has no matches"""
+        try:
+            if self.faiss_index.ntotal == 0:
+                return []
+            
+            norm = np.linalg.norm(embedding)
+            if norm == 0:
+                return []
+            
+            embedding_normalized = embedding / norm
+            similarities, indices = self.faiss_index.search(embedding_normalized.reshape(1, -1), top_k)
+            
+            matches = []
+            for similarity, idx in zip(similarities[0], indices[0]):
+                if idx == -1 or idx >= len(self.faiss_ids):
+                    continue
+                
+                similarity = float(similarity)
+                if similarity < threshold:
+                    continue
+                
+                embedding_id, user_id = self.faiss_ids[idx]
+                matches.append({
+                    'embedding_id': embedding_id,
+                    'similarity': similarity,
+                    'distance': max(0.0, 1.0 - similarity),
+                    'metadata': {'source': 'faiss', 'user_id': user_id},
+                    'source': 'faiss'
+                })
+            
+            return matches
+            
+        except Exception as e:
+            logger.error(f"Error searching FAISS index: {e}")
+            return []
     
     def reset_liveness_detector(self):
         """Reset liveness detector for new session"""
         self.liveness_detector.reset()
+    
+    def cleanup_failed_session(self, session_token):
+        """Clean up resources for a failed session"""
+        try:
+            # Clear any cached data for this session
+            cache_key = f"face_session_{session_token}"
+            cache.delete(cache_key)
+            
+            # Reset liveness detector
+            self.liveness_detector.reset()
+            
+            # Log cleanup
+            logger.info(f"Cleaned up failed session: {session_token}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error cleaning up session {session_token}: {e}")
+            return False
+    
+    def mark_session_failed(self, session_token, reason):
+        """Mark a session as failed and prepare for cleanup"""
+        try:
+            # Cache the failure reason
+            cache_key = f"face_session_failure_{session_token}"
+            cache.set(cache_key, {
+                'reason': reason,
+                'timestamp': time.time(),
+                'requires_new_session': True
+            }, timeout=300)  # 5 minutes
+            
+            logger.warning(f"Session {session_token} marked as failed: {reason}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error marking session as failed {session_token}: {e}")
+            return False
+    
+    def get_session_status(self, session_token):
+        """Get the status of a session"""
+        try:
+            # Check for failure status
+            failure_key = f"face_session_failure_{session_token}"
+            failure_info = cache.get(failure_key)
+            
+            if failure_info:
+                return {
+                    'status': 'failed',
+                    'reason': failure_info['reason'],
+                    'requires_new_session': failure_info.get('requires_new_session', True),
+                    'failed_at': failure_info['timestamp']
+                }
+            
+            # Check for active session data
+            session_key = f"face_session_{session_token}"
+            session_data = cache.get(session_key)
+            
+            if session_data:
+                return {
+                    'status': 'active',
+                    'data': session_data
+                }
+            
+            return {
+                'status': 'unknown'
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting session status {session_token}: {e}")
+            return {
+                'status': 'error',
+                'error': str(e)
+            }
     
     def get_system_status(self):
         """Get system status information"""

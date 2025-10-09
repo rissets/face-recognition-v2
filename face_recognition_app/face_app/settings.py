@@ -82,6 +82,8 @@ THIRD_PARTY_APPS = [
     "channels",
     "django_celery_beat",
     "django_celery_results",
+    "drf_spectacular",
+    "drf_spectacular_sidecar",
 ]
 
 LOCAL_APPS = [
@@ -203,6 +205,7 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.UserRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {"anon": "100/hour", "user": "1000/hour"},
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 # JWT Configuration
@@ -252,6 +255,11 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://localhost:3000",
+    "http://localhost:8080",    # Frontend test app
+    "http://127.0.0.1:8080",
+    "http://localhost:8081",    # Alternative port
+    "http://127.0.0.1:8081",
+    "http://127.0.0.1:5173",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -297,6 +305,84 @@ WEBRTC_CONFIG = {
     ],
     "ENABLE_ENCRYPTION": True,
     "MAX_BITRATE": 1000000,  # 1 Mbps
+}
+
+# DRF Spectacular Configuration
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Face Recognition API",
+    "DESCRIPTION": "Advanced Face Recognition System with real-time authentication, enrollment, and analytics capabilities. Built with Django REST Framework, WebRTC, and AI-powered face detection.",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": True,
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    "REDOC_DIST": "SIDECAR",
+    "SCHEMA_PATH_PREFIX": "/api/v1/",
+    "COMPONENT_SPLIT_REQUEST": True,
+    "COMPONENT_NO_READ_ONLY_REQUIRED": True,
+    "CONTACT": {
+        "name": "Face Recognition API Support",
+        "email": "support@facerecognition.com",
+    },
+    "LICENSE": {
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT",
+    },
+    "EXTERNAL_DOCS": {
+        "description": "Face Recognition Documentation",
+        "url": "https://docs.facerecognition.com/",
+    },
+    "SERVERS": [
+        {
+            "url": "http://127.0.0.1:8000",
+            "description": "Development Server",
+        },
+        {
+            "url": "https://api.facerecognition.com",
+            "description": "Production Server",
+        },
+    ],
+    "TAGS": [
+        {
+            "name": "Authentication",
+            "description": "User authentication and JWT token management",
+        },
+        {
+            "name": "Face Enrollment",
+            "description": "Face enrollment and embedding management",
+        },
+        {
+            "name": "Face Recognition",
+            "description": "Real-time face authentication and verification",
+        },
+        {
+            "name": "WebRTC",
+            "description": "WebRTC signaling and streaming sessions",
+        },
+        {
+            "name": "Analytics",
+            "description": "System analytics and security monitoring",
+        },
+        {
+            "name": "User Management",
+            "description": "User profile and device management",
+        },
+        {
+            "name": "System",
+            "description": "System status and health checks",
+        },
+    ],
+    "SECURITY": [
+        {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "JWT token obtained from /api/v1/auth/token/ endpoint",
+            }
+        }
+    ],
+    "SORT_OPERATIONS": False,
+    "DISABLE_ERRORS_AND_WARNINGS": True,
 }
 
 # Logging Configuration

@@ -1,5 +1,19 @@
 """
-Streaming views for WebRTC and real-time communication
+Streaming views for WebRTC and real-@extend_schema(
+    tags=['WebRTC'],
+    summary='WebRTC Signaling',
+    description='Handle WebRTC signaling messages for video streaming',
+    request=WebRTCSignalSerializer,
+    responses={
+        200: OpenApiResponse(description='Signal processed successfully'),
+        400: OpenApiResponse(description='Invalid signal data'),
+        401: OpenApiResponse(description='Authentication required'),
+    }
+)
+class WebRTCSignalingView(APIView):
+    \"\"\"Handle WebRTC signaling messages\"\"\"
+    permission_classes = [IsAuthenticated]
+    serializer_class = WebRTCSignalSerializere communication
 """
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
@@ -54,12 +68,35 @@ class WebRTCSignalingView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
+            session_token = signal_data.get('session_token')
+            if not session_token:
+                return Response(
+                    {'error': 'session_token is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                session = StreamingSession.objects.get(
+                    session_token=session_token
+                )
+            except StreamingSession.DoesNotExist:
+                return Response(
+                    {'error': 'Session not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            if session.user and session.user != request.user:
+                return Response(
+                    {'error': 'Permission denied for this session'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
             # Create WebRTC signal record
             signal = WebRTCSignal.objects.create(
-                user=request.user,
+                session=session,
                 signal_type=signal_type,
                 signal_data=signal_data,
-                timestamp=timezone.now()
+                direction=signal_data.get('direction', 'inbound')
             )
             
             serializer = WebRTCSignalSerializer(signal)
@@ -80,8 +117,8 @@ class WebRTCSignalingView(APIView):
     def get(self, request):
         """Get recent signaling messages for the user"""
         signals = WebRTCSignal.objects.filter(
-            user=request.user
-        ).order_by('-timestamp')[:10]
+            session__user=request.user
+        ).order_by('-created_at')[:10]
         
         serializer = WebRTCSignalSerializer(signals, many=True)
         return Response(serializer.data)

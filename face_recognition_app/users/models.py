@@ -224,7 +224,7 @@ class UserDevice(models.Model):
     
     # Device information
     operating_system = models.CharField(max_length=50, blank=True)
-    browser = models.CharField(max_length=50, blank=True)
+    browser = models.CharField(max_length=250, blank=True)
     user_agent = models.TextField(blank=True)
     
     # Security

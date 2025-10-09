@@ -104,20 +104,25 @@ class FaceEmbedding(models.Model):
     def set_embedding_vector(self, vector):
         """Set embedding vector from numpy array"""
         if isinstance(vector, np.ndarray):
-            # Normalize the vector
+            # Normalize and convert to raw bytes
             normalized_vector = vector / np.linalg.norm(vector)
-            # Convert to bytes
-            self.embedding_vector = normalized_vector.tobytes()
-            # Create hash for deduplication
+            raw_bytes = normalized_vector.astype(np.float32).tobytes()
+
+            # Persist as base64-encoded string so EncryptedTextField can handle it
+            encoded = base64.b64encode(raw_bytes).decode('ascii')
+            self.embedding_vector = encoded
+
+            # Create hash for deduplication using the raw bytes
             import hashlib
-            self.embedding_hash = hashlib.sha256(self.embedding_vector).hexdigest()
+            self.embedding_hash = hashlib.sha256(raw_bytes).hexdigest()
         else:
             raise ValueError("Vector must be a numpy array")
 
     def get_embedding_vector(self):
         """Get embedding vector as numpy array"""
         if self.embedding_vector:
-            return np.frombuffer(self.embedding_vector, dtype=np.float32)
+            raw_bytes = base64.b64decode(self.embedding_vector)
+            return np.frombuffer(raw_bytes, dtype=np.float32)
         return None
 
     def calculate_similarity(self, other_embedding):

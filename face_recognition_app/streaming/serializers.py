@@ -2,6 +2,8 @@
 Streaming serializers for WebRTC and real-time communication
 """
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.types import OpenApiTypes
 from .models import StreamingSession, WebRTCSignal
 
 
@@ -13,31 +15,32 @@ class StreamingSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = StreamingSession
         fields = [
-            'id', 'user', 'session_id', 'session_type', 'status',
-            'frames_processed', 'frames_analyzed', 'average_quality',
-            'processing_results', 'stream_config', 'error_message',
-            'created_at', 'updated_at', 'ended_at', 'duration'
+            'id', 'user', 'session_token', 'session_type', 'status',
+            'ice_servers', 'constraints', 'peer_connection_id', 'remote_address',
+            'video_quality', 'frame_rate', 'bitrate', 'session_data', 'error_log',
+            'created_at', 'connected_at', 'completed_at', 'duration'
         ]
-        read_only_fields = ['id', 'user', 'session_id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'user', 'session_token', 'created_at']
     
-    def get_duration(self, obj):
-        """Calculate session duration"""
-        if obj.ended_at:
-            duration = obj.ended_at - obj.created_at
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_duration(self, obj) -> int:
+        """Calculate session duration in seconds"""
+        if obj.completed_at:
+            duration = obj.completed_at - obj.created_at
             return int(duration.total_seconds())
-        return None
+        return 0
 
 
 class WebRTCSignalSerializer(serializers.ModelSerializer):
     """Serializer for WebRTC signaling data"""
-    user = serializers.StringRelatedField(read_only=True)
+    session = serializers.StringRelatedField(read_only=True)
     
     class Meta:
         model = WebRTCSignal
         fields = [
-            'id', 'user', 'signal_type', 'signal_data', 'timestamp'
+            'id', 'session', 'signal_type', 'signal_data', 'direction', 'created_at'
         ]
-        read_only_fields = ['id', 'user', 'timestamp']
+        read_only_fields = ['id', 'session', 'created_at']
     
     def validate_signal_type(self, value):
         """Validate signal type"""

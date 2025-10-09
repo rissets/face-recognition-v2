@@ -1,0 +1,2666 @@
+openapi: 3.0.3
+info:
+  title: Face Recognition API
+  version: 1.0.0
+  description: Advanced Face Recognition System with real-time authentication, enrollment,
+    and analytics capabilities. Built with Django REST Framework, WebRTC, and AI-powered
+    face detection.
+  contact:
+    name: Face Recognition API Support
+    email: support@facerecognition.com
+  license:
+    name: MIT License
+    url: https://opensource.org/licenses/MIT
+paths:
+  /api/v1/auth/register/:
+    post:
+      operationId: v1_auth_register_create
+      description: User registration endpoint
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegistrationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserRegistrationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserRegistrationRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRegistration'
+          description: ''
+  /api/v1/auth/token/:
+    post:
+      operationId: v1_auth_token_create
+      description: Custom JWT token view with device tracking
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+        required: true
+      security:
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenObtainPair'
+          description: ''
+  /api/v1/auth/profile/:
+    get:
+      operationId: v1_auth_profile_retrieve
+      description: User profile endpoint
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+          description: ''
+    put:
+      operationId: v1_auth_profile_update
+      description: User profile endpoint
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserProfileRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserProfileRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserProfileRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+          description: ''
+    patch:
+      operationId: v1_auth_profile_partial_update
+      description: User profile endpoint
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserProfileRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserProfileRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserProfileRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+          description: ''
+  /api/v1/enrollment/create/:
+    post:
+      operationId: v1_enrollment_create_create
+      description: Create new enrollment session
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          description: No response body
+  /api/v1/enrollment/process-frame/:
+    post:
+      operationId: v1_enrollment_process_frame_create
+      description: Process frame for enrollment
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/face/create/:
+    post:
+      operationId: v1_auth_face_create_create
+      description: Create authentication session
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/face/process-frame/:
+    post:
+      operationId: v1_auth_face_process_frame_create
+      description: Process frame for authentication
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/webrtc/signal/:
+    post:
+      operationId: v1_webrtc_signal_create
+      description: WebRTC signaling endpoint
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/user/devices/:
+    get:
+      operationId: v1_user_devices_retrieve
+      description: User devices endpoint
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: v1_user_devices_create
+      description: User devices endpoint
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '201':
+          description: No response body
+  /api/v1/user/auth-history/:
+    get:
+      operationId: v1_user_auth_history_retrieve
+      description: User authentication history
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          description: No response body
+  /api/v1/user/security-alerts/:
+    get:
+      operationId: v1_user_security_alerts_retrieve
+      description: User security alerts
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          description: No response body
+  /api/v1/system/status/:
+    get:
+      operationId: v1_system_status_retrieve
+      description: Get system status
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          description: No response body
+  /api/v1/recognition/embeddings/:
+    get:
+      operationId: v1_recognition_embeddings_list
+      description: List face embeddings
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedFaceEmbeddingList'
+          description: ''
+  /api/v1/recognition/embeddings/{id}/:
+    get:
+      operationId: v1_recognition_embeddings_retrieve
+      description: Retrieve face embedding detail
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FaceEmbedding'
+          description: ''
+  /api/v1/recognition/sessions/:
+    get:
+      operationId: v1_recognition_sessions_list
+      description: List enrollment sessions
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEnrollmentSessionList'
+          description: ''
+  /api/v1/recognition/sessions/{id}/:
+    get:
+      operationId: v1_recognition_sessions_retrieve
+      description: Retrieve enrollment session detail
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentSession'
+          description: ''
+  /api/v1/recognition/attempts/:
+    get:
+      operationId: v1_recognition_attempts_list
+      description: List authentication attempts
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuthenticationAttemptList'
+          description: ''
+  /api/v1/recognition/attempts/{id}/:
+    get:
+      operationId: v1_recognition_attempts_retrieve
+      description: Retrieve authentication attempt detail
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticationAttempt'
+          description: ''
+  /api/v1/analytics/auth-logs/:
+    get:
+      operationId: v1_analytics_auth_logs_list
+      description: Retrieve a paginated list of authentication logs for the authenticated
+        user. Includes filtering capabilities.
+      summary: List Authentication Logs
+      parameters:
+      - in: query
+        name: auth_method
+        schema:
+          type: string
+          enum:
+          - 2fa
+          - face
+          - password
+          - social
+        description: Filter by authentication method
+      - in: query
+        name: date_from
+        schema:
+          type: string
+          format: date
+        description: Filter logs from this date (YYYY-MM-DD)
+      - in: query
+        name: date_to
+        schema:
+          type: string
+          format: date
+        description: Filter logs to this date (YYYY-MM-DD)
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: success
+        schema:
+          type: boolean
+        description: Filter by success status (true/false)
+        examples:
+          SuccessfulAttempts:
+            value: 'true'
+            summary: Successful attempts
+          FailedAttempts:
+            value: 'false'
+            summary: Failed attempts
+      tags:
+      - Analytics
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuthenticationLogList'
+              examples:
+                AuthenticationLogsResponse:
+                  value:
+                    count: 123
+                    next: http://api.example.org/accounts/?page=4
+                    previous: http://api.example.org/accounts/?page=2
+                    results:
+                    - count: 25
+                      next: http://api.example.org/accounts/?page=4
+                      previous: http://api.example.org/accounts/?page=2
+                      results:
+                      - id: uuid
+                        user: 1
+                        auth_method: face
+                        success: true
+                        similarity_score: 0.95
+                        timestamp: '2024-01-01T10:00:00Z'
+                  summary: Authentication logs response
+          description: List of authentication logs
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+  /api/v1/analytics/auth-logs/{id}/:
+    get:
+      operationId: v1_analytics_auth_logs_retrieve
+      description: Retrieve detailed information about a specific authentication log
+        entry.
+      summary: Get Authentication Log Details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Analytics
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticationLog'
+              examples:
+                AuthenticationLogDetail:
+                  value:
+                    id: uuid-string
+                    user: 1
+                    attempted_email: user@example.com
+                    auth_method: face
+                    success: true
+                    failure_reason: ''
+                    ip_address: 192.168.1.1
+                    user_agent: Mozilla/5.0...
+                    device_fingerprint: device-hash
+                    location: Jakarta, Indonesia
+                    response_time: 1250.5
+                    similarity_score: 0.95
+                    liveness_score: 0.88
+                    quality_score: 0.92
+                    risk_score: 0.15
+                    risk_factors:
+                    - unusual_time
+                    session_id: session-uuid
+                    timestamp: '2024-01-01T10:00:00Z'
+                  summary: Authentication log detail
+          description: Authentication log details
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Authentication log not found
+  /api/v1/analytics/security-alerts/:
+    get:
+      operationId: v1_analytics_security_alerts_list
+      description: Retrieve a paginated list of security alerts for the authenticated
+        user with filtering capabilities.
+      summary: List Security Alerts
+      parameters:
+      - in: query
+        name: alert_type
+        schema:
+          type: string
+          enum:
+          - brute_force
+          - device_change
+          - face_mismatch
+          - suspicious_login
+          - unusual_activity
+        description: Filter by alert type
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: resolved
+        schema:
+          type: boolean
+        description: Filter by resolution status
+      - in: query
+        name: severity
+        schema:
+          type: string
+          enum:
+          - critical
+          - high
+          - low
+          - medium
+        description: Filter by alert severity
+      tags:
+      - Analytics
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSecurityAlertList'
+          description: List of security alerts
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+  /api/v1/analytics/security-alerts/{id}/:
+    get:
+      operationId: v1_analytics_security_alerts_retrieve
+      description: Retrieve detailed information about a specific security alert.
+      summary: Get Security Alert Details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Analytics
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityAlert'
+          description: Security alert details
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Security alert not found
+  /api/v1/analytics/dashboard/:
+    get:
+      operationId: v1_analytics_dashboard_retrieve
+      description: Get comprehensive analytics dashboard data including authentication
+        statistics, security alerts, and performance metrics for the last 30 days.
+      summary: Analytics Dashboard
+      parameters:
+      - in: query
+        name: period
+        schema:
+          type: string
+          enum:
+          - 1_year
+          - 30_days
+          - 7_days
+          - 90_days
+          default: 30_days
+        description: Time period for analytics
+      tags:
+      - Analytics
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardResponse'
+              examples:
+                DashboardData:
+                  value:
+                    auth_stats:
+                      total_attempts: 150
+                      successful_attempts: 142
+                      avg_similarity: 0.89
+                      avg_liveness: 0.85
+                      avg_quality: 0.92
+                      success_rate: 94.67
+                    alert_count: 3
+                    recent_activities:
+                    - timestamp: '2024-01-01T10:00:00Z'
+                      type: authentication
+                      success: true
+                      method: face
+                    performance_metrics:
+                      avg_response_time: 1250.5
+                      min_response_time: 800.2
+                      max_response_time: 2100.8
+                    risk_analysis:
+                      avg_risk_score: 0.15
+                      high_risk_attempts: 2
+                      common_risk_factors:
+                      - unusual_time
+                      - new_device
+                    period: 30_days
+                    date_range:
+                      from: '2023-12-02'
+                      to: '2024-01-01'
+                  summary: Dashboard data
+          description: Dashboard analytics data
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+  /api/v1/analytics/statistics/:
+    get:
+      operationId: v1_analytics_statistics_retrieve
+      description: Get comprehensive user statistics including authentication attempts,
+        success rates, and user profile information.
+      summary: User Statistics
+      tags:
+      - Analytics
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsResponse'
+              examples:
+                UserStatistics:
+                  value:
+                    total_attempts: 150
+                    successful_attempts: 142
+                    failed_attempts: 8
+                    success_rate: 94.67
+                    face_enrolled: true
+                    last_login: '2024-01-01T10:00:00Z'
+                    account_created: '2023-06-15T08:30:00Z'
+                    authentication_methods:
+                    - face
+                    - password
+                    avg_scores:
+                      similarity: 0.89
+                      liveness: 0.85
+                      quality: 0.92
+                    security_status:
+                      active_alerts: 0
+                      risk_level: low
+                      last_security_scan: '2024-01-01T09:00:00Z'
+                  summary: User statistics
+          description: User statistics
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+  /api/v1/streaming/sessions/:
+    get:
+      operationId: v1_streaming_sessions_list
+      description: List streaming sessions for the authenticated user
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStreamingSessionList'
+          description: ''
+  /api/v1/streaming/sessions/{id}/:
+    get:
+      operationId: v1_streaming_sessions_retrieve
+      description: Get details of a specific streaming session
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamingSession'
+          description: ''
+  /api/v1/streaming/sessions/create/:
+    post:
+      operationId: v1_streaming_sessions_create_create
+      description: Create a new streaming session
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StreamingSessionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StreamingSessionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StreamingSessionRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamingSession'
+          description: ''
+  /api/v1/streaming/signaling/:
+    get:
+      operationId: v1_streaming_signaling_retrieve
+      description: Get recent signaling messages for the user
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: v1_streaming_signaling_create
+      description: Handle WebRTC signaling (offer, answer, ICE candidates)
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/profile/:
+    get:
+      operationId: v1_users_profile_retrieve
+      description: Get user profile information
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          description: No response body
+    put:
+      operationId: v1_users_profile_update
+      description: Update user profile
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/devices/:
+    get:
+      operationId: v1_users_devices_list
+      description: List user's registered devices
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserDeviceList'
+          description: ''
+  /api/v1/users/devices/{id}/:
+    get:
+      operationId: v1_users_devices_retrieve
+      description: Get, update, or delete a specific user device
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDevice'
+          description: ''
+    put:
+      operationId: v1_users_devices_update
+      description: Get, update, or delete a specific user device
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserDeviceRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserDeviceRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserDeviceRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDevice'
+          description: ''
+    patch:
+      operationId: v1_users_devices_partial_update
+      description: Get, update, or delete a specific user device
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDeviceRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDeviceRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDeviceRequest'
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDevice'
+          description: ''
+    delete:
+      operationId: v1_users_devices_destroy
+      description: Get, update, or delete a specific user device
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - jwtAuth: []
+      - cookieAuth: []
+      - BearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+          description: JWT token obtained from /api/v1/auth/token/ endpoint
+      responses:
+        '204':
+          description: No response body
+components:
+  schemas:
+    AlertTypeEnum:
+      enum:
+      - failed_attempts
+      - new_device
+      - location_anomaly
+      - time_anomaly
+      - quality_degradation
+      - system_breach
+      - data_anomaly
+      type: string
+      description: |-
+        * `failed_attempts` - Multiple Failed Attempts
+        * `new_device` - New Device Login
+        * `location_anomaly` - Unusual Location
+        * `time_anomaly` - Unusual Time
+        * `quality_degradation` - Quality Degradation
+        * `system_breach` - System Breach Attempt
+        * `data_anomaly` - Data Anomaly
+    AuthMethodEnum:
+      enum:
+      - face
+      - password
+      - 2fa
+      - social
+      type: string
+      description: |-
+        * `face` - Face Recognition
+        * `password` - Password
+        * `2fa` - Two Factor
+        * `social` - Social Login
+    AuthStats:
+      type: object
+      description: Authentication statistics serializer
+      properties:
+        total_attempts:
+          type: integer
+          description: Total authentication attempts
+        successful_attempts:
+          type: integer
+          description: Number of successful attempts
+        avg_similarity:
+          type: number
+          format: double
+          nullable: true
+          description: Average similarity score
+        avg_liveness:
+          type: number
+          format: double
+          nullable: true
+          description: Average liveness score
+        avg_quality:
+          type: number
+          format: double
+          nullable: true
+          description: Average quality score
+        success_rate:
+          type: number
+          format: double
+          description: Success rate percentage
+      required:
+      - avg_liveness
+      - avg_quality
+      - avg_similarity
+      - success_rate
+      - successful_attempts
+      - total_attempts
+    AuthenticationAttempt:
+      type: object
+      description: Serializer for AuthenticationAttempt model
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        user:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        session_id:
+          type: string
+          maxLength: 255
+        result:
+          $ref: '#/components/schemas/ResultEnum'
+        is_successful:
+          type: string
+          readOnly: true
+        similarity_score:
+          type: number
+          format: double
+          maximum: 1.0
+          minimum: 0.0
+          nullable: true
+        liveness_score:
+          type: number
+          format: double
+          maximum: 1.0
+          minimum: 0.0
+        quality_score:
+          type: number
+          format: double
+          maximum: 1.0
+          minimum: 0.0
+        obstacles_detected: {}
+        processing_time:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        ip_address:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+        device_fingerprint:
+          type: string
+          maxLength: 255
+        face_bbox:
+          nullable: true
+        metadata: {}
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - is_successful
+      - processing_time
+      - result
+      - session_id
+      - user
+    AuthenticationLog:
+      type: object
+      description: Comprehensive serializer for AuthenticationLog model with detailed
+        field documentation
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Unique identifier for the authentication log
+        user:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+          description: User who attempted authentication
+        user_email:
+          type: string
+          readOnly: true
+          description: User's email address
+        user_full_name:
+          type: string
+          readOnly: true
+          description: User's full name
+        attempted_email:
+          type: string
+          format: email
+          description: Email used in authentication attempt
+          maxLength: 254
+        auth_method:
+          allOf:
+          - $ref: '#/components/schemas/AuthMethodEnum'
+          description: |-
+            Authentication method used (face, password, 2fa, social)
+
+            * `face` - Face Recognition
+            * `password` - Password
+            * `2fa` - Two Factor
+            * `social` - Social Login
+        success:
+          type: boolean
+          description: Whether the authentication was successful
+        failure_reason:
+          description: |-
+            Reason for authentication failure
+
+            * `invalid_credentials` - Invalid Credentials
+            * `face_not_recognized` - Face Not Recognized
+            * `liveness_failed` - Liveness Check Failed
+            * `quality_too_low` - Image Quality Too Low
+            * `multiple_faces` - Multiple Faces Detected
+            * `no_face_detected` - No Face Detected
+            * `obstacles_detected` - Obstacles Detected
+            * `account_disabled` - Account Disabled
+            * `rate_limited` - Rate Limited
+            * `system_error` - System Error
+          oneOf:
+          - $ref: '#/components/schemas/FailureReasonEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        similarity_score:
+          type: number
+          format: double
+          nullable: true
+          description: Face similarity score (0.0-1.0)
+        liveness_score:
+          type: number
+          format: double
+          nullable: true
+          description: Liveness detection score (0.0-1.0)
+        quality_score:
+          type: number
+          format: double
+          nullable: true
+          description: Image quality score (0.0-1.0)
+        response_time:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+          description: Authentication response time in milliseconds
+        ip_address:
+          type: string
+          nullable: true
+          description: IP address of the authentication attempt
+        user_agent:
+          type: string
+          description: Browser/client user agent string
+        device_fingerprint:
+          type: string
+          description: Unique device fingerprint
+          maxLength: 255
+        location:
+          type: string
+          description: Geographic location (City, Country)
+          maxLength: 100
+        risk_score:
+          type: number
+          format: double
+          description: Calculated risk score (0.0-1.0)
+        risk_factors:
+          description: List of identified risk factors
+        session_id:
+          type: string
+          description: Associated session identifier
+          maxLength: 255
+        timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the authentication occurred
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - response_time
+      - timestamp
+      - user
+      - user_email
+      - user_full_name
+    AvgScores:
+      type: object
+      description: Average scores serializer
+      properties:
+        similarity:
+          type: number
+          format: double
+          description: Average similarity score
+        liveness:
+          type: number
+          format: double
+          description: Average liveness score
+        quality:
+          type: number
+          format: double
+          description: Average quality score
+      required:
+      - liveness
+      - quality
+      - similarity
+    BlankEnum:
+      enum:
+      - ''
+    DashboardResponse:
+      type: object
+      description: Dashboard response serializer for comprehensive analytics data
+      properties:
+        auth_stats:
+          allOf:
+          - $ref: '#/components/schemas/AuthStats'
+          description: Authentication statistics
+        alert_count:
+          type: integer
+          description: Number of security alerts in the period
+        recent_activities:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecentActivity'
+          description: Recent authentication activities
+        performance_metrics:
+          allOf:
+          - $ref: '#/components/schemas/PerformanceMetrics'
+          description: System performance metrics
+        risk_analysis:
+          allOf:
+          - $ref: '#/components/schemas/RiskAnalysis'
+          description: Risk analysis data
+        period:
+          type: string
+          description: Time period for the analytics
+        date_range:
+          allOf:
+          - $ref: '#/components/schemas/DateRange'
+          description: Date range of the analytics period
+      required:
+      - alert_count
+      - auth_stats
+      - date_range
+      - performance_metrics
+      - period
+      - recent_activities
+      - risk_analysis
+    DateRange:
+      type: object
+      description: Date range serializer
+      properties:
+        from_date:
+          type: string
+          format: date
+          description: Start date of the period
+        to_date:
+          type: string
+          format: date
+          description: End date of the period
+      required:
+      - from_date
+      - to_date
+    DeviceTypeEnum:
+      enum:
+      - web
+      - mobile
+      - desktop
+      type: string
+      description: |-
+        * `web` - Web Browser
+        * `mobile` - Mobile App
+        * `desktop` - Desktop App
+    EnrollmentSession:
+      type: object
+      description: Serializer for EnrollmentSession model
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        user:
+          type: string
+          format: uuid
+          readOnly: true
+        session_token:
+          type: string
+          readOnly: true
+        status:
+          $ref: '#/components/schemas/EnrollmentSessionStatusEnum'
+        target_samples:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        completed_samples:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        progress_percentage:
+          type: string
+          readOnly: true
+        average_quality:
+          type: number
+          format: double
+        min_quality_threshold:
+          type: number
+          format: double
+        device_info: {}
+        session_log: {}
+        error_messages:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+          readOnly: true
+        completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - completed_at
+      - expires_at
+      - id
+      - progress_percentage
+      - session_token
+      - started_at
+      - user
+    EnrollmentSessionStatusEnum:
+      enum:
+      - pending
+      - in_progress
+      - completed
+      - failed
+      - cancelled
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `in_progress` - In Progress
+        * `completed` - Completed
+        * `failed` - Failed
+        * `cancelled` - Cancelled
+    FaceEmbedding:
+      type: object
+      description: Serializer for FaceEmbedding model
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        user:
+          type: string
+          format: uuid
+          readOnly: true
+        quality_score:
+          type: number
+          format: double
+          maximum: 1.0
+          minimum: 0.0
+          description: Quality score of the face capture (0-1)
+        confidence_score:
+          type: number
+          format: double
+          maximum: 1.0
+          minimum: 0.0
+          description: Detection confidence score (0-1)
+        face_bbox:
+          description: Face bounding box coordinates [x1, y1, x2, y2]
+        face_landmarks:
+          nullable: true
+          description: Facial landmarks coordinates
+        sample_number:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        liveness_score:
+          type: number
+          format: double
+          maximum: 1.0
+          minimum: 0.0
+          description: Liveness detection score
+        anti_spoofing_score:
+          type: number
+          format: double
+          maximum: 1.0
+          minimum: 0.0
+          description: Anti-spoofing detection score
+        is_active:
+          type: boolean
+        is_verified:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - confidence_score
+      - created_at
+      - face_bbox
+      - id
+      - quality_score
+      - sample_number
+      - updated_at
+      - user
+    FailureReasonEnum:
+      enum:
+      - invalid_credentials
+      - face_not_recognized
+      - liveness_failed
+      - quality_too_low
+      - multiple_faces
+      - no_face_detected
+      - obstacles_detected
+      - account_disabled
+      - rate_limited
+      - system_error
+      type: string
+      description: |-
+        * `invalid_credentials` - Invalid Credentials
+        * `face_not_recognized` - Face Not Recognized
+        * `liveness_failed` - Liveness Check Failed
+        * `quality_too_low` - Image Quality Too Low
+        * `multiple_faces` - Multiple Faces Detected
+        * `no_face_detected` - No Face Detected
+        * `obstacles_detected` - Obstacles Detected
+        * `account_disabled` - Account Disabled
+        * `rate_limited` - Rate Limited
+        * `system_error` - System Error
+    PaginatedAuthenticationAttemptList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthenticationAttempt'
+    PaginatedAuthenticationLogList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthenticationLog'
+    PaginatedEnrollmentSessionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnrollmentSession'
+    PaginatedFaceEmbeddingList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/FaceEmbedding'
+    PaginatedSecurityAlertList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityAlert'
+    PaginatedStreamingSessionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/StreamingSession'
+    PaginatedUserDeviceList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserDevice'
+    PatchedUserDeviceRequest:
+      type: object
+      description: Serializer for user devices
+      properties:
+        device_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        device_type:
+          $ref: '#/components/schemas/DeviceTypeEnum'
+        operating_system:
+          type: string
+          maxLength: 50
+        browser:
+          type: string
+          maxLength: 50
+        user_agent:
+          type: string
+        is_trusted:
+          type: boolean
+        last_ip:
+          type: string
+          nullable: true
+          minLength: 1
+        last_location:
+          type: string
+          maxLength: 100
+        is_active:
+          type: boolean
+    PatchedUserProfileRequest:
+      type: object
+      description: User profile serializer
+      properties:
+        username:
+          type: string
+          minLength: 1
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone_number:
+          type: string
+          description: Phone number in international format
+          pattern: ^\+?1?\d{9,15}$
+          maxLength: 17
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+        profile_picture:
+          type: string
+          format: binary
+          nullable: true
+          description: Profile picture for identification
+        bio:
+          type: string
+          maxLength: 500
+        face_auth_enabled:
+          type: boolean
+          description: Enable face authentication for this user
+        two_factor_enabled:
+          type: boolean
+        is_verified:
+          type: boolean
+          description: Email verification status
+        last_face_auth:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last successful face authentication
+    PerformanceMetrics:
+      type: object
+      description: Performance metrics serializer
+      properties:
+        avg_response_time:
+          type: number
+          format: double
+          nullable: true
+          description: Average response time in milliseconds
+        min_response_time:
+          type: number
+          format: double
+          nullable: true
+          description: Minimum response time in milliseconds
+        max_response_time:
+          type: number
+          format: double
+          nullable: true
+          description: Maximum response time in milliseconds
+      required:
+      - avg_response_time
+      - max_response_time
+      - min_response_time
+    RecentActivity:
+      type: object
+      description: Recent activity serializer
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Activity timestamp
+        success:
+          type: boolean
+          description: Whether the attempt was successful
+        auth_method:
+          type: string
+          description: Authentication method used
+        failure_reason:
+          type: string
+          description: Reason for failure if any
+      required:
+      - auth_method
+      - failure_reason
+      - success
+      - timestamp
+    ResultEnum:
+      enum:
+      - success
+      - failed_similarity
+      - failed_liveness
+      - failed_quality
+      - failed_obstacles
+      - failed_multiple_faces
+      - failed_no_face
+      - failed_system_error
+      type: string
+      description: |-
+        * `success` - Success
+        * `failed_similarity` - Failed - Low Similarity
+        * `failed_liveness` - Failed - Liveness Check
+        * `failed_quality` - Failed - Poor Quality
+        * `failed_obstacles` - Failed - Obstacles Detected
+        * `failed_multiple_faces` - Failed - Multiple Faces
+        * `failed_no_face` - Failed - No Face Detected
+        * `failed_system_error` - Failed - System Error
+    RiskAnalysis:
+      type: object
+      description: Risk analysis serializer
+      properties:
+        avg_risk_score:
+          type: number
+          format: double
+          nullable: true
+          description: Average risk score
+        high_risk_attempts:
+          type: integer
+          description: Number of high risk attempts
+      required:
+      - avg_risk_score
+      - high_risk_attempts
+    SecurityAlert:
+      type: object
+      description: Comprehensive serializer for SecurityAlert model with detailed
+        field documentation
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Unique identifier for the security alert
+        user:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+          description: User associated with this alert
+        user_email:
+          type: string
+          readOnly: true
+          description: User's email address
+        alert_type:
+          allOf:
+          - $ref: '#/components/schemas/AlertTypeEnum'
+          description: |-
+            Type of security alert
+
+            * `failed_attempts` - Multiple Failed Attempts
+            * `new_device` - New Device Login
+            * `location_anomaly` - Unusual Location
+            * `time_anomaly` - Unusual Time
+            * `quality_degradation` - Quality Degradation
+            * `system_breach` - System Breach Attempt
+            * `data_anomaly` - Data Anomaly
+        severity:
+          allOf:
+          - $ref: '#/components/schemas/SeverityEnum'
+          description: |-
+            Alert severity level (low, medium, high, critical)
+
+            * `info` - Info
+            * `low` - Low
+            * `medium` - Medium
+            * `high` - High
+            * `critical` - Critical
+        title:
+          type: string
+          description: Alert title/summary
+          maxLength: 200
+        description:
+          type: string
+          description: Detailed alert description
+        ip_address:
+          type: string
+          nullable: true
+          description: IP address related to the alert
+        context_data:
+          description: Additional context data in JSON format
+        acknowledged:
+          type: boolean
+          description: Whether the alert has been acknowledged
+        acknowledged_by:
+          type: string
+          format: uuid
+          nullable: true
+          description: User who acknowledged the alert
+        acknowledged_by_name:
+          type: string
+          readOnly: true
+          description: Name of person who acknowledged alert
+        acknowledged_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when alert was acknowledged
+        resolved:
+          type: boolean
+          description: Whether the alert has been resolved
+        resolved_by:
+          type: string
+          format: uuid
+          nullable: true
+          description: User who resolved the alert
+        resolved_by_name:
+          type: string
+          readOnly: true
+          description: Name of person who resolved alert
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when alert was resolved
+        resolution_notes:
+          type: string
+          description: Notes about how the alert was resolved
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - acknowledged_by_name
+      - alert_type
+      - created_at
+      - description
+      - id
+      - resolved_by_name
+      - title
+      - user
+      - user_email
+    SecurityStatus:
+      type: object
+      description: Security status serializer
+      properties:
+        active_alerts:
+          type: integer
+          description: Number of active security alerts
+        risk_level:
+          type: string
+          description: Current risk level (low, medium, high)
+        last_security_scan:
+          type: string
+          format: date-time
+          description: Last security scan timestamp
+      required:
+      - active_alerts
+      - last_security_scan
+      - risk_level
+    SessionTypeEnum:
+      enum:
+      - enrollment
+      - authentication
+      - verification
+      type: string
+      description: |-
+        * `enrollment` - Enrollment
+        * `authentication` - Authentication
+        * `verification` - Verification
+    SeverityEnum:
+      enum:
+      - info
+      - low
+      - medium
+      - high
+      - critical
+      type: string
+      description: |-
+        * `info` - Info
+        * `low` - Low
+        * `medium` - Medium
+        * `high` - High
+        * `critical` - Critical
+    StatisticsResponse:
+      type: object
+      description: Statistics response serializer for comprehensive user statistics
+      properties:
+        total_attempts:
+          type: integer
+          description: Total authentication attempts
+        successful_attempts:
+          type: integer
+          description: Number of successful attempts
+        failed_attempts:
+          type: integer
+          description: Number of failed attempts
+        success_rate:
+          type: number
+          format: double
+          description: Success rate percentage
+        face_enrolled:
+          type: boolean
+          description: Whether user has enrolled face biometrics
+        last_login:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last login timestamp
+        account_created:
+          type: string
+          format: date-time
+          description: Account creation timestamp
+        authentication_methods:
+          type: array
+          items:
+            type: string
+          description: List of authentication methods used
+        avg_scores:
+          allOf:
+          - $ref: '#/components/schemas/AvgScores'
+          description: Average biometric scores
+        security_status:
+          allOf:
+          - $ref: '#/components/schemas/SecurityStatus'
+          description: Current security status
+      required:
+      - account_created
+      - authentication_methods
+      - avg_scores
+      - face_enrolled
+      - failed_attempts
+      - last_login
+      - security_status
+      - success_rate
+      - successful_attempts
+      - total_attempts
+    StreamingSession:
+      type: object
+      description: Serializer for streaming sessions
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        user:
+          type: string
+          readOnly: true
+        session_token:
+          type: string
+          readOnly: true
+        session_type:
+          $ref: '#/components/schemas/SessionTypeEnum'
+        status:
+          $ref: '#/components/schemas/StreamingSessionStatusEnum'
+        ice_servers: {}
+        constraints: {}
+        peer_connection_id:
+          type: string
+          maxLength: 255
+        remote_address:
+          type: string
+          nullable: true
+        video_quality:
+          type: string
+          maxLength: 10
+        frame_rate:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        bitrate:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        session_data: {}
+        error_log:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        connected_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        duration:
+          type: string
+          readOnly: true
+      required:
+      - created_at
+      - duration
+      - id
+      - session_token
+      - session_type
+      - user
+    StreamingSessionRequest:
+      type: object
+      description: Serializer for streaming sessions
+      properties:
+        session_type:
+          $ref: '#/components/schemas/SessionTypeEnum'
+        status:
+          $ref: '#/components/schemas/StreamingSessionStatusEnum'
+        ice_servers: {}
+        constraints: {}
+        peer_connection_id:
+          type: string
+          maxLength: 255
+        remote_address:
+          type: string
+          nullable: true
+          minLength: 1
+        video_quality:
+          type: string
+          maxLength: 10
+        frame_rate:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        bitrate:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        session_data: {}
+        error_log:
+          type: string
+        connected_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - session_type
+    StreamingSessionStatusEnum:
+      enum:
+      - initiating
+      - connecting
+      - connected
+      - processing
+      - completed
+      - failed
+      - disconnected
+      type: string
+      description: |-
+        * `initiating` - Initiating
+        * `connecting` - Connecting
+        * `connected` - Connected
+        * `processing` - Processing
+        * `completed` - Completed
+        * `failed` - Failed
+        * `disconnected` - Disconnected
+    TokenObtainPair:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          readOnly: true
+      required:
+      - access
+      - refresh
+    TokenObtainPairRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - email
+      - password
+    UserDevice:
+      type: object
+      description: Serializer for user devices
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        user:
+          type: string
+          readOnly: true
+        device_id:
+          type: string
+          readOnly: true
+        device_name:
+          type: string
+          maxLength: 100
+        device_type:
+          $ref: '#/components/schemas/DeviceTypeEnum'
+        operating_system:
+          type: string
+          maxLength: 50
+        browser:
+          type: string
+          maxLength: 50
+        user_agent:
+          type: string
+        is_trusted:
+          type: boolean
+        last_ip:
+          type: string
+          nullable: true
+        last_location:
+          type: string
+          maxLength: 100
+        first_seen:
+          type: string
+          format: date-time
+          readOnly: true
+        last_seen:
+          type: string
+          format: date-time
+          readOnly: true
+        login_count:
+          type: integer
+          readOnly: true
+        is_active:
+          type: boolean
+        duration_since_last_seen:
+          type: string
+          readOnly: true
+      required:
+      - device_id
+      - device_name
+      - device_type
+      - duration_since_last_seen
+      - first_seen
+      - id
+      - last_seen
+      - login_count
+      - user
+    UserDeviceRequest:
+      type: object
+      description: Serializer for user devices
+      properties:
+        device_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        device_type:
+          $ref: '#/components/schemas/DeviceTypeEnum'
+        operating_system:
+          type: string
+          maxLength: 50
+        browser:
+          type: string
+          maxLength: 50
+        user_agent:
+          type: string
+        is_trusted:
+          type: boolean
+        last_ip:
+          type: string
+          nullable: true
+          minLength: 1
+        last_location:
+          type: string
+          maxLength: 100
+        is_active:
+          type: boolean
+      required:
+      - device_name
+      - device_type
+    UserProfile:
+      type: object
+      description: User profile serializer
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        full_name:
+          type: string
+          readOnly: true
+        phone_number:
+          type: string
+          description: Phone number in international format
+          pattern: ^\+?1?\d{9,15}$
+          maxLength: 17
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+        profile_picture:
+          type: string
+          format: uri
+          nullable: true
+          description: Profile picture for identification
+        bio:
+          type: string
+          maxLength: 500
+        face_enrolled:
+          type: boolean
+          readOnly: true
+        enrollment_progress:
+          type: number
+          format: double
+          readOnly: true
+        face_auth_enabled:
+          type: boolean
+          description: Enable face authentication for this user
+        two_factor_enabled:
+          type: boolean
+        is_verified:
+          type: boolean
+          description: Email verification status
+        last_face_auth:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last successful face authentication
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - email
+      - enrollment_progress
+      - face_enrolled
+      - full_name
+      - id
+      - username
+    UserProfileRequest:
+      type: object
+      description: User profile serializer
+      properties:
+        username:
+          type: string
+          minLength: 1
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone_number:
+          type: string
+          description: Phone number in international format
+          pattern: ^\+?1?\d{9,15}$
+          maxLength: 17
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+        profile_picture:
+          type: string
+          format: binary
+          nullable: true
+          description: Profile picture for identification
+        bio:
+          type: string
+          maxLength: 500
+        face_auth_enabled:
+          type: boolean
+          description: Enable face authentication for this user
+        two_factor_enabled:
+          type: boolean
+        is_verified:
+          type: boolean
+          description: Email verification status
+        last_face_auth:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last successful face authentication
+      required:
+      - username
+    UserRegistration:
+      type: object
+      description: User registration serializer
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        phone_number:
+          type: string
+          description: Phone number in international format
+          pattern: ^\+?1?\d{9,15}$
+          maxLength: 17
+      required:
+      - email
+      - username
+    UserRegistrationRequest:
+      type: object
+      description: User registration serializer
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+          maxLength: 254
+        username:
+          type: string
+          minLength: 1
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+        password_confirm:
+          type: string
+          writeOnly: true
+          minLength: 1
+        phone_number:
+          type: string
+          description: Phone number in international format
+          pattern: ^\+?1?\d{9,15}$
+          maxLength: 17
+      required:
+      - email
+      - password
+      - password_confirm
+      - username
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+servers:
+- url: http://127.0.0.1:8000
+  description: Development Server
+- url: https://api.facerecognition.com
+  description: Production Server
+tags:
+- name: Authentication
+  description: User authentication and JWT token management
+- name: Face Enrollment
+  description: Face enrollment and embedding management
+- name: Face Recognition
+  description: Real-time face authentication and verification
+- name: WebRTC
+  description: WebRTC signaling and streaming sessions
+- name: Analytics
+  description: System analytics and security monitoring
+- name: User Management
+  description: User profile and device management
+- name: System
+  description: System status and health checks
+externalDocs:
+  description: Face Recognition Documentation
+  url: https://docs.facerecognition.com/
