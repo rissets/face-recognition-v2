@@ -1,5 +1,5 @@
-Django
-djangorestframework
+Django==5.0.*
+djangorestframework==3.14.*
 django-unfold
 django-cors-headers
 channels
@@ -41,6 +41,18 @@ django-encrypted-model-fields
 aiortc
 aioice
 
+# MinIO Storage
+minio
+django-storages[boto3]
+
+# Webhook & API
+requests
+httpx
+
+# Monitoring & Metrics
+prometheus-client
+django-prometheus
+
 # Testing
 pytest
 pytest-django
@@ -53,3 +65,7 @@ django-debug-toolbar
 
 # API Documentation
 drf-spectacular[sidecar]
+
+# Authentication & JWT
+pyjwt
+cryptography

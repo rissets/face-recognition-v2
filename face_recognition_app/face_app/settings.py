@@ -89,8 +89,11 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     "core",
-    "users",
-    "recognition",
+    "users",  # Custom user model for admin authentication
+    "clients",
+    "webhooks", 
+    "auth_service",
+    "recognition",  # Legacy - will be deprecated
     "analytics",
     "streaming",
 ]
@@ -167,8 +170,9 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-# Custom User Model
-AUTH_USER_MODEL = "users.CustomUser"
+# Custom User Model for admin authentication
+# ClientUser model handles third-party client users
+AUTH_USER_MODEL = 'users.CustomUser'
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
@@ -184,14 +188,39 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
 STATICFILES_DIRS = [BASE_DIR / "staticfiles"]
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+# MinIO Configuration for Media Storage
+USE_MINIO = config("USE_MINIO", default=False, cast=bool)
+
+if USE_MINIO:
+    # MinIO Storage Settings
+    AWS_ACCESS_KEY_ID = config("MINIO_ACCESS_KEY", default="minioadmin")
+    AWS_SECRET_ACCESS_KEY = config("MINIO_SECRET_KEY", default="minioadmin123")
+    AWS_STORAGE_BUCKET_NAME = config("MINIO_BUCKET_NAME", default="face-recognition")
+    AWS_S3_ENDPOINT_URL = config("MINIO_ENDPOINT", default="http://localhost:9000")
+    # AWS_S3_REGION_NAME = config("MINIO_REGION", default="us-east-1")
+    AWS_DEFAULT_ACL = None
+    AWS_S3_OBJECT_PARAMETERS = {
+        'CacheControl': 'max-age=86400',
+    }
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_LOCATION = 'media'
+    
+    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+    STATICFILES_STORAGE = 'storages.backends.s3boto3.S3StaticStorage'
+    
+    MEDIA_URL = f"{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/{AWS_LOCATION}/"
+else:
+    # Local file storage (development)
+    MEDIA_URL = "/media/"
+    MEDIA_ROOT = BASE_DIR / "media"
 
 # Django REST Framework Configuration
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-        "rest_framework.authentication.SessionAuthentication",
+        "auth_service.authentication.APIKeyAuthentication",
+        "auth_service.authentication.JWTClientAuthentication",
+        "auth_service.authentication.WebhookSignatureAuthentication",
+        "rest_framework.authentication.SessionAuthentication",  # For admin interface
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -267,7 +296,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOW_HEADERS = [
     "accept",
-    "accept-encoding",
+    "accept-encoding", 
     "authorization",
     "content-type",
     "dnt",
@@ -275,6 +304,12 @@ CORS_ALLOW_HEADERS = [
     "user-agent",
     "x-csrftoken",
     "x-requested-with",
+    # Third-party service headers
+    "x-api-key",
+    "x-client-id",
+    "x-fr-signature",
+    "x-fr-timestamp",
+    "x-fr-event",
 ]
 
 # Security Settings
@@ -290,12 +325,89 @@ FACE_RECOGNITION_CONFIG = {
     "MODEL_NAME": "buffalo_l",
     "DET_SIZE": (640, 640),
     "VERIFICATION_THRESHOLD": 0.4,
-    "LIVENESS_THRESHOLD": 2,
+    "LIVENESS_THRESHOLD": 0.8,  # Enhanced liveness detection
+    "ANTI_SPOOFING_THRESHOLD": 0.7,  # Anti-spoofing detection
     "EMBEDDING_DIMENSION": 512,
     "MAX_ENROLLMENT_SAMPLES": 5,
     "MIN_FACE_SIZE": 100,
     "MAX_FACE_SIZE": 800,
     "CAPTURE_QUALITY_THRESHOLD": 0.7,
+    "LIVENESS_METHODS": ["blink_detection", "motion_detection", "texture_analysis"],
+    "OBSTACLE_DETECTION_ENABLED": True,
+}
+
+# Third-Party Service Configuration
+THIRD_PARTY_SERVICE_CONFIG = {
+    "DEFAULT_SESSION_TIMEOUT": 600,  # 10 minutes
+    "MAX_API_CALLS_PER_HOUR": 10000,
+    "MAX_API_CALLS_PER_DAY": 100000,
+    "RATE_LIMIT_WINDOW": 3600,  # 1 hour in seconds
+    "MAX_WEBHOOK_RETRIES": 3,
+    "WEBHOOK_TIMEOUT": 30,  # seconds
+    "WEBHOOK_RETRY_DELAYS": [60, 300, 900],  # 1min, 5min, 15min
+    "API_KEY_EXPIRY_DAYS": 365,
+    "SECRET_KEY_ROTATION_DAYS": 90,
+}
+
+# Client Feature Tiers
+CLIENT_FEATURE_TIERS = {
+    "basic": {
+        "max_users": 1000,
+        "max_api_calls_per_hour": 1000,
+        "max_api_calls_per_day": 10000,
+        "features": ["enrollment", "recognition"],
+        "webhook_events": ["enrollment.completed", "recognition.success", "recognition.failed"],
+        "analytics": False,
+        "liveness_detection": False,
+        "anti_spoofing": False,
+        "priority_support": False,
+    },
+    "premium": {
+        "max_users": 10000,
+        "max_api_calls_per_hour": 5000,
+        "max_api_calls_per_day": 50000,
+        "features": ["enrollment", "recognition", "liveness_detection", "analytics"],
+        "webhook_events": [
+            "enrollment.completed", "enrollment.failed",
+            "recognition.success", "recognition.failed", "recognition.attempt",
+            "liveness.failed"
+        ],
+        "analytics": True,
+        "liveness_detection": True,
+        "anti_spoofing": False,
+        "priority_support": True,
+    },
+    "enterprise": {
+        "max_users": 100000,
+        "max_api_calls_per_hour": 20000,
+        "max_api_calls_per_day": 200000,
+        "features": [
+            "enrollment", "recognition", "liveness_detection", 
+            "anti_spoofing", "batch_processing", "analytics"
+        ],
+        "webhook_events": [
+            "enrollment.started", "enrollment.completed", "enrollment.failed",
+            "recognition.success", "recognition.failed", "recognition.attempt",
+            "liveness.failed", "spoofing.detected", "system.alert"
+        ],
+        "analytics": True,
+        "liveness_detection": True,
+        "anti_spoofing": True,
+        "priority_support": True,
+        "dedicated_support": True,
+        "custom_integrations": True,
+    }
+}
+
+# Webhook Configuration
+WEBHOOK_CONFIG = {
+    "DEFAULT_TIMEOUT": 30,
+    "MAX_RETRIES": 3,
+    "RETRY_DELAYS": [60, 300, 900],  # 1min, 5min, 15min
+    "SIGNATURE_HEADER": "X-FR-Signature",
+    "TIMESTAMP_HEADER": "X-FR-Timestamp",
+    "EVENT_HEADER": "X-FR-Event",
+    "MAX_PAYLOAD_SIZE": 1048576,  # 1MB
 }
 
 # WebRTC Configuration
@@ -443,19 +555,15 @@ LOGGING = {
 
 # Unfold Admin Configuration
 UNFOLD = {
-    "SITE_TITLE": "Face Recognition Admin",
-    "SITE_HEADER": "Face Recognition System",
+    "SITE_TITLE": "Third-Party Face Recognition API",
+    "SITE_HEADER": "Face Recognition Service Admin",
     "SITE_URL": "/",
-    "SITE_ICON": {
-        "light": lambda request: static("icon-light.svg"),  # light mode
-        "dark": lambda request: static("icon-dark.svg"),  # dark mode
-    },
     "SIDEBAR": {
         "show_search": True,
         "show_all_applications": True,
         "navigation": [
             {
-                "title": _("Overview"),
+                "title": _("Dashboard"),
                 "separator": True,
                 "items": [
                     {
@@ -463,84 +571,76 @@ UNFOLD = {
                         "icon": "dashboard",
                         "link": reverse_lazy("admin:index"),
                     },
-                    {
-                        "title": _("System Configuration"),
-                        "icon": "settings",
-                        "link": reverse_lazy("admin:core_systemconfiguration_changelist"),
-                    },
-                    {
-                        "title": _("Health Checks"),
-                        "icon": "favorite",
-                        "link": reverse_lazy("admin:core_healthcheck_changelist"),
-                    },
-                    {
-                        "title": _("System Metrics"),
-                        "icon": "analytics",
-                        "link": reverse_lazy("admin:analytics_systemmetrics_changelist"),
-                    },
                 ],
             },
             {
-                "title": _("Users & Enrollment"),
+                "title": _("Third-Party Clients"),
                 "separator": True,
                 "collapsible": True,
                 "items": [
                     {
-                        "title": _("Users"),
+                        "title": _("Clients"),
+                        "icon": "business",
+                        "link": reverse_lazy("admin:clients_client_changelist"),
+                    },
+                    {
+                        "title": _("Client Users"),
                         "icon": "people",
-                        "link": reverse_lazy("admin:users_customuser_changelist"),
+                        "link": reverse_lazy("admin:clients_clientuser_changelist"),
                     },
                     {
-                        "title": _("Profiles"),
-                        "icon": "person",
-                        "link": reverse_lazy("admin:users_userprofile_changelist"),
+                        "title": _("API Usage"),
+                        "icon": "api",
+                        "link": reverse_lazy("admin:clients_clientapiusage_changelist"),
                     },
                     {
-                        "title": _("Devices"),
-                        "icon": "devices",
-                        "link": reverse_lazy("admin:users_userdevice_changelist"),
-                    },
-                    {
-                        "title": _("Enrollment Sessions"),
-                        "icon": "how_to_reg",
-                        "link": reverse_lazy("admin:recognition_enrollmentsession_changelist"),
+                        "title": _("Webhook Logs"),
+                        "icon": "webhook",
+                        "link": reverse_lazy("admin:clients_clientwebhooklog_changelist"),
                     },
                 ],
             },
             {
-                "title": _("Face Recognition"),
+                "title": _("Authentication Service"),
                 "separator": True,
                 "collapsible": True,
                 "items": [
                     {
-                        "title": _("Face Recognition"),
+                        "title": _("Auth Sessions"),
+                        "icon": "lock",
+                        "link": reverse_lazy("admin:auth_service_authenticationsession_changelist"),
+                    },
+                    {
+                        "title": _("Face Enrollments"),
                         "icon": "face",
-                        "link": reverse_lazy("admin:recognition_faceembedding_changelist"),
-                    },
-                    {
-                        "title": _("Authentication Attempts"),
-                        "icon": "verified_user",
-                        "link": reverse_lazy("admin:recognition_authenticationattempt_changelist"),
-                    },
-                    {
-                        "title": _("Liveness Detections"),
-                        "icon": "visibility",
-                        "link": reverse_lazy("admin:recognition_livenessdetection_changelist"),
-                    },
-                    {
-                        "title": _("Obstacle Detections"),
-                        "icon": "warning",
-                        "link": reverse_lazy("admin:recognition_obstacledetection_changelist"),
-                    },
-                    {
-                        "title": _("Models"),
-                        "icon": "science",
-                        "link": reverse_lazy("admin:recognition_facerecognitionmodel_changelist"),
+                        "link": reverse_lazy("admin:auth_service_faceenrollment_changelist"),
                     },
                 ],
             },
             {
-                "title": _("Analytics"),
+                "title": _("Webhooks"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Webhook Events"),
+                        "icon": "event",
+                        "link": reverse_lazy("admin:webhooks_webhookevent_changelist"),
+                    },
+                    {
+                        "title": _("Webhook Endpoints"),
+                        "icon": "link",
+                        "link": reverse_lazy("admin:webhooks_webhookendpoint_changelist"),
+                    },
+                    {
+                        "title": _("Webhook Deliveries"),
+                        "icon": "send",
+                        "link": reverse_lazy("admin:webhooks_webhookdelivery_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": _("Analytics & Monitoring"),
                 "separator": True,
                 "collapsible": True,
                 "items": [
@@ -550,42 +650,64 @@ UNFOLD = {
                         "link": reverse_lazy("admin:analytics_authenticationlog_changelist"),
                     },
                     {
-                        "title": _("Behavior Analytics"),
-                        "icon": "insights",
+                        "title": _("System Metrics"),
+                        "icon": "monitoring",
+                        "link": reverse_lazy("admin:analytics_systemmetrics_changelist"),
+                    },
+                    {
+                        "title": _("User Behavior Analytics"),
+                        "icon": "psychology",
                         "link": reverse_lazy("admin:analytics_userbehavioranalytics_changelist"),
                     },
                     {
+                        "title": _("Security Alerts"),
+                        "icon": "security",
+                        "link": reverse_lazy("admin:analytics_securityalert_changelist"),
+                    },
+                    {
                         "title": _("Face Recognition Stats"),
-                        "icon": "leaderboard",
+                        "icon": "face",
                         "link": reverse_lazy("admin:analytics_facerecognitionstats_changelist"),
                     },
                     {
                         "title": _("Model Performance"),
-                        "icon": "timeline",
+                        "icon": "model_training",
                         "link": reverse_lazy("admin:analytics_modelperformance_changelist"),
-                    },
-                    {
-                        "title": _("Data Quality Metrics"),
-                        "icon": "data_usage",
-                        "link": reverse_lazy("admin:analytics_dataqualitymetrics_changelist"),
                     },
                 ],
             },
             {
-                "title": _("Security & Streaming"),
+                "title": _("System & Core"),
                 "separator": True,
                 "collapsible": True,
                 "items": [
                     {
-                        "title": _("Security Alerts"),
-                        "icon": "shield",
-                        "link": reverse_lazy("admin:analytics_securityalert_changelist"),
+                        "title": _("System Configuration"),
+                        "icon": "settings",
+                        "link": reverse_lazy("admin:core_systemconfiguration_changelist"),
+                    },
+                    {
+                        "title": _("Audit Logs"),
+                        "icon": "assignment",
+                        "link": reverse_lazy("admin:core_auditlog_changelist"),
                     },
                     {
                         "title": _("Security Events"),
-                        "icon": "report",
+                        "icon": "shield",
                         "link": reverse_lazy("admin:core_securityevent_changelist"),
                     },
+                    {
+                        "title": _("Health Checks"),
+                        "icon": "health_and_safety",
+                        "link": reverse_lazy("admin:core_healthcheck_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": _("Streaming & Sessions"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
                     {
                         "title": _("Streaming Sessions"),
                         "icon": "videocam",
@@ -593,33 +715,36 @@ UNFOLD = {
                     },
                     {
                         "title": _("WebRTC Signals"),
-                        "icon": "rss_feed",
+                        "icon": "signal_cellular_alt",
                         "link": reverse_lazy("admin:streaming_webrtcsignal_changelist"),
                     },
                 ],
             },
+            {
+                "title": _("Admin Users"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Admin Users"),
+                        "icon": "admin_panel_settings",
+                        "link": reverse_lazy("admin:users_customuser_changelist"),
+                    },
+                    {
+                        "title": _("User Profiles"),
+                        "icon": "person",
+                        "link": reverse_lazy("admin:users_userprofile_changelist"),
+                    },
+                    {
+                        "title": _("User Devices"),
+                        "icon": "devices",
+                        "link": reverse_lazy("admin:users_userdevice_changelist"),
+                    },
+                ],
+            },
+
         ],
     },
-    "QUICK_ACTIONS": [
-        {
-            "title": _("Start Enrollment Session"),
-            "description": _("Create a new enrollment session for a user."),
-            "icon": "fiber_new",
-            "link": reverse_lazy("admin:recognition_enrollmentsession_add"),
-        },
-        {
-            "title": _("Log Security Alert"),
-            "description": _("Record a manual security alert for follow-up."),
-            "icon": "add_alert",
-            "link": reverse_lazy("admin:analytics_securityalert_add"),
-        },
-        {
-            "title": _("Capture Health Check"),
-            "description": _("Add the latest health status for a critical service."),
-            "icon": "favorite",
-            "link": reverse_lazy("admin:core_healthcheck_add"),
-        },
-    ],
 }
 
 # Default primary key field type

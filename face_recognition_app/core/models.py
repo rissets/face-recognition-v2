@@ -51,8 +51,15 @@ class SystemConfiguration(BaseModel):
 
 class AuditLog(BaseModel):
     """Audit log for tracking system activities"""
-    user = models.ForeignKey(
-        'users.CustomUser', 
+    # User field migrated to use client system
+    client = models.ForeignKey(
+        'clients.Client',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
+    )
+    client_user = models.ForeignKey(
+        'clients.ClientUser',
         on_delete=models.CASCADE, 
         null=True, 
         blank=True
@@ -71,13 +78,15 @@ class AuditLog(BaseModel):
         verbose_name_plural = "Audit Logs"
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['client_user', 'created_at']),
+            models.Index(fields=['client', 'created_at']),
             models.Index(fields=['action', 'created_at']),
             models.Index(fields=['resource_type', 'created_at']),
         ]
 
     def __str__(self):
-        return f"{self.action} by {self.user} at {self.created_at}"
+        user_info = self.client_user.username if self.client_user else f"Client: {self.client.name}" if self.client else "Unknown"
+        return f"{self.action} by {user_info} at {self.created_at}"
 
 
 class SecurityEvent(BaseModel):
@@ -102,8 +111,15 @@ class SecurityEvent(BaseModel):
     
     event_type = models.CharField(max_length=50, choices=EVENT_TYPES)
     severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default='medium')
-    user = models.ForeignKey(
-        'users.CustomUser', 
+    # User field migrated to use client system
+    client = models.ForeignKey(
+        'clients.Client',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+    client_user = models.ForeignKey(
+        'clients.ClientUser',
         on_delete=models.SET_NULL, 
         null=True, 
         blank=True
@@ -113,12 +129,20 @@ class SecurityEvent(BaseModel):
     details = models.JSONField(default=dict)
     resolved = models.BooleanField(default=False)
     resolved_at = models.DateTimeField(null=True, blank=True)
-    resolved_by = models.ForeignKey(
-        'users.CustomUser',
+    # Resolved by field migrated to use client system
+    resolved_by_client = models.ForeignKey(
+        'clients.Client',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name='resolved_security_events'
+    )
+    resolved_by_client_user = models.ForeignKey(
+        'clients.ClientUser',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='resolved_security_events_users'
     )
 
     class Meta:

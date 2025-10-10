@@ -66,15 +66,21 @@
         <div>
           <form class="form-grid" @submit.prevent="createSession">
             <div class="field">
-              <label>Mode</label>
-              <select v-model="settings.sessionType">
-                <option value="identification">Identification</option>
-                <option value="verification">Verification</option>
+              <label>Mode Autentikasi</label>
+              <select v-model="settings.mode">
+                <option value="identification">Identification (tanpa target)</option>
+                <option value="verification">Verification (butuh external user)</option>
               </select>
             </div>
-            <div class="field" v-if="settings.sessionType === 'verification'">
-              <label>Email Target</label>
-              <input v-model="settings.email" type="email" placeholder="user@example.com" required />
+            <div class="field" v-if="settings.mode === 'verification'">
+              <label>External User ID</label>
+              <input v-model="settings.userId" placeholder="john.doe" required />
+            </div>
+            <div class="field">
+              <label>
+                <input type="checkbox" v-model="settings.requireLiveness" />
+                Require liveness check
+              </label>
             </div>
             <div class="field">
               <label>Device Info (JSON)</label>
@@ -117,12 +123,23 @@
             </div>
             <div class="info-card" v-if="recognizedUser">
               <strong>User Terverifikasi</strong>
-              <span>{{ recognizedUser.full_name || recognizedUser.email }}</span>
-              <span class="mono">{{ recognizedUser.email }}</span>
+              <span>{{ recognizedUser.display_name || recognizedUser.external_user_id }}</span>
+              <span class="mono">ID: {{ recognizedUser.id }}</span>
+              <span class="mono">External ID: {{ recognizedUser.external_user_id }}</span>
+              <span class="mono">Enrolled: {{ recognizedUser.is_enrolled ? 'Yes' : 'No' }}</span>
             </div>
             <div class="info-card" v-if="lastResult?.message">
               <strong>Pesan Sistem</strong>
               <span>{{ lastResult.message }}</span>
+            </div>
+            <div class="info-card" v-if="lastResult?.authentication_metadata">
+              <strong>Authentication Info</strong>
+              <span>Algorithm: {{ lastResult.authentication_metadata.algorithm_used }}</span>
+              <span>Confidence: {{ lastResult.authentication_metadata.confidence_level }}</span>
+              <span>Liveness: {{ lastResult.authentication_metadata.liveness_method }}</span>
+              <span v-if="lastResult.match_fallback_used" class="text-warning">
+                ⚠️ {{ lastResult.match_fallback_explanation }}
+              </span>
             </div>
           </div>
         </div>
@@ -157,7 +174,7 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import CameraStream from '../components/CameraStream.vue'
-import { faceAuthApi } from '../services/api'
+import { sessionApi } from '../services/api'
 
 const cameraRef = ref(null)
 const authSession = ref(null)
@@ -165,8 +182,9 @@ const recognizedUser = ref(null)
 const cameraActive = ref(false)
 
 const settings = reactive({
-  sessionType: 'identification',
-  email: ''
+  mode: 'identification',
+  userId: '',
+  requireLiveness: true
 })
 
 const deviceInfoInput = ref(
@@ -203,7 +221,8 @@ const streamingState = reactive({
 const logs = ref([])
 const manualForm = reactive({
   sessionToken: '',
-  frameData: ''
+  frameData: '',
+  file: null
 })
 
 const captureIntervalMs = 1200
@@ -309,19 +328,23 @@ async function createSession() {
   errors.session = ''
   try {
     const payload = {
-      session_type: settings.sessionType,
-      device_info: parseDeviceInfo()
-    }
-    if (settings.sessionType === 'verification') {
-      if (!settings.email) {
-        throw new Error('Email wajib diisi untuk mode verification')
+      session_type: 'webcam',
+      require_liveness: settings.requireLiveness,
+      metadata: {
+        flow_mode: settings.mode,
+        device_info: parseDeviceInfo()
       }
-      payload.email = settings.email
     }
-    const response = await faceAuthApi.createSession(payload)
+    if (settings.mode === 'verification') {
+      if (!settings.userId) {
+        throw new Error('External user ID wajib diisi untuk mode verification')
+      }
+      payload.user_id = settings.userId
+    }
+    const response = await sessionApi.createAuthentication(payload)
     authSession.value = {
       session_token: response.data.session_token,
-      session_type: response.data.session_type,
+      session_type: response.data.session_type || settings.mode,
       webrtc_config: response.data.webrtc_config
     }
     manualForm.sessionToken = authSession.value.session_token
@@ -340,7 +363,7 @@ async function createSession() {
 
       authSession.value = {
         session_token: token,
-        session_type: settings.sessionType,
+        session_type: settings.mode,
         webrtc_config: null
       }
       manualForm.sessionToken = token
@@ -410,6 +433,26 @@ async function captureNextFrame() {
   }
 }
 
+function ensureBlobFromFrame(frameData) {
+  if (frameData instanceof File || frameData instanceof Blob) {
+    return frameData
+  }
+  if (typeof frameData === 'string') {
+    if (!frameData.startsWith('data:')) {
+      throw new Error('Frame data harus berupa data URL base64')
+    }
+    const [header, data] = frameData.split(',')
+    const mime = header.match(/:(.*?);/)?.[1] || 'image/jpeg'
+    const binary = atob(data)
+    const buffer = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i += 1) {
+      buffer[i] = binary.charCodeAt(i)
+    }
+    return new Blob([buffer], { type: mime })
+  }
+  throw new Error('Format frame tidak didukung')
+}
+
 async function sendFrame(frameData, overrideToken) {
   const token = overrideToken || authSession.value?.session_token
   if (!token) {
@@ -417,10 +460,13 @@ async function sendFrame(frameData, overrideToken) {
   }
 
   try {
-    const response = await faceAuthApi.processFrame({
-      session_token: token,
-      frame_data: frameData
-    })
+    const blob = ensureBlobFromFrame(frameData)
+    const formData = new FormData()
+    formData.append('session_token', token)
+    formData.append('image', blob, `frame-${streamingState.framesSent + 1}.jpg`)
+    formData.append('frame_number', streamingState.framesSent + 1)
+
+    const response = await sessionApi.processFrame(formData)
 
     streamingState.framesSent += 1
     const data = response.data
@@ -433,9 +479,18 @@ async function sendFrame(frameData, overrideToken) {
     }
 
     if (data.success) {
-      recognizedUser.value = data.user || null
+      recognizedUser.value = data.matched_user || data.user || null
       errors.session = ''
-      addLog('success', 'Autentikasi berhasil', JSON.stringify(data, null, 2))
+      
+      let successMessage = 'Autentikasi berhasil'
+      if (data.matched_user) {
+        successMessage += ` - ${data.matched_user.display_name || data.matched_user.external_user_id}`
+      }
+      if (data.match_fallback_used) {
+        successMessage += ' (menggunakan algoritma fallback)'
+      }
+      
+      addLog('success', successMessage, JSON.stringify(data, null, 2))
       stopStreaming()
     } else {
       recognizedUser.value = null
@@ -470,11 +525,13 @@ async function processManualFrame() {
     if (!manualForm.sessionToken) {
       throw new Error('Session token wajib diisi')
     }
-    if (!manualForm.frameData) {
+    const payload = manualForm.file || manualForm.frameData
+    if (!payload) {
       throw new Error('Frame data wajib diisi')
     }
-    await sendFrame(manualForm.frameData, manualForm.sessionToken)
+    await sendFrame(payload, manualForm.sessionToken)
     manualForm.frameData = ''
+    manualForm.file = null
   } catch (error) {
     errors.manual = formatError(error)
   } finally {
@@ -485,11 +542,7 @@ async function processManualFrame() {
 function handleManualFile(event) {
   const [file] = event.target.files || []
   if (!file) return
-  const reader = new FileReader()
-  reader.onload = () => {
-    manualForm.frameData = reader.result
-  }
-  reader.readAsDataURL(file)
+  manualForm.file = file
 }
 
 function handleCameraError(error) {

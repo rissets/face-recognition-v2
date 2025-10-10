@@ -6,8 +6,7 @@
       </div>
       <div class="nav-links">
         <template v-if="!isAuthenticated">
-          <RouterLink to="/login">Login</RouterLink>
-          <RouterLink to="/register">Register</RouterLink>
+          <RouterLink to="/login">Connect</RouterLink>
         </template>
         <template v-else>
           <RouterLink to="/dashboard">Overview</RouterLink>
@@ -26,8 +25,8 @@
 
       <div class="nav-auth">
         <span v-if="isAuthenticated" class="badge">
-          <span>Signed in</span>
-          <strong>{{ authUserLabel }}</strong>
+          <span>Client</span>
+          <strong>{{ authClientLabel }}</strong>
         </span>
         <button v-if="isAuthenticated" class="secondary" @click="logout" type="button">
           Logout
@@ -46,10 +45,10 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const isAuthenticated = computed(() => authStore.isAuthenticated)
-const authUserLabel = computed(() => authStore.profile?.email || 'Unknown')
+const authClientLabel = computed(() => authStore.client?.name || 'Unknown Client')
 
 function logout() {
-  authStore.logout()
+  authStore.disconnect()
   router.push('/login')
 }
 </script>

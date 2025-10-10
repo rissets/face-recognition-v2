@@ -1,45 +1,31 @@
 """
-Core API URLs
+Core API URLs for third-party authentication service
 """
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from rest_framework_simplejwt.views import TokenRefreshView
 from . import views
 
 app_name = 'core'
 
+# Create router for ViewSets
+router = DefaultRouter()
+router.register(r'config', views.SystemConfigurationViewSet)
+router.register(r'audit-logs', views.AuditLogViewSet)
+router.register(r'security-events', views.SecurityEventViewSet)
+
 urlpatterns = [
-    # Authentication
-    path('auth/register/', views.UserRegistrationView.as_view(), name='register'),
-    path('auth/token/', views.CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('auth/profile/', views.UserProfileView.as_view(), name='profile'),
+    # ViewSet routes
+    path('', include(router.urls)),
     
-    # Face Recognition Enrollment
-    path('enrollment/create/', views.EnrollmentSessionCreateView.as_view(), name='enrollment_create'),
-    path('enrollment/webrtc/create/', views.WebRTCEnrollmentSessionCreateView.as_view(), name='enrollment_webrtc_create'),
-    path('enrollment/process-frame/', views.EnrollmentFrameProcessView.as_view(), name='enrollment_process_frame'),
+    # Authentication endpoints
+    path('auth/client/', views.authenticate_client, name='authenticate_client'),
+    path('auth/user/', views.authenticate_client_user, name='authenticate_client_user'),
     
-    # Face Recognition Authentication
-    path('auth/face/create/', views.AuthenticationCreateView.as_view(), name='auth_create'),
-    path('auth/face/webrtc/create/', views.WebRTCAuthenticationCreateView.as_view(), name='auth_webrtc_create'),
-    path('auth/face/webrtc/public/create/', views.PublicWebRTCAuthenticationCreateView.as_view(), name='auth_webrtc_public_create'),
-    path('auth/face/process-frame/', views.AuthenticationFrameProcessView.as_view(), name='auth_process_frame'),
-    path('auth/face/public/create/', views.PublicAuthenticationCreateView.as_view(), name='auth_public_create'),
+    # System endpoints
+    path('status/', views.system_status, name='system_status'),
+    path('health/', views.health_check, name='health_check'),
+    path('info/', views.client_info, name='client_info'),
     
-    # WebRTC Signaling
-    path('webrtc/signal/', views.WebRTCSignalingView.as_view(), name='webrtc_signal'),
-    
-    # User Management
-    path('user/devices/', views.UserDevicesView.as_view(), name='user_devices'),
-    path('user/auth-history/', views.AuthenticationHistoryView.as_view(), name='auth_history'),
-    path('user/security-alerts/', views.SecurityAlertsView.as_view(), name='security_alerts'),
-    
-    # Enhanced Detection APIs
-    path('detection/liveness-history/', views.LivenessDetectionHistoryView.as_view(), name='liveness_history'),
-    path('detection/obstacle-history/', views.ObstacleDetectionHistoryView.as_view(), name='obstacle_history'),
-    path('detection/analytics/', views.detection_analytics_view, name='detection_analytics'),
-    
-    # System
-    path('system/status/', views.system_status, name='system_status'),
+    # Security
+    path('security/event/', views.log_security_event, name='log_security_event'),
 ]

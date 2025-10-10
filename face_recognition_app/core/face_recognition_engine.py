@@ -626,6 +626,29 @@ class ChromaEmbeddingStore:
             self.client = None
             self.collection = None
     
+    def _clean_metadata_for_chroma(self, metadata: dict) -> dict:
+        """Clean metadata to ensure ChromaDB compatibility"""
+        if not metadata:
+            return {}
+        
+        cleaned = {}
+        for key, value in metadata.items():
+            if value is None:
+                cleaned[key] = None
+            elif isinstance(value, (str, int, float, bool)):
+                cleaned[key] = value
+            elif isinstance(value, (list, tuple, np.ndarray)):
+                # Convert lists/arrays to JSON string
+                cleaned[key] = json.dumps(value.tolist() if hasattr(value, 'tolist') else list(value))
+            elif isinstance(value, dict):
+                # Convert dict to JSON string
+                cleaned[key] = json.dumps(value)
+            else:
+                # Convert other types to string
+                cleaned[key] = str(value)
+        
+        return cleaned
+
     def add_embedding(self, user_id: str, embedding: np.ndarray, metadata: dict = None):
         """Add face embedding to ChromaDB"""
         try:
@@ -634,9 +657,12 @@ class ChromaEmbeddingStore:
             
             embedding_id = f"{user_id}_{uuid.uuid4().hex[:8]}"
             
+            # Clean metadata for ChromaDB compatibility
+            clean_metadata = self._clean_metadata_for_chroma(metadata)
+            
             self.collection.add(
                 embeddings=[embedding.tolist()],
-                metadatas=[metadata or {}],
+                metadatas=[clean_metadata],
                 ids=[embedding_id]
             )
             
@@ -700,7 +726,7 @@ class ChromaEmbeddingStore:
             return True
             
         except Exception as e:
-            logger.error(f"Failed to delete embeddings for user {user_id}: {e}")
+            logger.error(f"Failed to delete user embeddings: {e}")
             return False
 
 
@@ -840,113 +866,125 @@ class FaceRecognitionEngine:
             return None, f"Processing error: {str(e)}"
     
     def authenticate_user(self, frame, user_id=None):
-        """Authenticate user with face recognition"""
+        """Enhanced authenticate user with strict anti-spoofing"""
         try:
-            # Extract embedding
+            # Extract embedding with enhanced validation
             result, error = self.extract_embedding(frame)
             if error:
                 return {
                     'success': False,
                     'error': error,
-                    'similarity_score': 0.0
+                    'similarity_score': 0.0,
+                    'liveness_data': {},
+                    'liveness_verified': False,
+                    'obstacles': [],
+                    'quality_score': 0.0
                 }
             
             embedding = result['embedding']
             bbox = result['bbox']
             confidence = result['confidence']
             
-            # Check obstacles
-            obstacles, obstacle_confidence = self.obstacle_detector.detect_obstacles(frame, bbox)
-            blocking_obstacles = [o for o in obstacles if o in self.blocking_obstacles]
-            if blocking_obstacles:
-                return {
-                    'success': False,
-                    'error': f"Obstacles detected: {', '.join(blocking_obstacles)}",
-                    'obstacles': obstacles,
-                    'similarity_score': 0.0,
-                    'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
-                    'quality_score': 0.0
-                }
-
-            # Quality assessment (needed even when liveness still pending)
+            # Enhanced quality assessment first
             quality_score = self._assess_image_quality(frame, bbox)
             
-            # Check liveness
+            # Strict quality threshold for authentication
+            min_auth_quality = max(0.6, self.auth_quality_threshold)
+            if quality_score < min_auth_quality:
+                return {
+                    'success': False,
+                    'error': f"Image quality insufficient for authentication: {quality_score:.3f} < {min_auth_quality:.3f}",
+                    'similarity_score': 0.0,
+                    'liveness_data': {},
+                    'liveness_verified': False,
+                    'obstacles': [],
+                    'quality_score': quality_score,
+                    'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
+                    'frame_rejected': True
+                }
+            
+            # Enhanced obstacle detection with stricter validation
+            obstacles, obstacle_confidence = self.obstacle_detector.detect_obstacles(frame, bbox)
+            
+            # Any obstacles are blocking for authentication
+            if obstacles:
+                return {
+                    'success': False,
+                    'error': f"Obstacles detected preventing authentication: {', '.join(obstacles)}",
+                    'obstacles': obstacles,
+                    'obstacle_confidence': obstacle_confidence,
+                    'similarity_score': 0.0,
+                    'liveness_data': {},
+                    'liveness_verified': False,
+                    'quality_score': quality_score,
+                    'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
+                    'frame_rejected': True
+                }
+            
+            # Enhanced liveness detection with multiple checks
             liveness_result = self.liveness_detector.detect_blink(frame, bbox)
-            liveness_verified = self.liveness_detector.is_live(
-                blink_count_threshold=self.liveness_blink_threshold,
-                motion_event_threshold=self.liveness_motion_events,
-                motion_score_threshold=self.liveness_motion_score
-            )
+            
+            # Add anti-spoofing checks
+            anti_spoofing_score = self._perform_anti_spoofing_checks(frame, bbox, liveness_result)
+            
+            # Strict liveness verification
+            liveness_verified = self._enhanced_liveness_verification(liveness_result, anti_spoofing_score)
+            
+            # Return early if liveness not verified (don't count as processed frame)
             if not liveness_verified:
                 return {
                     'success': False,
-                    'error': "Liveness check in progress",
+                    'error': "Liveness verification failed - ensure natural movement or blinking",
                     'liveness_data': liveness_result,
-                    'similarity_score': 0.0,
                     'liveness_verified': False,
+                    'similarity_score': 0.0,
+                    'obstacles': obstacles,
+                    'obstacle_confidence': obstacle_confidence,
+                    'quality_score': quality_score,
+                    'anti_spoofing_score': anti_spoofing_score,
                     'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
-                    'quality_score': quality_score
+                    'frame_rejected': True
                 }
             
-            if quality_score < self.auth_quality_threshold:
-                acceptance_floor = max(0.3, self.auth_quality_threshold - self.quality_tolerance)
-                if quality_score < acceptance_floor:
-                    return {
-                        'success': False,
-                        'error': f"Image quality too low: {quality_score:.2f}",
-                        'similarity_score': 0.0,
-                        'liveness_data': liveness_result,
-                        'liveness_verified': liveness_verified,
-                        'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
-                        'quality_score': quality_score
-                    }
-
-                debug_log(
-                    f"Authentication quality {quality_score:.2f} below threshold "
-                    f"{self.auth_quality_threshold:.2f} but accepted due to tolerance"
-                )
+            # Enhanced similarity matching with stricter thresholds
+            # Use higher threshold for authentication than enrollment
+            auth_threshold = max(0.75, self.verification_threshold + 0.1)  # Stricter for auth
             
-            # Find matching user
             matches = self.embedding_store.search_similar(
                 embedding, 
-                top_k=5, 
-                threshold=self.verification_threshold
+                top_k=3,  # Fewer candidates for stricter matching
+                threshold=auth_threshold
             )
             
-            # Retry with relaxed threshold if nothing found
+            # Limited fallback only for identification mode (no specific user_id)
             fallback_used = False
-            if not matches and self.fallback_verification_threshold < self.verification_threshold:
+            if not matches and not user_id:  # Only allow fallback in identification mode
+                fallback_threshold = max(0.65, self.verification_threshold)
                 matches = self.embedding_store.search_similar(
                     embedding,
-                    top_k=5,
-                    threshold=self.fallback_verification_threshold
+                    top_k=3,
+                    threshold=fallback_threshold
                 )
                 if matches:
                     fallback_used = True
+                    logger.warning(f"Using fallback matching with threshold {fallback_threshold}")
                     for match in matches:
                         match['below_primary_threshold'] = True
             
-            # FAISS fallback if Chroma returns nothing
-            if not matches:
-                faiss_matches = self._search_faiss(
-                    embedding,
-                    top_k=5,
-                    threshold=self.fallback_verification_threshold
-                )
-                if faiss_matches:
-                    matches = faiss_matches
-                    fallback_used = True
+            # No FAISS fallback for authentication - too risky
             
             if not matches:
                 return {
                     'success': False,
-                    'error': "No matching face found",
+                    'error': f"No sufficiently similar face found (threshold: {auth_threshold:.3f})",
                     'similarity_score': 0.0,
                     'liveness_data': liveness_result,
                     'liveness_verified': liveness_verified,
-                    'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
-                    'quality_score': quality_score
+                    'anti_spoofing_score': anti_spoofing_score,
+                    'obstacles': obstacles,
+                    'obstacle_confidence': obstacle_confidence,
+                    'quality_score': quality_score,
+                    'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox
                 }
             
             best_match = matches[0]
@@ -976,19 +1014,38 @@ class FaceRecognitionEngine:
                 match_user_id = user_id
                 best_similarity = best_match.get('similarity', best_similarity)
             
+            # Final validation - ensure similarity is high enough even after matching
+            final_similarity = best_match['similarity']
+            if final_similarity < 0.7:  # Additional safety check
+                return {
+                    'success': False,
+                    'error': f"Final similarity too low: {final_similarity:.3f} < 0.7",
+                    'similarity_score': final_similarity,
+                    'liveness_data': liveness_result,
+                    'liveness_verified': liveness_verified,
+                    'anti_spoofing_score': anti_spoofing_score,
+                    'obstacles': obstacles,
+                    'obstacle_confidence': obstacle_confidence,
+                    'quality_score': quality_score,
+                    'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox
+                }
+            
             return {
                 'success': True,
                 'user_id': match_user_id,
-                'similarity_score': best_match['similarity'],
+                'similarity_score': final_similarity,
                 'confidence': confidence,
                 'quality_score': quality_score,
                 'liveness_data': liveness_result,
                 'liveness_verified': liveness_verified,
+                'anti_spoofing_score': anti_spoofing_score,
                 'match_data': best_match,
                 'match_fallback_used': fallback_used,
                 'obstacles': obstacles,
                 'obstacle_confidence': obstacle_confidence,
-                'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox
+                'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
+                'authentication_level': 'high' if final_similarity >= 0.85 else 'medium',
+                'frame_accepted': True
             }
             
         except Exception as e:
@@ -999,6 +1056,159 @@ class FaceRecognitionEngine:
                 'similarity_score': 0.0
             }
     
+    def _perform_anti_spoofing_checks(self, frame, bbox, liveness_data):
+        """Enhanced anti-spoofing checks to detect static images"""
+        try:
+            # Texture analysis - real faces have more varied texture
+            face_crop = self._crop_face_region(frame, bbox)
+            if face_crop is None:
+                return 0.0
+            
+            # Convert to grayscale for texture analysis
+            gray_face = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+            
+            # Laplacian variance (edge detection) - real faces have more edges
+            laplacian_var = cv2.Laplacian(gray_face, cv2.CV_64F).var()
+            
+            # Local Binary Pattern (texture analysis)
+            # Simple LBP implementation
+            lbp_score = self._calculate_lbp_variance(gray_face)
+            
+            # Frequency domain analysis - photos typically lack high-frequency details
+            f_transform = np.fft.fft2(gray_face)
+            f_shift = np.fft.fftshift(f_transform)
+            magnitude_spectrum = np.abs(f_shift)
+            high_freq_energy = np.mean(magnitude_spectrum[gray_face.shape[0]//4:3*gray_face.shape[0]//4, 
+                                                        gray_face.shape[1]//4:3*gray_face.shape[1]//4])
+            
+            # Motion consistency check
+            motion_score = liveness_data.get('motion_score', 0.0)
+            blinks_detected = liveness_data.get('blinks_detected', 0)
+            
+            # Combine scores (normalize to 0-1)
+            texture_score = min(1.0, laplacian_var / 100.0)
+            lbp_score = min(1.0, lbp_score / 50.0)  
+            freq_score = min(1.0, high_freq_energy / 1000.0)
+            motion_consistency = min(1.0, motion_score / 10.0)
+            
+            # Weighted combination
+            anti_spoofing_score = (
+                texture_score * 0.3 +
+                lbp_score * 0.2 +
+                freq_score * 0.2 +
+                motion_consistency * 0.3
+            )
+            
+            logger.debug(f"Anti-spoofing scores - Texture: {texture_score:.3f}, "
+                        f"LBP: {lbp_score:.3f}, Freq: {freq_score:.3f}, "
+                        f"Motion: {motion_consistency:.3f}, Combined: {anti_spoofing_score:.3f}")
+            
+            return anti_spoofing_score
+            
+        except Exception as e:
+            logger.error(f"Anti-spoofing check failed: {e}")
+            return 0.0
+    
+    def _calculate_lbp_variance(self, gray_image):
+        """Calculate Local Binary Pattern variance for texture analysis"""
+        try:
+            # Simple 3x3 LBP
+            rows, cols = gray_image.shape
+            lbp_image = np.zeros((rows-2, cols-2), dtype=np.uint8)
+            
+            for i in range(1, rows-1):
+                for j in range(1, cols-1):
+                    center = gray_image[i, j]
+                    binary_num = 0
+                    # Check 8 neighbors
+                    neighbors = [
+                        gray_image[i-1, j-1], gray_image[i-1, j], gray_image[i-1, j+1],
+                        gray_image[i, j+1], gray_image[i+1, j+1], gray_image[i+1, j],
+                        gray_image[i+1, j-1], gray_image[i, j-1]
+                    ]
+                    
+                    for k, neighbor in enumerate(neighbors):
+                        if neighbor >= center:
+                            binary_num += 2**k
+                    
+                    lbp_image[i-1, j-1] = binary_num
+            
+            return np.var(lbp_image)
+        except:
+            return 0.0
+    
+    def _crop_face_region(self, frame, bbox, padding=0.1):
+        """Crop face region from frame with padding"""
+        try:
+            if frame is None or bbox is None:
+                return None
+                
+            h, w = frame.shape[:2]
+            x1, y1, x2, y2 = [int(coord) for coord in bbox]
+            
+            # Add padding
+            face_w = x2 - x1
+            face_h = y2 - y1
+            pad_x = int(face_w * padding)
+            pad_y = int(face_h * padding)
+            
+            x1 = max(0, x1 - pad_x)
+            y1 = max(0, y1 - pad_y)
+            x2 = min(w, x2 + pad_x)
+            y2 = min(h, y2 + pad_y)
+            
+            return frame[y1:y2, x1:x2]
+        except:
+            return None
+    
+    def _enhanced_liveness_verification(self, liveness_data, anti_spoofing_score):
+        """Enhanced liveness verification with anti-spoofing"""
+        try:
+            # Basic liveness checks
+            basic_liveness = self.liveness_detector.is_live(
+                blink_count_threshold=self.liveness_blink_threshold,
+                motion_event_threshold=self.liveness_motion_events,
+                motion_score_threshold=self.liveness_motion_score
+            )
+            
+            # Anti-spoofing threshold
+            min_anti_spoofing = 0.4  # Stricter threshold
+            
+            # Motion analysis
+            motion_score = liveness_data.get('motion_score', 0.0)
+            blink_quality = liveness_data.get('quality', 0.0)
+            
+            # Multiple verification criteria
+            criteria = []
+            
+            # Criterion 1: Basic liveness + anti-spoofing
+            if basic_liveness and anti_spoofing_score >= min_anti_spoofing:
+                criteria.append('basic_liveness_with_antispoofing')
+            
+            # Criterion 2: Strong motion + decent anti-spoofing
+            if motion_score > 0.3 and anti_spoofing_score >= 0.3:
+                criteria.append('strong_motion')
+            
+            # Criterion 3: High quality blink + anti-spoofing
+            if liveness_data.get('blinks_detected', 0) > 0 and blink_quality > 0.7 and anti_spoofing_score >= 0.3:
+                criteria.append('quality_blink')
+            
+            # At least one criterion must be met
+            is_verified = len(criteria) > 0
+            
+            if is_verified:
+                logger.debug(f"Liveness verified via criteria: {', '.join(criteria)}")
+            else:
+                logger.debug(f"Liveness failed - basic: {basic_liveness}, "
+                           f"anti_spoofing: {anti_spoofing_score:.3f}, "
+                           f"motion: {motion_score:.3f}")
+            
+            return is_verified
+            
+        except Exception as e:
+            logger.error(f"Enhanced liveness verification failed: {e}")
+            return False
+
     def _capture_face_snapshot(self, frame, bbox, padding_ratio: float = 0.15):
         """Capture a cropped face snapshot from the frame as JPEG bytes."""
         try:
@@ -1234,6 +1444,192 @@ class FaceRecognitionEngine:
             return {
                 'status': 'error',
                 'error': str(e)
+            }
+    
+    def enroll_face(self, image: np.ndarray, user_id: str, frame_count: int = 1, total_frames: int = 1):
+        """
+        Enroll a face with enhanced liveness detection and multiple frame support
+        """
+        try:
+            # Extract embedding first
+            result, error = self.extract_embedding(image)
+            if error:
+                return {
+                    'success': False,
+                    'error': error,
+                    'frame_accepted': False,
+                    'frame_count': frame_count,
+                    'total_frames': total_frames,
+                    'enrollment_progress': (frame_count / total_frames) * 100
+                }
+            
+            embedding = result['embedding']
+            bbox = result['bbox']
+            confidence = result['confidence']
+            
+            # Quality checks
+            quality_score = self._assess_image_quality(image, bbox)
+            if quality_score < 0.5:
+                return {
+                    'success': False,
+                    'error': f'Poor image quality: {quality_score:.3f}',
+                    'quality_score': quality_score,
+                    'frame_accepted': False,
+                    'frame_count': frame_count,
+                    'total_frames': total_frames,
+                    'enrollment_progress': (frame_count / total_frames) * 100
+                }
+            
+            # Obstacle detection
+            obstacles, obstacle_confidence = self.obstacle_detector.detect_obstacles(image, bbox)
+            max_obstacle_conf = max(obstacle_confidence.values()) if obstacle_confidence else 0.0
+            if max_obstacle_conf > 0.7:  # High confidence of obstacles
+                return {
+                    'success': False,
+                    'error': f'Obstacles detected: {obstacles}',
+                    'obstacles': obstacles,
+                    'obstacle_confidence': obstacle_confidence,
+                    'frame_accepted': False,
+                    'frame_count': frame_count,
+                    'total_frames': total_frames,
+                    'enrollment_progress': (frame_count / total_frames) * 100
+                }
+            
+            # Liveness detection for enrollment
+            liveness_result = self.liveness_detector.detect_blink(image, bbox)
+            
+            # Debug log raw liveness result
+            logger.debug(f"Raw liveness result: {liveness_result}")
+            
+            # For enrollment, we need good liveness scores
+            liveness_verified = self.liveness_detector.is_live(
+                blink_count_threshold=max(0, self.liveness_blink_threshold - 1),
+                motion_event_threshold=max(0, self.liveness_motion_events - 1),
+                motion_score_threshold=self.liveness_motion_score * 0.7
+            )
+            
+            liveness_score = float(liveness_result.get('blinks_detected', 0)) * 0.5 + \
+                           float(liveness_result.get('motion_events', 0)) * 0.3 + \
+                           float(liveness_result.get('motion_score', 0)) * 0.2
+            liveness_score = min(1.0, liveness_score)
+            
+            # Debug log calculated values
+            logger.debug(f"Calculated liveness_score: {liveness_score}, liveness_verified: {liveness_verified}")
+            logger.debug(f"Thresholds - blink: {max(0, self.liveness_blink_threshold - 1)}, "
+                        f"motion_events: {max(0, self.liveness_motion_events - 1)}, "
+                        f"motion_score: {self.liveness_motion_score * 0.7}")
+            
+            # Enhanced liveness validation for enrollment - more strict
+            min_liveness_threshold = 0.6  # Higher threshold for enrollment
+            
+            # Debug logging for liveness validation
+            logger.debug(f"Liveness validation - Score: {liveness_score:.3f}, Verified: {liveness_verified}, Threshold: {min_liveness_threshold}")
+            
+            # For enrollment, require BOTH high score AND verification, OR at least very high score
+            high_score_threshold = 0.8
+            liveness_acceptable = (liveness_verified and liveness_score >= min_liveness_threshold) or (liveness_score >= high_score_threshold)
+            
+            logger.debug(f"Liveness acceptable check: (verified={liveness_verified} AND score>={min_liveness_threshold}) OR score>={high_score_threshold} = {liveness_acceptable}")
+            
+            if not liveness_acceptable:
+                logger.warning(f"❌ Frame rejected due to insufficient liveness - Score: {liveness_score:.3f}, Verified: {liveness_verified}")
+                return {
+                    'success': False,
+                    'error': f'Insufficient liveness detected. Score: {liveness_score:.3f}, Verified: {liveness_verified}. Please blink or move naturally.',
+                    'liveness_data': liveness_result,
+                    'liveness_score': liveness_score,
+                    'liveness_verified': liveness_verified,
+                    'frame_accepted': False,
+                    'frame_count': frame_count,
+                    'total_frames': total_frames,
+                    'enrollment_progress': (frame_count / total_frames) * 100
+                }
+            
+            logger.debug(f"✅ Liveness validation passed - Score: {liveness_score:.3f}, Verified: {liveness_verified}")
+            
+            # Anti-spoofing checks - stricter for enrollment
+            anti_spoofing_score = self._perform_anti_spoofing_checks(image, bbox, liveness_result)
+            min_anti_spoofing_threshold = 0.5  # Higher threshold for enrollment
+            
+            # Debug logging for anti-spoofing validation
+            logger.debug(f"Anti-spoofing validation - Score: {anti_spoofing_score:.3f}, Threshold: {min_anti_spoofing_threshold}")
+            
+            if anti_spoofing_score < min_anti_spoofing_threshold:
+                logger.warning(f"❌ Frame rejected due to anti-spoofing failure - Score: {anti_spoofing_score:.3f}")
+                return {
+                    'success': False,
+                    'error': f'Anti-spoofing validation failed: {anti_spoofing_score:.3f}. Please ensure you are using a live camera, not a photo or screen.',
+                    'anti_spoofing_score': anti_spoofing_score,
+                    'frame_accepted': False,
+                    'frame_count': frame_count,
+                    'total_frames': total_frames,
+                    'enrollment_progress': (frame_count / total_frames) * 100
+                }
+            
+            logger.debug(f"✅ Anti-spoofing validation passed - Score: {anti_spoofing_score:.3f}")
+            
+            # Check if user already exists (for multiple frames)
+            existing_matches = self.embedding_store.search_similar(embedding, top_k=5, threshold=0.7)
+            user_matches = [m for m in existing_matches if user_id in m['embedding_id']]
+            
+            # Store the embedding with frame info
+            timestamp = int(time.time())
+            embedding_id = f"{user_id}_{timestamp}_{frame_count}"
+            
+            metadata = {
+                'user_id': user_id,
+                'timestamp': timestamp,
+                'frame_count': frame_count,
+                'total_frames': total_frames,
+                'quality_score': quality_score,
+                'liveness_score': liveness_score,
+                'anti_spoofing_score': anti_spoofing_score,
+                'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
+                'enrollment_type': 'multi_frame' if total_frames > 1 else 'single_frame'
+            }
+            
+            # Add embedding to database
+            saved_embedding_id = self.embedding_store.add_embedding(embedding_id, embedding, metadata)
+            if saved_embedding_id:
+                enrollment_progress = (frame_count / total_frames) * 100
+                
+                return {
+                    'success': True,
+                    'user_id': user_id,
+                    'embedding_id': saved_embedding_id,
+                    'frame_accepted': True,
+                    'frame_count': frame_count,
+                    'total_frames': total_frames,
+                    'enrollment_progress': enrollment_progress,
+                    'quality_score': quality_score,
+                    'liveness_score': liveness_score,
+                    'anti_spoofing_score': anti_spoofing_score,
+                    'liveness_data': liveness_result,
+                    'obstacles': obstacles,
+                    'obstacle_confidence': obstacle_confidence,
+                    'bbox': bbox.tolist() if hasattr(bbox, 'tolist') else bbox,
+                    'existing_frames': len(user_matches),
+                    'enrollment_complete': frame_count >= total_frames
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': 'Failed to store face embedding',
+                    'frame_accepted': False,
+                    'frame_count': frame_count,
+                    'total_frames': total_frames,
+                    'enrollment_progress': (frame_count / total_frames) * 100
+                }
+                
+        except Exception as e:
+            logger.error(f"Error in enroll_face: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': f'Enrollment failed: {str(e)}',
+                'frame_accepted': False,
+                'frame_count': frame_count,
+                'total_frames': total_frames,
+                'enrollment_progress': (frame_count / total_frames) * 100
             }
     
     def get_system_status(self):

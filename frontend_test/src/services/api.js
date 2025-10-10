@@ -10,176 +10,152 @@ export const apiClient = axios.create({
   }
 })
 
-const refreshClient = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 20000,
-  headers: {
-    'Content-Type': 'application/json'
+export function setClientSession({ apiKey, accessToken }) {
+  if (apiKey) {
+    apiClient.defaults.headers.common['X-API-Key'] = apiKey
+  } else {
+    delete apiClient.defaults.headers.common['X-API-Key']
   }
-})
 
-let refreshTokenProvider = null
-let tokenUpdateHandler = null
-let logoutHandler = null
-let isRefreshing = false
-let refreshPromise = null
-const pendingQueue = []
-
-function processQueue(error, token = null) {
-  while (pendingQueue.length) {
-    const { resolve, reject, config } = pendingQueue.shift()
-    if (token) {
-      const retryConfig = {
-        ...config,
-        __isRetryRequest: true,
-        headers: {
-          ...config.headers,
-          Authorization: `Bearer ${token}`
-        }
-      }
-      resolve(apiClient.request(retryConfig))
-    } else {
-      reject(error)
-    }
-  }
-}
-
-export function configureAuthHandlers({ getRefreshToken, onTokenRefreshed, onLogout }) {
-  refreshTokenProvider = typeof getRefreshToken === 'function' ? getRefreshToken : null
-  tokenUpdateHandler = typeof onTokenRefreshed === 'function' ? onTokenRefreshed : null
-  logoutHandler = typeof onLogout === 'function' ? onLogout : null
-}
-
-export function setAuthToken(token) {
-  if (token) {
-    apiClient.defaults.headers.common.Authorization = `Bearer ${token}`
+  if (accessToken) {
+    apiClient.defaults.headers.common.Authorization = `JWT ${accessToken}`
   } else {
     delete apiClient.defaults.headers.common.Authorization
   }
 }
 
-function shouldAttemptRefresh(response) {
-  if (!response) return false
-  if (response.status !== 401) return false
-
-  const code = response.data?.code
-  if (code === 'token_not_valid') return true
-
-  const messageArray = response.data?.messages
-  if (Array.isArray(messageArray)) {
-    return messageArray.some((msg) =>
-      typeof msg?.message === 'string' && msg.message.toLowerCase().includes('token is expired')
-    )
-  }
-
-  const detail = response.data?.detail
-  if (typeof detail === 'string' && detail.toLowerCase().includes('token is expired')) {
-    return true
-  }
-
-  return false
+export function clearClientSession() {
+  delete apiClient.defaults.headers.common['X-API-Key']
+  delete apiClient.defaults.headers.common.Authorization
 }
 
-apiClient.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    const { config, response } = error
+function atobPolyfill(base64) {
+  if (typeof window !== 'undefined' && typeof window.atob === 'function') {
+    return window.atob(base64)
+  }
+  if (typeof Buffer === 'function') {
+    return Buffer.from(base64, 'base64').toString('binary')
+  }
+  throw new Error('Base64 decoding not supported in this environment')
+}
 
-    if (!config || config.__isRetryRequest || !shouldAttemptRefresh(response)) {
-      return Promise.reject(error)
-    }
+function dataUrlToBlob(dataUrl) {
+  if (dataUrl instanceof Blob) {
+    return dataUrl
+  }
+  if (typeof dataUrl !== 'string') {
+    throw new Error('Frame payload requires string or Blob data')
+  }
+  if (!dataUrl.startsWith('data:')) {
+    throw new Error('Frame data must be a data URL (data:<mime>;base64,...)')
+  }
+  const [header, data] = dataUrl.split(',')
+  const mime = header.match(/:(.*?);/)?.[1] || 'image/jpeg'
+  const binary = atobPolyfill(data)
+  const buffer = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    buffer[i] = binary.charCodeAt(i)
+  }
+  return new Blob([buffer], { type: mime })
+}
 
-    if (!refreshTokenProvider) {
-      logoutHandler?.()
-      return Promise.reject(error)
-    }
+function buildFrameForm(payload) {
+  if (payload instanceof FormData) {
+    return payload
+  }
 
-    const refreshToken = refreshTokenProvider()
-    if (!refreshToken) {
-      logoutHandler?.()
-      return Promise.reject(error)
-    }
+  const form = new FormData()
+  const token = payload?.session_token
+  if (!token) {
+    throw new Error('session_token is required in frame payload')
+  }
+  form.append('session_token', token)
 
-    if (!isRefreshing) {
-      isRefreshing = true
-      refreshPromise = refreshClient
-        .post('auth/token/refresh/', { refresh: refreshToken })
-        .then((res) => {
-          const newAccess = res.data?.access
-          const newRefresh = res.data?.refresh || refreshToken
+  if (payload.frame_number != null) {
+    form.append('frame_number', payload.frame_number)
+  }
 
-          if (!newAccess) {
-            throw new Error('Refresh response missing access token')
+  if (payload.image instanceof Blob) {
+    form.append('image', payload.image, payload.image.name || `frame-${Date.now()}.jpg`)
+  } else if (typeof payload.image === 'string') {
+    const blob = dataUrlToBlob(payload.image)
+    form.append('image', blob, `frame-${Date.now()}.jpg`)
+  } else if (typeof payload.image_base64 === 'string') {
+    const blob = dataUrlToBlob(payload.image_base64)
+    form.append('image', blob, `frame-${Date.now()}.jpg`)
+  } else if (payload.frame_data) {
+    const blob = dataUrlToBlob(payload.frame_data)
+    form.append('image', blob, `frame-${Date.now()}.jpg`)
+  } else {
+    throw new Error('Frame payload requires image Blob/File or frame_data string')
+  }
+
+  return form
+}
+
+export const clientAuthApi = {
+  authenticate(payload) {
+    return apiClient.post('core/auth/client/', payload)
+  },
+  authenticateUser(payload) {
+    return apiClient.post('core/auth/user/', payload)
+  }
+}
+
+export const clientApi = {
+  list() {
+    return apiClient.get('clients/clients/')
+  },
+  stats(clientId) {
+    return apiClient.get(`clients/clients/${clientId}/stats/`)
+  },
+  resetCredentials(clientId, payload) {
+    return apiClient.post(`clients/clients/${clientId}/reset_credentials/`, payload)
+  }
+}
+
+export const clientUsersApi = {
+  list(params = {}) {
+    return apiClient.get('clients/users/', { params })
+  },
+  create(payload) {
+    return apiClient.post('clients/users/', payload)
+  },
+  remove(id) {
+    return apiClient.delete(`clients/users/${id}/`)
+  },
+  activate(id) {
+    return apiClient.post(`clients/users/${id}/activate/`)
+  },
+  deactivate(id) {
+    return apiClient.post(`clients/users/${id}/deactivate/`)
+  },
+  enrollments(id) {
+    return apiClient.get(`clients/users/${id}/enrollments/`)
+  }
+}
+
+export const sessionApi = {
+  createEnrollment(payload) {
+    return apiClient.post('auth/enrollment/create/', payload)
+  },
+  createAuthentication(payload) {
+    return apiClient.post('auth/authentication/create/', payload)
+  },
+  processFrame(payload) {
+    const isFormData = typeof FormData !== 'undefined' && payload instanceof FormData
+    const config = isFormData
+      ? {
+          headers: {
+            ...apiClient.defaults.headers.common,
+            'Content-Type': 'multipart/form-data'
           }
-
-          tokenUpdateHandler?.(newAccess, newRefresh)
-          processQueue(null, newAccess)
-          return newAccess
-        })
-        .catch((refreshError) => {
-          processQueue(refreshError, null)
-          logoutHandler?.()
-          throw refreshError
-        })
-        .finally(() => {
-          isRefreshing = false
-        })
-    }
-
-    return new Promise((resolve, reject) => {
-      pendingQueue.push({ resolve, reject, config })
-    })
-  }
-)
-
-export const authApi = {
-  login(payload) {
-    return apiClient.post('auth/token/', payload)
+        }
+      : undefined
+    return apiClient.post('auth/process-image/', payload, config)
   },
-  register(payload) {
-    return apiClient.post('auth/register/', payload)
-  },
-  profile() {
-    return apiClient.get('auth/profile/')
-  },
-  updateProfile(payload) {
-    return apiClient.put('auth/profile/', payload)
-  },
-  userDevices() {
-    return apiClient.get('user/devices/')
-  },
-  authHistory() {
-    return apiClient.get('user/auth-history/')
-  },
-  securityAlerts() {
-    return apiClient.get('user/security-alerts/')
-  }
-}
-
-export const enrollmentApi = {
-  createSession(payload) {
-    return apiClient.post('enrollment/create/', payload)
-  },
-  processFrame(payload) {
-    return apiClient.post('enrollment/process-frame/', payload)
-  }
-}
-
-export const faceAuthApi = {
-  createSession(payload) {
-    return apiClient.post('auth/face/create/', payload)
-  },
-  createWebRTCSession(payload) {
-    return apiClient.post('auth/face/webrtc/create/', payload)
-  },
-  processFrame(payload) {
-    return apiClient.post('auth/face/process-frame/', payload)
-  },
-  createPublicSession(payload) {
-    return apiClient.post('auth/face/public/create/', payload)
-  },
-  createPublicWebRTCSession(payload) {
-    return apiClient.post('auth/face/webrtc/public/create/', payload)
+  sessionStatus(token) {
+    return apiClient.get(`auth/session/${token}/status/`)
   }
 }
 
@@ -192,6 +168,72 @@ export const recognitionApi = {
   },
   listAttempts() {
     return apiClient.get('recognition/attempts/')
+  }
+}
+
+export const enrollmentApi = {
+  createSession(payload = {}) {
+    const { session_type = 'webcam', user_id = null, metadata = {}, target_samples, device_info } = payload
+    const requestPayload = {
+      session_type,
+      metadata: {
+        ...metadata,
+        target_samples,
+        device_info
+      }
+    }
+    if (user_id) {
+      requestPayload.user_id = user_id
+    }
+    return sessionApi.createEnrollment(requestPayload)
+  },
+  processFrame(payload) {
+    const form = buildFrameForm(payload)
+    return sessionApi.processFrame(form)
+  }
+}
+
+export const faceAuthApi = {
+  createSession(payload = {}) {
+    return sessionApi.createAuthentication({
+      session_type: payload.session_type || 'webcam',
+      require_liveness: payload.require_liveness !== undefined ? payload.require_liveness : true,
+      user_id: payload.user_id || payload.email || null,
+      metadata: {
+        ...payload.metadata,
+        mode: payload.mode || payload.session_type || 'identification',
+        transport: payload.transport || 'http',
+        device_info: payload.device_info
+      }
+    })
+  },
+  createWebRTCSession(payload = {}) {
+    return this.createSession({ ...payload, session_type: 'webrtc', transport: 'webrtc' })
+  },
+  createPublicSession(payload = {}) {
+    return this.createSession({ ...payload, metadata: { ...payload.metadata, is_public: true } })
+  },
+  createPublicWebRTCSession(payload = {}) {
+    return this.createWebRTCSession({ ...payload, metadata: { ...payload.metadata, is_public: true } })
+  },
+  processFrame(payload) {
+    const form = buildFrameForm(payload)
+    return sessionApi.processFrame(form)
+  },
+  sessionStatus(token) {
+    return sessionApi.sessionStatus(token)
+  }
+}
+
+export const analyticsApi = {
+  auditLogs(params = {}) {
+    return apiClient.get('core/audit-logs/', { params })
+  },
+  securityEvents(params = {}) {
+    return apiClient.get('core/security-events/', { params })
+  },
+  systemStatus() {
+    return apiClient.get('core/status/')
   }
 }
 
@@ -213,40 +255,14 @@ export const streamingApi = {
   }
 }
 
-export const analyticsApi = {
-  authLogs(params) {
-    return apiClient.get('analytics/auth-logs/', { params })
-  },
-  securityAlerts(params) {
-    return apiClient.get('analytics/security-alerts/', { params })
-  },
-  dashboard(params) {
-    return apiClient.get('analytics/dashboard/', { params })
-  },
-  statistics() {
-    return apiClient.get('analytics/statistics/')
-  }
-}
-
 export const systemApi = {
   status() {
     return apiClient.get('system/status/')
   }
 }
 
-export const detectionApi = {
-  // Get liveness detection history
-  livenessHistory() {
-    return apiClient.get('detection/liveness-history/')
-  },
-  
-  // Get obstacle detection history
-  obstacleHistory() {
-    return apiClient.get('detection/obstacle-history/')
-  },
-  
-  // Get detection analytics
-  analytics(days = 30) {
-    return apiClient.get('detection/analytics/', { params: { days } })
+export const authApi = {
+  register() {
+    return Promise.reject(new Error('User registration is disabled in third-party client mode'))
   }
 }

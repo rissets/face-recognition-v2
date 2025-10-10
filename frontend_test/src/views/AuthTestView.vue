@@ -1,216 +1,191 @@
 <template>
   <div class="layout-grid">
     <section class="section">
-      <h2>Registration</h2>
-      <p>Create a new user using the registration endpoint.</p>
-      <form class="form-grid" @submit.prevent="register">
-        <div class="field">
-          <label>Email</label>
-          <input v-model="registerForm.email" type="email" required />
-        </div>
-        <div class="field">
-          <label>Username</label>
-          <input v-model="registerForm.username" required />
-        </div>
-        <div class="field">
-          <label>First Name</label>
-          <input v-model="registerForm.first_name" />
-        </div>
-        <div class="field">
-          <label>Last Name</label>
-          <input v-model="registerForm.last_name" />
-        </div>
-        <div class="field">
-          <label>Phone Number</label>
-          <input v-model="registerForm.phone_number" placeholder="+62812..." />
-        </div>
-        <div class="field">
-          <label>Password</label>
-          <input v-model="registerForm.password" type="password" required />
-        </div>
-        <div class="field">
-          <label>Confirm Password</label>
-          <input v-model="registerForm.password_confirm" type="password" required />
-        </div>
-        <div class="actions">
-          <button type="submit" :disabled="loaders.register">Register</button>
-          <span v-if="registerError" class="status-error">{{ registerError }}</span>
-        </div>
-      </form>
-      <div v-if="registerResponse" class="response-card">
-        <pre>{{ registerResponse }}</pre>
+      <h2>Informasi Client</h2>
+      <div v-if="client" class="response-card mono">
+        <pre>{{ formattedClient }}</pre>
+      </div>
+      <p v-else class="status-warning">Client belum dimuat. Klik "Refresh" untuk mencoba lagi.</p>
+      <div class="actions">
+        <button type="button" class="secondary" @click="refreshClient">Refresh</button>
+        <button type="button" class="secondary" @click="loadUsers">Muat Daftar Pengguna</button>
       </div>
     </section>
 
     <section class="section">
-      <h2>Profile</h2>
-      <div class="actions">
-        <button type="button" @click="loadProfile">Load Profile</button>
-      </div>
-      <div v-if="profileData" class="response-card">
-        <pre>{{ profileData }}</pre>
-      </div>
-      <h3>Update Profile</h3>
-      <form class="form-grid" @submit.prevent="updateProfile">
+      <h2>Tambah Pengguna Client</h2>
+      <form class="form-grid" @submit.prevent="createUser">
         <div class="field">
-          <label>First Name</label>
-          <input v-model="updateForm.first_name" />
+          <label for="external-id">External User ID</label>
+          <input id="external-id" v-model="userForm.externalUserId" required placeholder="john.doe" />
         </div>
         <div class="field">
-          <label>Last Name</label>
-          <input v-model="updateForm.last_name" />
-        </div>
-        <div class="field">
-          <label>Phone Number</label>
-          <input v-model="updateForm.phone_number" placeholder="+62812..." />
-        </div>
-        <div class="field">
-          <label>Bio</label>
-          <textarea v-model="updateForm.bio" rows="3"></textarea>
+          <label for="profile-json">Profil (JSON)</label>
+          <textarea
+            id="profile-json"
+            v-model="userForm.profile"
+            rows="4"
+            placeholder='{"email":"john@company.com","display_name":"John Doe"}'
+          ></textarea>
         </div>
         <div class="actions">
-          <button type="submit" :disabled="loaders.updateProfile">Update</button>
-          <span v-if="updateError" class="status-error">{{ updateError }}</span>
+          <button type="submit" :disabled="userLoading">Simpan Pengguna</button>
+          <span v-if="userError" class="status-error mono">{{ userError }}</span>
         </div>
       </form>
-      <div v-if="updateResponse" class="response-card">
-        <pre>{{ updateResponse }}</pre>
-      </div>
     </section>
 
     <section class="section">
-      <h2>Devices & History</h2>
+      <h2>Daftar Pengguna Terdaftar</h2>
       <div class="actions">
-        <button type="button" @click="loadDevices">Device List</button>
-        <button type="button" @click="loadAuthHistory">Auth History</button>
-        <button type="button" @click="loadSecurityAlerts">Security Alerts</button>
+        <button type="button" class="secondary" @click="loadUsers" :disabled="userLoading">
+          {{ userLoading ? 'Memuat…' : 'Muat Ulang' }}
+        </button>
       </div>
-      <div v-if="devicesData" class="response-card">
-        <h3>Devices</h3>
-        <pre>{{ devicesData }}</pre>
+      <div v-if="users.length === 0" class="status-warning">Belum ada pengguna di client ini.</div>
+      <div v-else class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>ID Eksternal</th>
+              <th>Enrolled</th>
+              <th>Face Auth</th>
+              <th>Terakhir Recognize</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="user in users" :key="user.id">
+              <td>
+                <strong>{{ user.external_user_id }}</strong>
+                <div class="mono small">{{ user.display_name }}</div>
+              </td>
+              <td>{{ user.is_enrolled ? 'Ya' : 'Belum' }}</td>
+              <td>{{ user.face_auth_enabled ? 'Aktif' : 'Nonaktif' }}</td>
+              <td>{{ formatDate(user.last_recognition_at) }}</td>
+              <td>
+                <button class="secondary" type="button" @click="toggleUser(user)">
+                  {{ user.face_auth_enabled ? 'Nonaktifkan' : 'Aktifkan' }}
+                </button>
+                <button class="secondary" type="button" @click="loadEnrollments(user)">
+                  Lihat Enrollment
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <div v-if="historyData" class="response-card">
-        <h3>Authentication History</h3>
-        <pre>{{ historyData }}</pre>
-      </div>
-      <div v-if="alertsData" class="response-card">
-        <h3>Security Alerts</h3>
-        <pre>{{ alertsData }}</pre>
+    </section>
+
+    <section v-if="enrollments" class="section">
+      <h2>Enrollment {{ enrollments.user?.external_user_id }}</h2>
+      <div class="response-card mono">
+        <pre>{{ enrollmentsText }}</pre>
       </div>
     </section>
   </div>
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
-import { authApi } from '../services/api'
+import { clientApi, clientUsersApi } from '../services/api'
 
 const authStore = useAuthStore()
 
-const registerForm = reactive({
-  email: '',
-  username: '',
-  first_name: '',
-  last_name: '',
-  phone_number: '',
-  password: '',
-  password_confirm: ''
+const userForm = reactive({
+  externalUserId: '',
+  profile: ''
 })
 
-const updateForm = reactive({
-  first_name: '',
-  last_name: '',
-  phone_number: '',
-  bio: ''
-})
+const userLoading = ref(false)
+const userError = ref('')
+const users = ref([])
+const enrollments = ref(null)
 
-const loaders = reactive({
-  register: false,
-  updateProfile: false
-})
+const client = computed(() => authStore.client)
+const formattedClient = computed(() => JSON.stringify(client.value, null, 2))
+const enrollmentsText = computed(() => JSON.stringify(enrollments.value?.data || {}, null, 2))
 
-const registerResponse = ref('')
-const registerError = ref('')
-const profileData = ref('')
-const updateResponse = ref('')
-const updateError = ref('')
-const devicesData = ref('')
-const historyData = ref('')
-const alertsData = ref('')
-
-function stringify(data) {
-  return JSON.stringify(data, null, 2)
+function formatDate(value) {
+  if (!value) return '-'
+  return new Date(value).toLocaleString()
 }
 
-async function register() {
-  loaders.register = true
-  registerError.value = ''
+async function refreshClient() {
+  await authStore.refreshClientDetails()
+}
+
+async function loadUsers() {
+  userLoading.value = true
+  userError.value = ''
   try {
-    const payload = JSON.parse(JSON.stringify(registerForm))
-    const response = await authApi.register(payload)
-    registerResponse.value = stringify(response.data)
+    const response = await clientUsersApi.list()
+    users.value = response.data
   } catch (error) {
-    registerError.value = stringify(error.response?.data || error.message)
+    userError.value = JSON.stringify(error.response?.data || error.message, null, 2)
   } finally {
-    loaders.register = false
+    userLoading.value = false
   }
 }
 
-async function loadProfile() {
+async function createUser() {
+  userLoading.value = true
+  userError.value = ''
   try {
-    const data = await authStore.fetchProfile()
-    profileData.value = stringify(data)
-    Object.assign(updateForm, {
-      first_name: data.first_name || '',
-      last_name: data.last_name || '',
-      phone_number: data.phone_number || '',
-      bio: data.bio || ''
+    let profilePayload = {}
+    if (userForm.profile.trim()) {
+      profilePayload = JSON.parse(userForm.profile)
+    }
+    await clientUsersApi.create({
+      external_user_id: userForm.externalUserId,
+      profile: profilePayload
     })
+    userForm.externalUserId = ''
+    userForm.profile = ''
+    await loadUsers()
   } catch (error) {
-    profileData.value = stringify(error.response?.data || error.message)
-  }
-}
-
-async function updateProfile() {
-  loaders.updateProfile = true
-  updateError.value = ''
-  try {
-    const payload = JSON.parse(JSON.stringify(updateForm))
-    const response = await authApi.updateProfile(payload)
-    updateResponse.value = stringify(response.data)
-    await loadProfile()
-  } catch (error) {
-    updateError.value = stringify(error.response?.data || error.message)
+    userError.value = JSON.stringify(error.response?.data || error.message, null, 2)
   } finally {
-    loaders.updateProfile = false
+    userLoading.value = false
   }
 }
 
-async function loadDevices() {
+async function toggleUser(user) {
+  userLoading.value = true
+  userError.value = ''
   try {
-    const response = await authApi.userDevices()
-    devicesData.value = stringify(response.data)
+    if (user.face_auth_enabled) {
+      await clientUsersApi.deactivate(user.id)
+    } else {
+      await clientUsersApi.activate(user.id)
+    }
+    await loadUsers()
   } catch (error) {
-    devicesData.value = stringify(error.response?.data || error.message)
+    userError.value = JSON.stringify(error.response?.data || error.message, null, 2)
+  } finally {
+    userLoading.value = false
   }
 }
 
-async function loadAuthHistory() {
+async function loadEnrollments(user) {
   try {
-    const response = await authApi.authHistory()
-    historyData.value = stringify(response.data)
+    const response = await clientUsersApi.enrollments(user.id)
+    enrollments.value = {
+      user,
+      data: response.data
+    }
   } catch (error) {
-    historyData.value = stringify(error.response?.data || error.message)
+    enrollments.value = {
+      user,
+      data: {
+        error: error.response?.data || error.message
+      }
+    }
   }
 }
 
-async function loadSecurityAlerts() {
-  try {
-    const response = await authApi.securityAlerts()
-    alertsData.value = stringify(response.data)
-  } catch (error) {
-    alertsData.value = stringify(error.response?.data || error.message)
-  }
+if (authStore.isAuthenticated) {
+  loadUsers()
 }
 </script>

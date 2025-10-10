@@ -67,6 +67,14 @@
         <div>
           <form class="form-grid" @submit.prevent="createSession">
             <div class="field">
+              <label>External User ID</label>
+              <input
+                v-model="settings.userId"
+                placeholder="john.doe"
+                required
+              />
+            </div>
+            <div class="field">
               <label>Target Samples</label>
               <input v-model.number="settings.targetSamples" type="number" min="3" max="10" required />
             </div>
@@ -92,15 +100,20 @@
                 <span>Progress</span>
                 <strong>{{ progressPercent }}%</strong>
               </div>
-              <div class="session-tile">
-                <span>Frame Terkirim</span>
-                <strong>{{ streamingState.framesSent }}</strong>
-              </div>
-              <div class="session-tile">
-                <span>Quality Terakhir</span>
-                <strong>{{ lastQuality ?? '-' }}</strong>
-              </div>
+            <div class="session-tile">
+              <span>Frame Terkirim</span>
+              <strong>{{ streamingState.framesSent }}</strong>
             </div>
+            <div class="session-tile">
+              <span>Liveness Score</span>
+              <strong>{{ (lastLivenessScore || 0).toFixed(2) }}</strong>
+              <small v-if="lastLivenessHint">{{ lastLivenessHint }}</small>
+            </div>
+            <div class="session-tile">
+              <span>Quality Terakhir</span>
+              <strong>{{ lastQuality ?? '-' }}</strong>
+            </div>
+          </div>
             <div class="progress-wrapper">
               <div class="progress-track">
                 <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
@@ -112,6 +125,10 @@
             <div class="info-card">
               <strong>Session Token</strong>
               <span class="mono">{{ session.session_token }}</span>
+            </div>
+            <div class="info-card" v-if="streamingState.lastPreview">
+              <strong>Preview Wajah Terakhir</strong>
+              <img :src="streamingState.lastPreview" alt="Face preview" class="preview-face" />
             </div>
             <div v-if="lastMessage" class="info-card">
               <strong>Pesan Terakhir</strong>
@@ -150,12 +167,13 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import CameraStream from '../components/CameraStream.vue'
-import { enrollmentApi } from '../services/api'
+import { sessionApi } from '../services/api'
 
 const cameraRef = ref(null)
 const session = ref(null)
 const cameraActive = ref(false)
 const settings = reactive({
+  userId: '',
   targetSamples: 5
 })
 const deviceInfoInput = ref(
@@ -186,7 +204,10 @@ const errors = reactive({
 const streamingState = reactive({
   capturing: false,
   framesSent: 0,
-  lastResponse: null
+  lastResponse: null,
+  lastLivenessScore: 0,
+  lastLivenessData: null,
+  lastPreview: null
 })
 
 const logs = ref([])
@@ -195,7 +216,8 @@ const captureTimer = ref(null)
 
 const manualForm = reactive({
   sessionToken: '',
-  frameData: ''
+  frameData: '',
+  file: null
 })
 
 const isCameraActive = computed(() => cameraActive.value)
@@ -225,6 +247,14 @@ const sessionStatus = computed(() => {
 
 const lastQuality = computed(() => streamingState.lastResponse?.quality_score ?? null)
 const lastMessage = computed(() => streamingState.lastResponse?.message ?? '')
+const lastLivenessScore = computed(() => streamingState.lastLivenessScore)
+const lastLivenessHint = computed(() => {
+  const info = streamingState.lastLivenessData
+  if (!info) return ''
+  const blinks = info.blinks_detected ?? info.total_blinks ?? 0
+  const motion = info.motion_events ?? info.liveness_motion_events ?? 0
+  return `Blink ${blinks}x · Motion ${motion}x`
+})
 
 function addLog(level, message, detail = '') {
   logs.value.unshift({
@@ -308,10 +338,14 @@ async function createSession() {
   errors.session = ''
   try {
     const payload = {
-      target_samples: settings.targetSamples,
-      device_info: parseDeviceInfo()
+      user_id: settings.userId,
+      session_type: 'webcam',
+      metadata: {
+        target_samples: settings.targetSamples,
+        device_info: parseDeviceInfo()
+      }
     }
-    const response = await enrollmentApi.createSession(payload)
+    const response = await sessionApi.createEnrollment(payload)
     session.value = {
       ...response.data,
       target_samples: response.data.target_samples ?? settings.targetSamples,
@@ -406,6 +440,27 @@ async function captureNextFrame() {
   }
 }
 
+function ensureBlobFromFrame(frameData) {
+  if (frameData instanceof File || frameData instanceof Blob) {
+    return frameData
+  }
+  if (typeof frameData === 'string') {
+    if (!frameData.startsWith('data:')) {
+      throw new Error('Frame data harus berupa data URL base64')
+    }
+    const [header, data] = frameData.split(',')
+    const mime = header.match(/:(.*?);/)?.[1] || 'image/jpeg'
+    const binary = atob(data)
+    const length = binary.length
+    const buffer = new Uint8Array(length)
+    for (let i = 0; i < length; i += 1) {
+      buffer[i] = binary.charCodeAt(i)
+    }
+    return new Blob([buffer], { type: mime })
+  }
+  throw new Error('Format frame tidak didukung')
+}
+
 async function sendFrame(frameData, overrideToken) {
   const token = overrideToken || session.value?.session_token
   if (!token) {
@@ -413,40 +468,66 @@ async function sendFrame(frameData, overrideToken) {
   }
 
   try {
-    const response = await enrollmentApi.processFrame({
-      session_token: token,
-      frame_data: frameData
-    })
+    const blob = ensureBlobFromFrame(frameData)
+    const formData = new FormData()
+    formData.append('session_token', token)
+    formData.append('image', blob, `frame-${streamingState.framesSent + 1}.jpg`)
+    formData.append('frame_number', streamingState.framesSent + 1)
+
+    const response = await sessionApi.processFrame(formData)
 
     streamingState.framesSent += 1
-    const data = response.data
+    const data = response.data || {}
     streamingState.lastResponse = data
+    streamingState.lastLivenessScore = data.liveness_score ?? streamingState.lastLivenessScore
+    streamingState.lastLivenessData = data.liveness_data ?? data.last_liveness ?? streamingState.lastLivenessData
+    streamingState.lastPreview = data.preview_image || streamingState.lastPreview
+
+    const framesProcessed = data.frames_processed ?? data.completed_samples ?? streamingState.framesSent
+    const targetSamples = data.target_samples ?? session.value?.target_samples ?? settings.targetSamples
+    const sessionStatus = data.session_status ?? data.status ?? session.value?.status ?? 'in_progress'
+    const requiresMore = data.requires_more_frames === true
 
     if (session.value && session.value.session_token === token) {
-      session.value.status = data.session_status ?? session.value.status
-      session.value.completed_samples = data.completed_samples ?? session.value.completed_samples ?? 0
-      session.value.target_samples = data.target_samples ?? session.value.target_samples ?? settings.targetSamples
+      session.value.status = sessionStatus
+      session.value.completed_samples = framesProcessed
+      session.value.target_samples = targetSamples
     }
 
-    if (data.success === false) {
-      addLog('warning', data.error || 'Frame ditolak', JSON.stringify(data, null, 2))
+    if (data.error) {
+      addLog('warning', data.error, JSON.stringify(data, null, 2))
       return data
     }
 
-    addLog('success', 'Frame diterima', `samples: ${data.completed_samples}/${session.value?.target_samples ?? settings.targetSamples}`)
+    const successState = data.success === true ? 'success' : 'info'
+    addLog(successState, 'Frame diterima', {
+      frames: `${framesProcessed}/${targetSamples}`,
+      liveness_score: data.liveness_score,
+      requires_more_frames: data.requires_more_frames
+    })
 
-    const target = session.value?.target_samples ?? settings.targetSamples
-    if (
-      (data.session_status && !['pending', 'in_progress'].includes(data.session_status)) ||
-      (typeof data.completed_samples === 'number' && data.completed_samples >= target)
-    ) {
-      addLog('success', 'Enrollment selesai', data.message || 'Target sampel tercapai')
+    if (sessionStatus === 'failed') {
+      addLog('warning', data.message || 'Sesi enrollment gagal.', JSON.stringify(data, null, 2))
+      stopStreaming()
+      return data
+    }
+
+    if (sessionStatus === 'completed' && !requiresMore) {
+      addLog('success', 'Enrollment selesai', {
+        message: data.message || 'Target sampel tercapai',
+        liveness_score: data.liveness_score
+      })
       stopStreaming()
     }
 
     return data
-  } catch (error) {
-    const message = formatError(error)
+ } catch (error) {
+   const message = formatError(error)
+    if (message.includes('Session is no longer active')) {
+      addLog('info', 'Session telah selesai diproses.')
+      stopStreaming()
+      return
+    }
     if (!overrideToken) {
       errors.session = message
     } else {
@@ -464,11 +545,13 @@ async function processManualFrame() {
     if (!manualForm.sessionToken) {
       throw new Error('Session token wajib diisi')
     }
-    if (!manualForm.frameData) {
+    const payload = manualForm.file || manualForm.frameData
+    if (!payload) {
       throw new Error('Frame data wajib diisi')
     }
-    await sendFrame(manualForm.frameData, manualForm.sessionToken)
+    await sendFrame(payload, manualForm.sessionToken)
     manualForm.frameData = ''
+    manualForm.file = null
   } catch (error) {
     errors.manual = formatError(error)
   } finally {
@@ -480,11 +563,7 @@ function handleManualFile(event) {
   const [file] = event.target.files || []
   if (!file) return
 
-  const reader = new FileReader()
-  reader.onload = () => {
-    manualForm.frameData = reader.result
-  }
-  reader.readAsDataURL(file)
+  manualForm.file = file
 }
 
 function handleCameraError(error) {

@@ -26,10 +26,6 @@ const routes = [
     component: () => import('../views/LoginView.vue')
   },
   {
-    path: '/register',
-    component: () => import('../views/RegistrationFlowView.vue')
-  },
-  {
     path: '/dashboard',
     component: () => import('../views/DashboardView.vue'),
     meta: { requiresAuth: true }

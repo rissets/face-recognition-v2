@@ -88,23 +88,29 @@ class UserProfileAdmin(ModelAdmin):
 @admin.register(UserDevice)
 class UserDeviceAdmin(ModelAdmin):
     """Admin for user devices"""
-    list_display = ('user', 'device_name', 'device_type', 'is_trusted', 'last_seen', 'login_count')
-    list_filter = ('device_type', 'is_trusted', 'is_active', 'last_seen')
-    search_fields = ('user__email', 'device_name', 'device_id', 'last_ip')
-    readonly_fields = ('first_seen', 'last_seen', 'login_count')
-    date_hierarchy = 'last_seen'
+    list_display = ('user', 'device_name', 'device_type', 'operating_system', 'is_trusted', 'last_seen', 'is_active')
+    list_filter = ('device_type', 'is_trusted', 'is_active', 'first_seen', 'last_seen')
+    search_fields = ('user__email', 'device_name', 'browser', 'last_ip', 'operating_system')
+    readonly_fields = ('first_seen', 'last_seen', 'login_count', 'user_agent')
     
     fieldsets = (
+        ('User', {
+            'fields': ('user',)
+        }),
         ('Device Info', {
-            'fields': ('user', 'device_id', 'device_name', 'device_type')
+            'fields': ('device_id', 'device_name', 'device_type')
         }),
         ('Technical Details', {
             'fields': ('operating_system', 'browser', 'user_agent')
         }),
         ('Security', {
-            'fields': ('is_trusted', 'last_ip', 'last_location')
+            'fields': ('is_trusted',)
         }),
-        ('Activity', {
-            'fields': ('first_seen', 'last_seen', 'login_count', 'is_active')
+        ('Network Info', {
+            'fields': ('last_ip', 'last_location')
+        }),
+        ('Usage Stats', {
+            'fields': ('first_seen', 'last_seen', 'login_count', 'is_active'),
+            'classes': ('collapse',)
         })
     )

@@ -13,13 +13,13 @@ class FaceEmbeddingSerializer(serializers.ModelSerializer):
     class Meta:
         model = FaceEmbedding
         fields = [
-            'id', 'user', 'quality_score', 'confidence_score', 
+            'id', 'client_user', 'embedding_hash', 'quality_score', 'confidence_score', 
             'face_bbox', 'face_landmarks', 'sample_number',
             'liveness_score', 'anti_spoofing_score', 'is_active', 
             'is_verified', 'created_at', 'updated_at'
         ]
         read_only_fields = [
-            'id', 'user', 'created_at', 'updated_at'
+            'id', 'client_user', 'embedding_hash', 'created_at', 'updated_at'
         ]
 
 
@@ -38,13 +38,13 @@ class EnrollmentSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = EnrollmentSession
         fields = [
-            'id', 'user', 'session_token', 'status', 'target_samples',
+            'id', 'client_user', 'session_token', 'status', 'target_samples',
             'completed_samples', 'progress_percentage', 'average_quality', 
-            'min_quality_threshold', 'device_info', 'session_log',
+            'min_quality_threshold', 'device_info', 'ip_address', 'session_log',
             'error_messages', 'started_at', 'completed_at', 'expires_at'
         ]
         read_only_fields = [
-            'id', 'user', 'session_token', 'progress_percentage', 
+            'id', 'client_user', 'session_token', 'progress_percentage', 
             'started_at', 'completed_at'
         ]
 
@@ -62,12 +62,12 @@ class AuthenticationAttemptSerializer(serializers.ModelSerializer):
     class Meta:
         model = AuthenticationAttempt
         fields = [
-            'id', 'user', 'session_id', 'result', 'is_successful',
+            'id', 'client_user', 'session_id', 'result', 'is_successful',
             'similarity_score', 'liveness_score', 'quality_score',
             'obstacles_detected', 'processing_time', 'ip_address', 
             'user_agent', 'device_fingerprint', 'face_bbox', 
-            'metadata', 'created_at'
+            'matched_embedding', 'metadata', 'created_at'
         ]
         read_only_fields = [
-            'id', 'user', 'is_successful', 'processing_time', 'created_at'
+            'id', 'client_user', 'is_successful', 'processing_time', 'created_at'
         ]

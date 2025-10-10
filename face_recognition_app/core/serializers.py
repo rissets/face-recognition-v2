@@ -1,320 +1,220 @@
 """
-Serializers for Face Recognition API
+Serializers supporting the third-party face recognition API surface.
 """
+from typing import Optional
+
 from rest_framework import serializers
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from django.contrib.auth import get_user_model
-from recognition.models import (
-    FaceEmbedding, EnrollmentSession, AuthenticationAttempt,
-    LivenessDetection, ObstacleDetection
-)
-from analytics.models import AuthenticationLog, SecurityAlert
-from users.models import UserProfile, UserDevice
-from streaming.models import StreamingSession
-import base64
-import uuid
 
-User = get_user_model()
+from .models import AuditLog, HealthCheck, SecurityEvent, SystemConfiguration
+from clients.models import Client, ClientUser
 
 
-class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    """Custom JWT serializer that accepts email instead of username"""
-    email = serializers.EmailField()
-    password = serializers.CharField()
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Remove the username field and use email instead
-        self.fields.pop('username', None)
-    
-    def validate(self, attrs):
-        # Map email to username for the parent validation
-        attrs['username'] = attrs.get('email')
-        return super().validate(attrs)
+class SystemConfigurationSerializer(serializers.ModelSerializer):
+    """Expose key/value configuration entries."""
 
-
-class UserRegistrationSerializer(serializers.ModelSerializer):
-    """User registration serializer"""
-    password = serializers.CharField(write_only=True, min_length=8)
-    password_confirm = serializers.CharField(write_only=True)
-    
     class Meta:
-        model = User
-        fields = (
-            'email', 'username', 'first_name', 'last_name', 
-            'password', 'password_confirm', 'phone_number'
-        )
-    
-    def validate(self, attrs):
-        if attrs['password'] != attrs['password_confirm']:
-            raise serializers.ValidationError("Passwords don't match")
-        return attrs
-    
-    def create(self, validated_data):
-        validated_data.pop('password_confirm')
-        password = validated_data.pop('password')
-        
-        user = User.objects.create_user(**validated_data)
-        user.set_password(password)
-        user.save()
-        
-        # Create user profile
-        UserProfile.objects.create(user=user)
-        
-        return user
+        model = SystemConfiguration
+        fields = [
+            "id",
+            "key",
+            "value",
+            "description",
+            "is_encrypted",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
-class UserProfileSerializer(serializers.ModelSerializer):
-    """User profile serializer"""
-    full_name = serializers.CharField(source='get_full_name', read_only=True)
-    enrollment_progress = serializers.FloatField(read_only=True)
-    face_enrolled = serializers.BooleanField(read_only=True)
-    
-    class Meta:
-        model = User
-        fields = (
-            'id', 'email', 'username', 'first_name', 'last_name',
-            'full_name', 'phone_number', 'date_of_birth', 'profile_picture',
-            'bio', 'face_enrolled', 'enrollment_progress', 'face_auth_enabled',
-            'two_factor_enabled', 'is_verified', 'last_face_auth', 'created_at'
-        )
-        read_only_fields = ('id', 'email', 'created_at', 'enrollment_progress', 'face_enrolled')
+class AuditLogSerializer(serializers.ModelSerializer):
+    """Tenant-aware audit log serialisation."""
 
-
-class EnrollmentSessionSerializer(serializers.ModelSerializer):
-    """Enrollment session serializer"""
-    progress_percentage = serializers.FloatField(read_only=True)
-    is_expired = serializers.BooleanField(read_only=True)
-    
-    class Meta:
-        model = EnrollmentSession
-        fields = (
-            'id', 'session_token', 'target_samples', 'completed_samples',
-            'progress_percentage', 'average_quality', 'status', 'is_expired',
-            'started_at', 'completed_at', 'expires_at', 'device_info'
-        )
-        read_only_fields = (
-            'id', 'session_token', 'progress_percentage', 'is_expired',
-            'started_at', 'completed_at'
-        )
-
-
-class FaceEmbeddingSerializer(serializers.ModelSerializer):
-    """Face embedding serializer"""
-    
-    class Meta:
-        model = FaceEmbedding
-        fields = (
-            'id', 'quality_score', 'confidence_score', 'face_bbox',
-            'sample_number', 'liveness_score', 'anti_spoofing_score',
-            'is_active', 'is_verified', 'created_at'
-        )
-        read_only_fields = ('id', 'created_at')
-
-
-class AuthenticationAttemptSerializer(serializers.ModelSerializer):
-    """Authentication attempt serializer"""
-    is_successful = serializers.BooleanField(read_only=True)
-    user_name = serializers.CharField(source='user.get_full_name', read_only=True)
-    
-    class Meta:
-        model = AuthenticationAttempt
-        fields = (
-            'id', 'user', 'user_name', 'session_id', 'similarity_score',
-            'liveness_score', 'quality_score', 'result', 'is_successful',
-            'processing_time', 'obstacles_detected', 'created_at'
-        )
-        read_only_fields = ('id', 'created_at', 'is_successful', 'user_name')
-
-
-class LivenessDetectionSerializer(serializers.ModelSerializer):
-    """Liveness detection serializer"""
-    
-    class Meta:
-        model = LivenessDetection
-        fields = (
-            'id', 'blinks_detected', 'frames_processed', 'valid_frames',
-            'challenge_type', 'challenge_completed', 'liveness_score',
-            'is_live', 'created_at'
-        )
-        read_only_fields = ('id', 'created_at')
-
-
-class ObstacleDetectionSerializer(serializers.ModelSerializer):
-    """Obstacle detection serializer"""
-    
-    class Meta:
-        model = ObstacleDetection
-        fields = (
-            'id', 'glasses_detected', 'glasses_confidence', 'mask_detected',
-            'mask_confidence', 'hat_detected', 'hat_confidence',
-            'hand_covering', 'hand_confidence', 'has_obstacles',
-            'obstacle_score', 'created_at'
-        )
-        read_only_fields = ('id', 'created_at')
-
-
-class FrameDataSerializer(serializers.Serializer):
-    """Serializer for frame data sent from client"""
-    frame_data = serializers.CharField(help_text="Base64 encoded image data")
-    session_token = serializers.CharField()
-    timestamp = serializers.FloatField(required=False)
-    device_info = serializers.JSONField(required=False, default=dict)
-    
-    def validate_frame_data(self, value):
-        """Validate and decode base64 frame data"""
-        try:
-            # Remove data URL prefix if present
-            if value.startswith('data:image'):
-                value = value.split(',')[1]
-            
-            # Decode base64
-            frame_bytes = base64.b64decode(value)
-            
-            # Basic validation - check if it's likely an image
-            if len(frame_bytes) < 100:
-                raise serializers.ValidationError("Frame data too small")
-            
-            return value
-        except Exception as e:
-            raise serializers.ValidationError(f"Invalid frame data: {str(e)}")
-
-
-class EnrollmentRequestSerializer(serializers.Serializer):
-    """Serializer for enrollment request"""
-    device_info = serializers.JSONField(required=False, default=dict)
-    target_samples = serializers.IntegerField(required=False, default=5, min_value=3, max_value=10)
-    
-    def create(self, validated_data):
-        """Create new enrollment session"""
-        user = self.context['request'].user
-        
-        # Generate session token
-        session_token = str(uuid.uuid4())
-        
-        # Calculate expiry (30 minutes from now)
-        from django.utils import timezone
-        from datetime import timedelta
-        expires_at = timezone.now() + timedelta(minutes=30)
-        
-        session = EnrollmentSession.objects.create(
-            user=user,
-            session_token=session_token,
-            device_info=validated_data['device_info'],
-            target_samples=validated_data['target_samples'],
-            expires_at=expires_at,
-            ip_address=self.context['request'].META.get('REMOTE_ADDR')
-        )
-        
-        return session
-
-
-class AuthenticationRequestSerializer(serializers.Serializer):
-    """Serializer for authentication request"""
-    # email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
-    device_info = serializers.JSONField(default=dict)
-    session_type = serializers.ChoiceField(
-        choices=['authentication', 'verification', 'identification'],
-        default='authentication'
+    client_name = serializers.CharField(source="client.name", read_only=True)
+    client_user_name = serializers.CharField(
+        source="client_user.display_name", read_only=True
     )
-    
-    # def validate(self, attrs):
-    #     email = attrs.get('email')
-    #     if not email:
-    #         attrs['email'] = None
-    #     if attrs['session_type'] == 'verification' and not attrs.get('email'):
-    #         raise serializers.ValidationError("Email required for verification mode")
-    #     return attrs
 
-
-class AuthenticationLogSerializer(serializers.ModelSerializer):
-    """Authentication log serializer"""
-    user_name = serializers.CharField(source='user.get_full_name', read_only=True)
-    
     class Meta:
-        model = AuthenticationLog
-        fields = (
-            'id', 'user', 'user_name', 'attempted_email', 'auth_method',
-            'success', 'failure_reason', 'ip_address', 'location',
-            'response_time', 'similarity_score', 'liveness_score',
-            'quality_score', 'risk_score', 'risk_factors', 'created_at'
-        )
-        read_only_fields = ('id', 'created_at', 'user_name')
+        model = AuditLog
+        fields = [
+            "id",
+            "client",
+            "client_user",
+            "client_name",
+            "client_user_name",
+            "action",
+            "resource_type",
+            "resource_id",
+            "ip_address",
+            "user_agent",
+            "details",
+            "success",
+            "error_message",
+            "created_at",
+        ]
+        read_only_fields = ["id", "created_at"]
 
 
-class SecurityAlertSerializer(serializers.ModelSerializer):
-    """Security alert serializer"""
-    user_name = serializers.CharField(source='user.get_full_name', read_only=True)
-    
+class SecurityEventSerializer(serializers.ModelSerializer):
+    """Serialise security events per client."""
+
+    client_name = serializers.CharField(source="client.name", read_only=True)
+    client_user_name = serializers.CharField(
+        source="client_user.display_name", read_only=True
+    )
+    resolved_by_name = serializers.CharField(
+        source="resolved_by_client_user.display_name", read_only=True
+    )
+
     class Meta:
-        model = SecurityAlert
-        fields = (
-            'id', 'alert_type', 'severity', 'user', 'user_name', 'title',
-            'description', 'acknowledged', 'resolved', 'created_at'
-        )
-        read_only_fields = ('id', 'created_at', 'user_name')
+        model = SecurityEvent
+        fields = [
+            "id",
+            "event_type",
+            "severity",
+            "client",
+            "client_user",
+            "client_name",
+            "client_user_name",
+            "ip_address",
+            "user_agent",
+            "details",
+            "resolved",
+            "resolved_at",
+            "resolved_by_client",
+            "resolved_by_client_user",
+            "resolved_by_name",
+            "created_at",
+        ]
+        read_only_fields = ["id", "created_at"]
 
 
-class UserDeviceSerializer(serializers.ModelSerializer):
-    """User device serializer"""
-    
+class HealthCheckSerializer(serializers.ModelSerializer):
+    """Expose system health probe information."""
+
     class Meta:
-        model = UserDevice
-        fields = (
-            'id', 'device_id', 'device_name', 'device_type',
-            'operating_system', 'browser', 'is_trusted',
-            'last_ip', 'last_location', 'first_seen', 'last_seen',
-            'login_count', 'is_active'
-        )
-        read_only_fields = (
-            'id', 'first_seen', 'last_seen', 'login_count'
-        )
+        model = HealthCheck
+        fields = [
+            "id",
+            "service_name",
+            "status",
+            "response_time",
+            "error_message",
+            "details",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class ClientTokenSerializer(serializers.Serializer):
+    """Validate credentials when clients request API tokens."""
+
+    api_key = serializers.CharField(required=False, allow_blank=False)
+    client_id = serializers.CharField(required=False, allow_blank=False)
+    api_secret = serializers.CharField(write_only=True)
+
+    default_error_messages = {
+        "invalid_credentials": "Invalid credentials",
+        "missing_api_key": "API key is required when multiple clients match the query.",
+    }
+
+    def _filter_clients(self, client_id: Optional[str]):
+        qs = Client.objects.filter(status="active")
+        if client_id:
+            qs = qs.filter(client_id=client_id)
+        return qs
+
+    def _match_by_api_key(self, queryset, api_key: str):
+        for candidate in queryset:
+            if candidate.api_key == api_key:
+                return candidate
+        return None
+
+    def validate(self, attrs):
+        api_key = attrs.get("api_key")
+        api_secret = attrs.get("api_secret")
+        client_id = attrs.get("client_id")
+
+        if not api_secret:
+            raise serializers.ValidationError(self.default_error_messages["invalid_credentials"])
+
+        candidates = self._filter_clients(client_id)
+
+        client = None
+        if api_key:
+            client = Client.find_active_by_api_key(api_key)
+            if client_id and client and client.client_id != client_id:
+                client = None
+        else:
+            if candidates.count() == 1:
+                client = candidates.first()
+            else:
+                raise serializers.ValidationError(self.default_error_messages["missing_api_key"])
+
+        if not client or not client.check_api_secret(api_secret):
+            raise serializers.ValidationError(self.default_error_messages["invalid_credentials"])
+
+        attrs["client"] = client
+        return attrs
+
+
+class ClientUserAuthSerializer(serializers.Serializer):
+    """Validate client-side user references for face workflows."""
+
+    client_id = serializers.CharField()
+    external_user_id = serializers.CharField()
+
+    def validate(self, attrs):
+        client_identifier = attrs.get("client_id")
+
+        try:
+            client = Client.objects.get(client_id=client_identifier, status="active")
+        except Client.DoesNotExist as exc:
+            raise serializers.ValidationError("Invalid client credentials") from exc
+
+        try:
+            user = ClientUser.objects.get(
+                client=client, external_user_id=attrs["external_user_id"]
+            )
+        except ClientUser.DoesNotExist as exc:
+            raise serializers.ValidationError("Client user not found") from exc
+
+        attrs["client"] = client
+        attrs["client_user"] = user
+        return attrs
 
 
 class SystemStatusSerializer(serializers.Serializer):
-    """System status serializer"""
-    insightface_ready = serializers.BooleanField()
-    chromadb_ready = serializers.BooleanField()
-    faiss_embeddings = serializers.IntegerField()
-    liveness_detector_ready = serializers.BooleanField()
-    obstacle_detector_ready = serializers.BooleanField()
-    total_users = serializers.IntegerField()
-    total_embeddings = serializers.IntegerField()
+    """Aggregate status payload for observability endpoints."""
+
+    status = serializers.CharField()
+    uptime = serializers.CharField()
+    version = serializers.CharField()
+    database_status = serializers.CharField()
+    redis_status = serializers.CharField()
+    celery_status = serializers.CharField()
+    face_processing_status = serializers.CharField()
+    total_clients = serializers.IntegerField()
     active_sessions = serializers.IntegerField()
+    total_enrollments = serializers.IntegerField()
+    total_authentications = serializers.IntegerField()
 
 
-class WebRTCSignalSerializer(serializers.Serializer):
-    """WebRTC signaling serializer"""
-    session_token = serializers.CharField()
-    signal_type = serializers.ChoiceField(
-        choices=['offer', 'answer', 'ice_candidate', 'ice_gathering']
-    )
-    signal_data = serializers.JSONField()
-    
-    def validate_session_token(self, value):
-        """Validate session token exists and is active"""
-        from streaming.models import StreamingSession
-        
-        try:
-            session = StreamingSession.objects.get(
-                session_token=value,
-                status__in=['initiating', 'connecting', 'connected']
-            )
-            return value
-        except StreamingSession.DoesNotExist:
-            raise serializers.ValidationError("Invalid or expired session token")
+class ErrorResponseSerializer(serializers.Serializer):
+    """Canonical error envelope."""
+
+    error = serializers.CharField()
+    message = serializers.CharField()
+    code = serializers.CharField(required=False)
+    details = serializers.JSONField(required=False)
+    timestamp = serializers.DateTimeField()
 
 
-class StreamingSessionSerializer(serializers.ModelSerializer):
-    """Streaming session serializer"""
-    
-    class Meta:
-        model = StreamingSession
-        fields = (
-            'id', 'session_token', 'session_type', 'status',
-            'video_quality', 'frame_rate', 'bitrate',
-            'created_at', 'connected_at', 'completed_at'
-        )
-        read_only_fields = (
-            'id', 'session_token', 'created_at', 'connected_at', 'completed_at'
-        )
+class SuccessResponseSerializer(serializers.Serializer):
+    """Canonical success envelope."""
+
+    success = serializers.BooleanField(default=True)
+    message = serializers.CharField()
+    data = serializers.JSONField(required=False)
+    timestamp = serializers.DateTimeField()

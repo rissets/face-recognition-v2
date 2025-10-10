@@ -1,92 +1,58 @@
 """
-Custom User Model for Face Recognition System
+Custom User Model for Face Recognition System - Admin Only
+This model is used for Django admin authentication only.
+Client users are handled by the ClientUser model in the clients app.
 """
 import uuid
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-from django.core.validators import RegexValidator
-from encrypted_model_fields.fields import EncryptedTextField
-from PIL import Image
-import os
 
 
 class CustomUser(AbstractUser):
-    """Extended user model with face recognition capabilities"""
+    """Extended user model for admin authentication"""
     
-    # Override id to use UUID
+    # Use UUID for primary key
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
-    # Enhanced user information
+    # Email as primary identifier
     email = models.EmailField(unique=True)
-    phone_regex = RegexValidator(
-        regex=r'^\+?1?\d{9,15}$',
-        message="Phone number must be entered in the format: '+999999999'. Up to 15 digits allowed."
-    )
-    phone_number = models.CharField(
-        validators=[phone_regex], 
-        max_length=17, 
-        blank=True,
-        help_text="Phone number in international format"
-    )
     
-    # Profile information
-    date_of_birth = models.DateField(null=True, blank=True)
-    profile_picture = models.ImageField(
-        upload_to='profiles/', 
-        null=True, 
-        blank=True,
-        help_text="Profile picture for identification"
-    )
-    bio = models.TextField(max_length=500, blank=True)
+    # Additional fields that might exist in the table
+    phone_number = models.CharField(max_length=20, blank=True)
+    profile_picture = models.ImageField(upload_to='admin_profiles/', blank=True, null=True)
     
-    # Face recognition status
-    face_enrolled = models.BooleanField(
-        default=False,
-        help_text="Whether user has completed face enrollment"
-    )
+    # Face recognition fields (for admin)
+    face_enrolled = models.BooleanField(default=False)
     enrollment_completed_at = models.DateTimeField(null=True, blank=True)
     
     # Security settings
     two_factor_enabled = models.BooleanField(default=False)
-    face_auth_enabled = models.BooleanField(
-        default=True,
-        help_text="Enable face authentication for this user"
-    )
+    face_auth_enabled = models.BooleanField(default=True)
     
     # Account status
-    is_verified = models.BooleanField(
-        default=False,
-        help_text="Email verification status"
-    )
+    is_verified = models.BooleanField(default=False)
     verification_token = models.CharField(max_length=255, blank=True)
     
     # Privacy settings
-    allow_analytics = models.BooleanField(
-        default=True,
-        help_text="Allow collection of analytics data"
-    )
+    allow_analytics = models.BooleanField(default=True)
     
     # Timestamps
-    last_face_auth = models.DateTimeField(
-        null=True, 
-        blank=True,
-        help_text="Last successful face authentication"
-    )
+    last_face_auth = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     timestamp = models.DateTimeField(auto_now=True)
+    
+    # Additional fields for date_of_birth and bio if they exist
+    date_of_birth = models.DateField(null=True, blank=True)
+    bio = models.TextField(blank=True)
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username', 'first_name', 'last_name']
 
     class Meta:
-        verbose_name = "User"
-        verbose_name_plural = "Users"
-        indexes = [
-            models.Index(fields=['email']),
-            models.Index(fields=['face_enrolled']),
-            models.Index(fields=['is_active', 'face_enrolled']),
-        ]
+        verbose_name = "Admin User"
+        verbose_name_plural = "Admin Users"
+        db_table = 'users_customuser'  # Use existing table
 
     def __str__(self):
         return f"{self.get_full_name()} ({self.email})"
@@ -100,139 +66,65 @@ class CustomUser(AbstractUser):
         """Return the short name for the user."""
         return self.first_name or self.email.split('@')[0]
 
-    def save(self, *args, **kwargs):
-        """Override save to handle profile picture processing"""
-        super().save(*args, **kwargs)
-        
-        # Process profile picture if it exists
-        if self.profile_picture:
-            self._process_profile_picture()
-
-    def _process_profile_picture(self):
-        """Process and optimize profile picture"""
-        try:
-            img = Image.open(self.profile_picture.path)
-            
-            # Resize if too large
-            if img.height > 300 or img.width > 300:
-                img.thumbnail((300, 300), Image.Resampling.LANCZOS)
-                img.save(self.profile_picture.path, optimize=True, quality=85)
-                
-        except Exception as e:
-            # Log error but don't fail the save
-            import logging
-            logger = logging.getLogger('users')
-            logger.error(f"Error processing profile picture for user {self.id}: {e}")
-
-    @property
-    def has_face_data(self):
-        """Check if user has face embedding data"""
-        return hasattr(self, 'face_embeddings') and self.face_embeddings.exists()
-
-    @property
-    def enrollment_progress(self):
-        """Get enrollment progress percentage"""
-        if not hasattr(self, 'face_embeddings'):
-            return 0
-        
-        total_required = 5  # Minimum samples needed
-        current_count = self.face_embeddings.filter(is_active=True).count()
-        return min(100, (current_count / total_required) * 100)
-
-    def can_authenticate_with_face(self):
-        """Check if user can use face authentication"""
-        return (
-            self.is_active and 
-            self.face_auth_enabled and 
-            self.face_enrolled and 
-            self.has_face_data
-        )
-
-    def get_recent_authentications(self, days=30):
-        """Get recent authentication attempts"""
-        from datetime import datetime, timedelta
-        from analytics.models import AuthenticationLog
-        
-        since = datetime.now() - timedelta(days=days)
-        return AuthenticationLog.objects.filter(
-            user=self,
-            created_at__gte=since
-        ).order_by('-created_at')
-
 
 class UserProfile(models.Model):
-    """Extended profile information"""
-    user = models.OneToOneField(
-        CustomUser, 
-        on_delete=models.CASCADE, 
-        related_name='profile'
-    )
+    """Extended profile information for admin users"""
     
-    # Additional profile fields
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='profile')
+    
+    # Professional Info
     company = models.CharField(max_length=100, blank=True)
     position = models.CharField(max_length=100, blank=True)
+    
+    # Contact Info  
     address = models.TextField(blank=True)
     city = models.CharField(max_length=50, blank=True)
     country = models.CharField(max_length=50, blank=True)
     
     # Preferences
-    language = models.CharField(
-        max_length=10, 
-        default='en',
-        choices=[
-            ('en', 'English'),
-            ('id', 'Indonesian'),
-            ('es', 'Spanish'),
-            ('fr', 'French'),
-        ]
-    )
+    language = models.CharField(max_length=10, default='en')
     timezone = models.CharField(max_length=50, default='UTC')
     
-    # Notification preferences
+    # Notification Settings
     email_notifications = models.BooleanField(default=True)
     security_alerts = models.BooleanField(default=True)
     
+    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = "User Profile"
         verbose_name_plural = "User Profiles"
+        db_table = 'users_userprofile'  # Use existing table
 
     def __str__(self):
         return f"{self.user.get_full_name()}'s Profile"
 
 
 class UserDevice(models.Model):
-    """Track user devices for security"""
-    user = models.ForeignKey(
-        CustomUser, 
-        on_delete=models.CASCADE, 
-        related_name='devices'
-    )
+    """Track admin user devices for security"""
     
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='devices')
+    
+    # Device identification
     device_id = models.CharField(max_length=255, unique=True)
-    device_name = models.CharField(max_length=100)
-    device_type = models.CharField(
-        max_length=20,
-        choices=[
-            ('web', 'Web Browser'),
-            ('mobile', 'Mobile App'),
-            ('desktop', 'Desktop App'),
-        ]
-    )
+    device_name = models.CharField(max_length=100, blank=True)
+    device_type = models.CharField(max_length=50, blank=True)  # desktop, mobile, tablet
     
-    # Device information
-    operating_system = models.CharField(max_length=50, blank=True)
+    # Browser/App info
+    operating_system = models.CharField(max_length=100, blank=True)
     browser = models.CharField(max_length=250, blank=True)
     user_agent = models.TextField(blank=True)
     
     # Security
     is_trusted = models.BooleanField(default=False)
-    last_ip = models.GenericIPAddressField(null=True, blank=True)
+    
+    # Network info
+    last_ip = models.GenericIPAddressField(blank=True, null=True)
     last_location = models.CharField(max_length=100, blank=True)
     
-    # Activity
+    # Usage tracking
     first_seen = models.DateTimeField(auto_now_add=True)
     last_seen = models.DateTimeField(auto_now=True)
     login_count = models.PositiveIntegerField(default=0)
@@ -242,11 +134,8 @@ class UserDevice(models.Model):
     class Meta:
         verbose_name = "User Device"
         verbose_name_plural = "User Devices"
+        db_table = 'users_userdevice'  # Use existing table
         unique_together = ['user', 'device_id']
-        indexes = [
-            models.Index(fields=['user', 'is_active']),
-            models.Index(fields=['device_id']),
-        ]
 
     def __str__(self):
         return f"{self.user.get_full_name()}'s {self.device_name}"

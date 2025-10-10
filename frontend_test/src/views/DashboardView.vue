@@ -2,83 +2,88 @@
   <div class="layout-grid">
     <section class="hero">
       <div class="hero-card">
-        <h1>Face Recognition Control Center</h1>
+        <h1>Third-Party Integration Dashboard</h1>
         <p>
-          Jalankan seluruh alur face recognition layaknya aplikasi produksi: mulai dari login,
-          enrollment wajah, autentikasi realtime, hingga monitoring streaming dan analytics.
+          Pantau status client Anda, cek statistik pemakaian API, dan jalankan alur enrollment serta
+          authentication sebagai pihak ketiga.
         </p>
         <div class="actions">
           <button class="btn" type="button" @click="goTo('/enrollment')">Mulai Enrollment</button>
           <button class="btn secondary" type="button" @click="goTo('/face-login')">
-            Login via Face Recognition
+            Jalankan Face Authentication
           </button>
         </div>
       </div>
       <div class="section">
-        <h2>Langkah Cepat</h2>
-        <ul class="step-list">
-          <li>
-            <div class="step-badge">1</div>
-            <div>
-              <strong>Masuk menggunakan email & password</strong>
-              <p>Sesi JWT akan dipakai untuk akses seluruh endpoint yang butuh autentikasi.</p>
-            </div>
-          </li>
-          <li>
-            <div class="step-badge">2</div>
-            <div>
-              <strong>Lakukan enrollment wajah melalui kamera</strong>
-              <p>Siapkan pencahayaan baik, jalankan sesi streaming, dan kumpulkan sampel otomatis.</p>
-            </div>
-          </li>
-          <li>
-            <div class="step-badge">3</div>
-            <div>
-              <strong>Validasi login via face recognition</strong>
-              <p>Tes mode identification atau verification dan pantau skor similarity secara realtime.</p>
-            </div>
-          </li>
-          <li>
-            <div class="step-badge">4</div>
-            <div>
-              <strong>Analisa data & monitoring</strong>
-              <p>Lihat histori, analytics, dan traffic streaming untuk memastikan semuanya stabil.</p>
-            </div>
-          </li>
-        </ul>
+        <h2>Profil Client</h2>
+        <div class="session-summary" v-if="client">
+          <div class="session-tile">
+            <span>Nama</span>
+            <strong>{{ client.name }}</strong>
+          </div>
+          <div class="session-tile">
+            <span>Tier</span>
+            <strong class="mono">{{ client.tier }}</strong>
+          </div>
+          <div class="session-tile">
+            <span>API Key</span>
+            <strong class="mono">{{ client.api_key }}</strong>
+          </div>
+          <div class="session-tile">
+            <span>Domain</span>
+            <strong>{{ client.domain }}</strong>
+          </div>
+        </div>
+        <div v-else class="status-warning">
+          Tidak menemukan detail client. Coba muat ulang data.
+        </div>
+        <div class="actions">
+          <button class="secondary" type="button" @click="reload">Muat Ulang Data Client</button>
+        </div>
       </div>
     </section>
 
     <section class="section">
-      <h2>Status Akun</h2>
-      <div class="session-summary">
-        <div class="session-tile">
-          <span>Email</span>
-          <strong>{{ profile?.email || '-' }}</strong>
+      <h2>Ringkasan Penggunaan</h2>
+      <div v-if="statsLoading" class="status-pill">Mengambil data statistik…</div>
+      <div v-else-if="statsError" class="status-error mono">{{ statsError }}</div>
+      <div v-else class="grid-two">
+        <div class="info-card">
+          <strong>Total Pengguna</strong>
+          <span>{{ stats.total_users }} pengguna terdaftar</span>
         </div>
-        <div class="session-tile">
-          <span>Enrollment</span>
-          <strong>{{ profile?.face_enrolled ? 'Sudah' : 'Belum' }}</strong>
+        <div class="info-card">
+          <strong>Pengguna Enrolled</strong>
+          <span>{{ stats.enrolled_users }} sudah melakukan face enrollment</span>
         </div>
-        <div class="session-tile">
-          <span>Progress Enrollment</span>
-          <strong>{{ Math.round(profile?.enrollment_progress || 0) }}%</strong>
+        <div class="info-card">
+          <strong>Face Auth Aktif</strong>
+          <span>{{ stats.active_face_auth }} pengguna dapat autentikasi wajah</span>
         </div>
-        <div class="session-tile">
-          <span>Face Auth Enable</span>
-          <strong>{{ profile?.face_auth_enabled ? 'Aktif' : 'Nonaktif' }}</strong>
+        <div class="info-card">
+          <strong>API Calls 24 Jam</strong>
+          <span>{{ stats.api_calls_last_24h }} permintaan</span>
         </div>
-      </div>
-      <div class="pill-group">
-        <span class="status-pill" :class="profile?.two_factor_enabled ? 'success' : 'warning'">
-          2FA {{ profile?.two_factor_enabled ? 'Aktif' : 'Nonaktif' }}
-        </span>
-        <span class="status-pill" :class="profile?.is_verified ? 'success' : 'warning'">
-          Email {{ profile?.is_verified ? 'Terverifikasi' : 'Belum Verifikasi' }}
-        </span>
-        <span class="status-pill" :class="profile?.face_enrolled ? 'success' : 'danger'">
-          Face Enrollment {{ profile?.face_enrolled ? 'Siap' : 'Perlu Action' }}
-        </span>
+        <div class="info-card">
+          <strong>API Calls 7 Hari</strong>
+          <span>{{ stats.api_calls_last_7d }} permintaan</span>
+        </div>
+        <div class="info-card">
+          <strong>Total Enrollment</strong>
+          <span>{{ stats.total_enrollments }} sesi tersimpan</span>
+        </div>
+        <div class="info-card">
+          <strong>Auth Berhasil</strong>
+          <span>{{ stats.successful_authentications }} kali sukses</span>
+        </div>
+        <div class="info-card">
+          <strong>Auth Gagal</strong>
+          <span>{{ stats.failed_authentications }} kali gagal</span>
+        </div>
+        <div class="info-card">
+          <strong>Webhook Success Rate</strong>
+          <span>{{ stats.webhook_success_rate }}%</span>
+        </div>
       </div>
     </section>
 
@@ -107,14 +112,62 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { clientApi } from '../services/api'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
-const profile = computed(() => authStore.profile)
+const client = computed(() => authStore.client)
+const stats = ref({
+  total_users: 0,
+  enrolled_users: 0,
+  active_face_auth: 0,
+  total_enrollments: 0,
+  successful_authentications: 0,
+  failed_authentications: 0,
+  api_calls_last_24h: 0,
+  api_calls_last_7d: 0,
+  webhook_success_rate: 0
+})
+const statsLoading = ref(false)
+const statsError = ref('')
+
+async function loadStats() {
+  if (!authStore.client?.id) return
+  statsLoading.value = true
+  statsError.value = ''
+  try {
+    const response = await clientApi.stats(authStore.client.id)
+    stats.value = response.data
+  } catch (error) {
+    statsError.value = JSON.stringify(error.response?.data || error.message, null, 2)
+  } finally {
+    statsLoading.value = false
+  }
+}
+
+function reload() {
+  authStore.refreshClientDetails()
+  loadStats()
+}
+
+onMounted(() => {
+  if (authStore.isAuthenticated) {
+    loadStats()
+  }
+})
+
+watch(
+  () => authStore.client?.id,
+  (val) => {
+    if (val) {
+      loadStats()
+    }
+  }
+)
 
 function goTo(path) {
   router.push(path)

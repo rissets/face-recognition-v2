@@ -13,16 +13,16 @@ from .models import (
 
 @admin.register(FaceEmbedding)
 class FaceEmbeddingAdmin(ModelAdmin):
-    """Admin for face embeddings"""
-    list_display = ('user', 'quality_score', 'confidence_score', 'created_at', 'is_active')
+    """Admin for face embeddings - Legacy model"""
+    list_display = ('client_user_display', 'quality_score', 'confidence_score', 'created_at', 'is_active')
     list_filter = ('is_active', 'created_at', 'updated_at')
-    search_fields = ('user__email', 'user__first_name', 'user__last_name')
+    search_fields = ('client_user__external_user_id', 'client_user__client__name')
     readonly_fields = ('created_at', 'updated_at', 'embedding_hash')
     ordering = ('-created_at',)
     
     fieldsets = (
-        ('User', {
-            'fields': ('user',)
+        ('Client User', {
+            'fields': ('client_user',)
         }),
         ('Embedding Data', {
             'fields': ('embedding_vector', 'embedding_hash'),
@@ -44,22 +44,29 @@ class FaceEmbeddingAdmin(ModelAdmin):
         })
     )
     
+    def client_user_display(self, obj):
+        """Display client user information"""
+        if obj.client_user:
+            return f"{obj.client_user.external_user_id} ({obj.client_user.client.name})"
+        return "No client user"
+    client_user_display.short_description = "Client User"
+    
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related('user')
+        return super().get_queryset(request).select_related('client_user__client')
 
 
 @admin.register(EnrollmentSession)
 class EnrollmentSessionAdmin(ModelAdmin):
-    """Admin for enrollment sessions"""
-    list_display = ('user', 'session_token', 'status', 'average_quality', 'started_at', 'completed_at')
+    """Admin for enrollment sessions - Legacy model"""
+    list_display = ('client_user_display', 'session_token', 'status', 'average_quality', 'started_at', 'completed_at')
     list_filter = ('status', 'started_at', 'completed_at')
-    search_fields = ('user__email', 'session_token', 'user__first_name', 'user__last_name')
+    search_fields = ('client_user__external_user_id', 'session_token', 'client_user__client__name')
     readonly_fields = ('session_token', 'started_at', 'completed_at')
     date_hierarchy = 'started_at'
     
     fieldsets = (
         ('Session Info', {
-            'fields': ('user', 'session_token', 'status')
+            'fields': ('client_user', 'session_token', 'status')
         }),
         ('Progress', {
             'fields': ('target_samples', 'completed_samples', 'average_quality', 'min_quality_threshold')
@@ -78,8 +85,15 @@ class EnrollmentSessionAdmin(ModelAdmin):
         })
     )
     
+    def client_user_display(self, obj):
+        """Display client user information"""
+        if obj.client_user:
+            return f"{obj.client_user.external_user_id} ({obj.client_user.client.name})"
+        return "No client user"
+    client_user_display.short_description = "Client User"
+    
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related('user')
+        return super().get_queryset(request).select_related('client_user__client')
     
     actions = ['mark_completed', 'mark_failed']
     
@@ -104,16 +118,16 @@ class EnrollmentSessionAdmin(ModelAdmin):
 
 @admin.register(AuthenticationAttempt)
 class AuthenticationAttemptAdmin(ModelAdmin):
-    """Admin for authentication attempts"""
-    list_display = ('user', 'result', 'similarity_score', 'ip_address', 'created_at', 'colored_result')
+    """Admin for authentication attempts - Legacy model"""
+    list_display = ('client_user_display', 'result', 'similarity_score', 'ip_address', 'created_at', 'colored_result')
     list_filter = ('result', 'created_at')
-    search_fields = ('user__email', 'ip_address', 'user_agent', 'user__first_name', 'user__last_name')
+    search_fields = ('client_user__external_user_id', 'ip_address', 'user_agent', 'client_user__client__name')
     readonly_fields = ('created_at', 'processing_time')
     date_hierarchy = 'created_at'
     
     fieldsets = (
         ('Authentication Info', {
-            'fields': ('user', 'result', 'similarity_score')
+            'fields': ('client_user', 'result', 'similarity_score')
         }),
         ('Quality Metrics', {
             'fields': ('quality_score', 'liveness_score', 'obstacles_detected')
@@ -154,8 +168,15 @@ class AuthenticationAttemptAdmin(ModelAdmin):
         )
     colored_result.short_description = 'Result'
     
+    def client_user_display(self, obj):
+        """Display client user information"""
+        if obj.client_user:
+            return f"{obj.client_user.external_user_id} ({obj.client_user.client.name})"
+        return "No client user"
+    client_user_display.short_description = "Client User"
+    
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related('user')
+        return super().get_queryset(request).select_related('client_user__client')
     
     actions = ['export_failed_attempts']
     
@@ -176,7 +197,7 @@ class LivenessDetectionAdmin(ModelAdmin):
 
     list_display = ('attempt_display', 'user_display', 'blinks_detected', 'liveness_score', 'is_live', 'created_at')
     list_filter = ('is_live', ('created_at', admin.DateFieldListFilter))
-    search_fields = ('authentication_attempt__user__email', 'authentication_attempt__session_id')
+    search_fields = ('authentication_attempt__client_user__external_user_id', 'authentication_attempt__session_id')
     readonly_fields = ('created_at',)
 
     fieldsets = (
@@ -212,8 +233,8 @@ class LivenessDetectionAdmin(ModelAdmin):
 
     def user_display(self, obj):
         attempt = obj.authentication_attempt
-        if attempt and attempt.user:
-            return attempt.user.email
+        if attempt and attempt.client_user:
+            return f"{attempt.client_user.external_user_id} ({attempt.client_user.client.name})"
         return '-'
 
     user_display.short_description = 'User'
@@ -239,7 +260,7 @@ class ObstacleDetectionAdmin(ModelAdmin):
         'hand_covering',
         ('created_at', admin.DateFieldListFilter),
     )
-    search_fields = ('authentication_attempt__user__email', 'authentication_attempt__session_id')
+    search_fields = ('authentication_attempt__client_user__external_user_id', 'authentication_attempt__session_id')
     readonly_fields = ('created_at',)
 
     fieldsets = (
@@ -271,8 +292,8 @@ class ObstacleDetectionAdmin(ModelAdmin):
 
     def user_display(self, obj):
         attempt = obj.authentication_attempt
-        if attempt and attempt.user:
-            return attempt.user.email
+        if attempt and attempt.client_user:
+            return f"{attempt.client_user.external_user_id} ({attempt.client_user.client.name})"
         return '-'
 
     user_display.short_description = 'User'
@@ -300,7 +321,7 @@ class FaceRecognitionModelAdmin(ModelAdmin):
             'classes': ('collapse',)
         }),
         ('Ownership', {
-            'fields': ('created_by',),
+            'fields': ('created_by_client',),
             'classes': ('collapse',)
         }),
         ('Timestamps', {

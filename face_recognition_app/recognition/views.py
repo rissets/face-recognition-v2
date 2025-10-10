@@ -15,12 +15,12 @@ from .serializers import (
 
 
 class FaceEmbeddingListView(generics.ListAPIView):
-    """List face embeddings"""
+    """List all face embeddings for the authenticated user"""
     serializer_class = FaceEmbeddingSerializer
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        return FaceEmbedding.objects.filter(user=self.request.user)
+        return FaceEmbedding.objects.filter(client_user__client=self.request.client)
 
 
 class FaceEmbeddingDetailView(generics.RetrieveAPIView):
@@ -29,7 +29,7 @@ class FaceEmbeddingDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        return FaceEmbedding.objects.filter(user=self.request.user)
+        return FaceEmbedding.objects.filter(client_user__client=self.request.client)
 
 
 class EnrollmentSessionListView(generics.ListAPIView):
@@ -38,7 +38,10 @@ class EnrollmentSessionListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        return EnrollmentSession.objects.filter(user=self.request.user)
+        # Filter by client user - assuming we have client context in request
+        if hasattr(self.request, 'client'):
+            return EnrollmentSession.objects.filter(client_user__client=self.request.client)
+        return EnrollmentSession.objects.none()
 
 
 class EnrollmentSessionDetailView(generics.RetrieveAPIView):
@@ -47,7 +50,10 @@ class EnrollmentSessionDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        return EnrollmentSession.objects.filter(user=self.request.user)
+        # Filter by client user - assuming we have client context in request
+        if hasattr(self.request, 'client'):
+            return EnrollmentSession.objects.filter(client_user__client=self.request.client)
+        return EnrollmentSession.objects.none()
 
 
 class AuthenticationAttemptListView(generics.ListAPIView):
@@ -56,7 +62,10 @@ class AuthenticationAttemptListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        return AuthenticationAttempt.objects.filter(user=self.request.user)
+        # Filter by client user - assuming we have client context in request
+        if hasattr(self.request, 'client'):
+            return AuthenticationAttempt.objects.filter(client_user__client=self.request.client)
+        return AuthenticationAttempt.objects.none()
 
 
 class AuthenticationAttemptDetailView(generics.RetrieveAPIView):
@@ -65,4 +74,7 @@ class AuthenticationAttemptDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        return AuthenticationAttempt.objects.filter(user=self.request.user)
+        # Filter by client user - assuming we have client context in request
+        if hasattr(self.request, 'client'):
+            return AuthenticationAttempt.objects.filter(client_user__client=self.request.client)
+        return AuthenticationAttempt.objects.none()
