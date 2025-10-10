@@ -204,8 +204,8 @@ class SystemMetricsSerializer(serializers.ModelSerializer):
     class Meta:
         model = SystemMetrics
         fields = [
-            'id', 'client', 'metric_type', 'metric_name', 'value',
-            'unit', 'tags', 'timestamp'
+            'id', 'client', 'metric_type', 'metric_name', 'metric_value',
+            'dimensions', 'metadata', 'timestamp'
         ]
         read_only_fields = ['id', 'timestamp']
 

@@ -12,6 +12,7 @@ router = DefaultRouter()
 router.register(r'events', views.WebhookEventViewSet)
 router.register(r'endpoints', views.WebhookEndpointViewSet)
 router.register(r'deliveries', views.WebhookDeliveryViewSet)
+router.register(r'event-logs', views.WebhookEventLogViewSet)
 
 urlpatterns = [
     # ViewSet routes

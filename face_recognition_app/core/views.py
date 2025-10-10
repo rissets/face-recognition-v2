@@ -3,8 +3,9 @@ Core API views for third-party authentication service
 Redesigned for multi-client architecture
 """
 from rest_framework import viewsets, status, permissions
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.response import Response
+from auth_service.authentication import APIKeyAuthentication, JWTClientAuthentication
 from django.utils import timezone
 from django.db.models import Count, Q
 from datetime import timedelta
@@ -160,6 +161,7 @@ def authenticate_client_user(request):
 
 
 @api_view(['GET'])
+@permission_classes([permissions.AllowAny])
 def system_status(request):
     """
     Get comprehensive system status
@@ -220,6 +222,7 @@ def system_status(request):
 
 
 @api_view(['GET'])
+@permission_classes([permissions.AllowAny])
 def health_check(request):
     """
     Simple health check endpoint for load balancers
@@ -243,6 +246,8 @@ def health_check(request):
 
 
 @api_view(['POST'])
+@authentication_classes([APIKeyAuthentication, JWTClientAuthentication])
+@permission_classes([permissions.IsAuthenticated])
 def log_security_event(request):
     """
     Log security events for monitoring
@@ -272,6 +277,8 @@ def log_security_event(request):
 
 
 @api_view(['GET'])
+@authentication_classes([APIKeyAuthentication, JWTClientAuthentication])
+@permission_classes([permissions.IsAuthenticated])
 def client_info(request):
     """
     Get current client information
@@ -281,26 +288,77 @@ def client_info(request):
                        status=status.HTTP_401_UNAUTHORIZED)
     
     client = request.client
-    
-    # Calculate usage statistics
-    today = timezone.now().date()
-    usage_today = client.api_usage.filter(date=today).aggregate(
-        total_requests=Count('total_requests')
+    now = timezone.now()
+    today = now.date()
+    seven_days_ago = now - timedelta(days=7)
+
+    usage_queryset = client.api_usage.all()
+    usage_today_count = usage_queryset.filter(created_at__date=today).count()
+    usage_last_7_days = usage_queryset.filter(created_at__gte=seven_days_ago).count()
+    recent_usage = list(
+        usage_queryset.order_by('-created_at')[:5].values(
+            'endpoint', 'method', 'status_code', 'response_time_ms', 'created_at'
+        )
     )
-    
+
+    webhook_logs = client.webhook_logs.all()
+    webhook_summary = {
+        'total': webhook_logs.count(),
+        'success': webhook_logs.filter(status='success').count(),
+        'failed': webhook_logs.filter(status='failed').count(),
+        'retrying': webhook_logs.filter(status='retrying').count(),
+    }
+    recent_webhook_failures = list(
+        webhook_logs.filter(status__in=['failed', 'retrying'])
+        .order_by('-created_at')[:5]
+        .values('event_type', 'status', 'response_status_code', 'attempt_count', 'created_at')
+    )
+
+    user_qs = client.users.all()
+    analytics_summary = {
+        'total_users': user_qs.count(),
+        'enrolled_users': user_qs.filter(is_enrolled=True).count(),
+        'active_face_auth': user_qs.filter(face_auth_enabled=True).count(),
+        'total_enrollments': client.enrollments.count(),
+        'auth_success': client.recognition_attempts.filter(result='success').count(),
+        'auth_failed': client.recognition_attempts.exclude(result='success').count(),
+        'active_sessions': client.auth_sessions.filter(status='active').count(),
+    }
+
     return Response({
-        'client_id': client.api_key,
-        'name': client.name,
-        'feature_tier': client.feature_tier,
-        'rate_limits': {
-            'per_minute': client.rate_limit_per_minute,
-            'per_day': client.rate_limit_per_day
+        'client': {
+            'id': str(client.id),
+            'client_id': client.client_id,
+            'name': client.name,
+            'status': client.status,
+            'tier': client.tier,
+            'last_activity': client.last_activity,
+            'contact': {
+                'email': client.contact_email,
+                'name': client.contact_name,
+            },
         },
-        'usage_today': usage_today.get('total_requests', 0),
-        'total_users': client.users.count(),
-        'active_users': client.users.filter(is_active=True).count(),
-        'webhook_url': client.webhook_url,
-        'webhook_events': client.webhook_events,
-        'permissions': client.permissions,
-        'expires_at': client.expires_at
+        'rate_limits': {
+            'per_hour': client.rate_limit_per_hour,
+            'per_day': client.rate_limit_per_day,
+        },
+        'features': client.features,
+        'allowed_domains': client.allowed_domains,
+        'webhook': {
+            'url': client.webhook_url,
+            'secret_configured': bool(client.webhook_secret),
+            'events': client.get_webhook_events(),
+            'summary': webhook_summary,
+            'recent_failures': recent_webhook_failures,
+        },
+        'usage': {
+            'today': usage_today_count,
+            'last_7_days': usage_last_7_days,
+            'recent': recent_usage,
+        },
+        'analytics': analytics_summary,
+        'timestamps': {
+            'created_at': client.created_at,
+            'updated_at': client.updated_at,
+        },
     })

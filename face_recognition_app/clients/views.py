@@ -8,6 +8,22 @@ from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+try:
+    from drf_spectacular.utils import extend_schema, extend_schema_view
+    SPECTACULAR_AVAILABLE = True
+except ImportError:
+    def extend_schema(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    
+    def extend_schema_view(**kwargs):
+        def decorator(cls):
+            return cls
+        return decorator
+    
+    SPECTACULAR_AVAILABLE = False
+
 from auth_service.authentication import APIKeyAuthentication, JWTClientAuthentication
 from .models import Client, ClientAPIUsage, ClientUser, ClientWebhookLog
 from .serializers import (
@@ -20,12 +36,13 @@ from .serializers import (
 )
 
 
+
 class ClientViewSet(viewsets.ModelViewSet):
     """CRUD and analytics for clients authenticated via API key."""
 
     queryset = Client.objects.all()
     serializer_class = ClientSerializer
-    authentication_classes = [APIKeyAuthentication]
+    authentication_classes = [APIKeyAuthentication, JWTClientAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):

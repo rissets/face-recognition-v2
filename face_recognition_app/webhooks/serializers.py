@@ -33,7 +33,7 @@ class WebhookEndpointSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at', 'last_delivery_at'
         ]
         extra_kwargs = {
-            'secret': {'write_only': True}
+            'secret_token': {'write_only': True, 'required': False, 'allow_null': True, 'allow_blank': True}
         }
 
 
@@ -58,20 +58,29 @@ class WebhookDeliverySerializer(serializers.ModelSerializer):
 
 class WebhookEventLogSerializer(serializers.ModelSerializer):
     """Serializer for webhook event logs"""
+
+    success_rate = serializers.FloatField(read_only=True)
     
     class Meta:
         model = WebhookEventLog
         fields = [
-            'id', 'client', 'event_type', 'endpoint_url',
-            'payload', 'http_status', 'response_body', 'error_message',
-            'delivery_attempts', 'processing_time', 'created_at'
+            'id',
+            'client',
+            'event_name',
+            'event_source',
+            'event_data',
+            'total_endpoints',
+            'successful_deliveries',
+            'failed_deliveries',
+            'metadata',
+            'success_rate',
+            'created_at',
         ]
         read_only_fields = ['id', 'created_at']
 
 
 class WebhookTestSerializer(serializers.Serializer):
     """Serializer for webhook testing"""
-    endpoint_id = serializers.IntegerField()
     test_event_type = serializers.ChoiceField(choices=[
         ('user.enrolled', 'User Enrolled'),
         ('user.authentication.success', 'Authentication Success'),

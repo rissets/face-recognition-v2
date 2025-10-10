@@ -1,10 +1,6 @@
 """
-Demo setup script for third-party face authentication service
-Create        # Save credentials
-        credentials = {
-            'client_id': str(client.client_id),
-            'api_key': client.api_key,
-        }ient and users to test the new multi-client architecture
+Demo setup script for the third-party face authentication service.
+Creates a demo client, sample users, webhook endpoints, and seed analytics data.
 """
 import os
 import sys
@@ -18,9 +14,15 @@ sys.path.append('/Users/user/Dev/researchs/face_regocnition_v2/face_recognition_
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'face_app.settings')
 django.setup()
 
-from clients.models import Client, ClientUser
+from clients.models import Client, ClientUser, ClientAPIUsage, ClientWebhookLog
 from webhooks.models import WebhookEndpoint
-from auth_service.models import AuthenticationSession
+from auth_service.models import AuthenticationSession, FaceEnrollment, FaceRecognitionAttempt
+from analytics.models import AuthenticationLog, SecurityAlert, SystemMetrics
+from analytics.helpers import (
+    track_enrollment_metrics,
+    track_authentication_metrics,
+    update_face_recognition_stats,
+)
 import secrets
 from django.utils import timezone
 from datetime import timedelta
@@ -224,6 +226,188 @@ def create_webhook_endpoints(client):
         else:
             print(f"   ✅ Webhook already exists: {endpoint.name} - {endpoint.url}")
 
+
+def create_sample_activity(client, users):
+    """Generate sample analytics, usage, and webhook data for demos."""
+    if client.recognition_attempts.exists():
+        print("\n📊 Sample analytics already exist. Skipping generation.")
+        return
+
+    if not users:
+        print("\n⚠️ Cannot generate sample activity without client users.")
+        return
+
+    primary_user = users[0]
+    now = timezone.now()
+
+    print("\n📈 Generating sample analytics data...")
+
+    # Enrollment session & record
+    enrollment_session = AuthenticationSession.objects.create(
+        client=client,
+        client_user=primary_user,
+        session_type="enrollment",
+        status="completed",
+        ip_address="127.0.0.1",
+        user_agent="demo-setup/1.0",
+        metadata={
+            "target_samples": 5,
+            "frames_processed": 5,
+            "session_origin": "demo_setup",
+        },
+    )
+
+    enrollment = FaceEnrollment.objects.create(
+        client=client,
+        client_user=primary_user,
+        enrollment_session=enrollment_session,
+        status="active",
+        embedding_vector="[]",
+        embedding_dimension=512,
+        face_quality_score=0.92,
+        liveness_score=0.88,
+        anti_spoofing_score=0.91,
+        face_landmarks={},
+        face_bbox=[0.1, 0.1, 0.8, 0.8],
+        sample_number=1,
+        total_samples=5,
+        face_image_path="enrollments/demo/sample.jpg",
+        metadata={"generated_by": "demo_setup"},
+        expires_at=now + timedelta(days=90),
+    )
+    track_enrollment_metrics(client, enrollment, enrollment_session)
+
+    # Authentication session & attempt
+    auth_session = AuthenticationSession.objects.create(
+        client=client,
+        client_user=primary_user,
+        session_type="verification",
+        status="completed",
+        ip_address="127.0.0.1",
+        user_agent="demo-setup/1.0",
+        is_successful=True,
+        confidence_score=0.94,
+        metadata={
+            "frames_processed": 3,
+            "target_user_id": primary_user.external_user_id,
+            "session_origin": "demo_setup",
+        },
+    )
+
+    attempt = FaceRecognitionAttempt.objects.create(
+        client=client,
+        session=auth_session,
+        result="success",
+        matched_user=primary_user,
+        matched_enrollment=enrollment,
+        similarity_score=0.94,
+        confidence_score=0.94,
+        face_quality_score=0.9,
+        liveness_score=0.87,
+        anti_spoofing_score=0.9,
+        submitted_embedding="[]",
+        face_landmarks={},
+        face_bbox=[0.12, 0.12, 0.82, 0.82],
+        processing_time_ms=125,
+        ip_address="127.0.0.1",
+        user_agent="demo-setup/1.0",
+        metadata={"source": "demo_setup"},
+    )
+
+    update_face_recognition_stats(client, attempt)
+    track_authentication_metrics(client, auth_session, success=True, similarity_score=0.94)
+
+    AuthenticationLog.objects.create(
+        client=client,
+        attempted_email=primary_user.profile.get("email"),
+        auth_method="face",
+        success=True,
+        similarity_score=0.94,
+        liveness_score=0.87,
+        quality_score=0.9,
+        response_time=125,
+        ip_address="127.0.0.1",
+        user_agent="demo-setup/1.0",
+        risk_score=0.06,
+        risk_factors=[],
+        session_id=auth_session.session_token,
+    )
+
+    SecurityAlert.objects.create(
+        client=client,
+        alert_type="new_device",
+        severity="low",
+        title="New trusted device detected",
+        description="Demo setup registered a trusted device for analytics preview.",
+        context_data={
+            "device": "demo-setup/1.0",
+            "session_token": auth_session.session_token,
+        },
+        ip_address="127.0.0.1",
+    )
+
+    SystemMetrics.objects.create(
+        client=client,
+        metric_name="system.cpu_usage",
+        metric_type="gauge",
+        value=32.5,
+        unit="percent",
+        tags={"source": "demo_setup"},
+    )
+
+    ClientAPIUsage.objects.bulk_create(
+        [
+            ClientAPIUsage(
+                client=client,
+                endpoint="enrollment",
+                method="POST",
+                status_code=201,
+                ip_address="127.0.0.1",
+                user_agent="demo-setup/1.0",
+                response_time_ms=342,
+                metadata={"source": "demo_setup"},
+            ),
+            ClientAPIUsage(
+                client=client,
+                endpoint="recognition",
+                method="POST",
+                status_code=200,
+                ip_address="127.0.0.1",
+                user_agent="demo-setup/1.0",
+                response_time_ms=128,
+                metadata={"source": "demo_setup"},
+            ),
+            ClientAPIUsage(
+                client=client,
+                endpoint="analytics",
+                method="GET",
+                status_code=200,
+                ip_address="127.0.0.1",
+                user_agent="demo-setup/1.0",
+                response_time_ms=64,
+                metadata={"source": "demo_setup"},
+            ),
+        ]
+    )
+
+    ClientWebhookLog.objects.create(
+        client=client,
+        event_type="enrollment.completed",
+        payload={
+            "user_id": primary_user.external_user_id,
+            "enrollment_id": str(enrollment.id),
+            "demo": True,
+        },
+        status="success",
+        response_status_code=200,
+        response_body="OK",
+        attempt_count=1,
+        max_attempts=3,
+        delivered_at=now,
+    )
+
+    print("   ✅ Sample analytics, usage, and webhook logs created.")
+
 def print_api_examples(client):
     """Print API usage examples"""
     print(f"\n📖 API Usage Examples for {client.name}")
@@ -317,6 +501,9 @@ def main():
         
         # Create webhook endpoints 
         create_webhook_endpoints(client)
+
+        # Generate sample analytics/activity data
+        create_sample_activity(client, users)
         
         # Print usage examples
         print_api_examples(client)

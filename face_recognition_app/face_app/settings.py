@@ -109,6 +109,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "clients.middleware.ClientUsageLoggingMiddleware",
 ]
 
 ROOT_URLCONF = "face_app.urls"
@@ -235,7 +236,7 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.UserRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {"anon": "100/hour", "user": "1000/hour"},
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_SCHEMA_CLASS": "core.schema.FaceRecognitionAutoSchema",
 }
 
 # JWT Configuration
@@ -494,18 +495,22 @@ SPECTACULAR_SETTINGS = {
             "description": "System status and health checks",
         },
     ],
-    "SECURITY": [
-        {
-            "BearerAuth": {
-                "type": "http",
-                "scheme": "bearer",
-                "bearerFormat": "JWT",
-                "description": "JWT token obtained from /api/v1/auth/token/ endpoint",
-            }
-        }
+
+    "AUTHENTICATION_WHITELIST": [
+        "auth_service.authentication.APIKeyAuthentication",
+        "auth_service.authentication.JWTClientAuthentication",
+        "auth_service.authentication.WebhookSignatureAuthentication",
     ],
+
     "SORT_OPERATIONS": False,
     "DISABLE_ERRORS_AND_WARNINGS": True,
+    "AUTO_SCHEMA_CLASS": "core.schema.FaceRecognitionAutoSchema",
+    "PREPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.preprocess_exclude_path_format",
+    ],
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+    ],
 }
 
 # Logging Configuration

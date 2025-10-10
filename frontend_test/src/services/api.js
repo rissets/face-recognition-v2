@@ -93,6 +93,12 @@ function buildFrameForm(payload) {
   return form
 }
 
+export const coreApi = {
+  clientInfo() {
+    return apiClient.get('core/info/')
+  }
+}
+
 export const clientAuthApi = {
   authenticate(payload) {
     return apiClient.post('core/auth/client/', payload)
@@ -232,8 +238,74 @@ export const analyticsApi = {
   securityEvents(params = {}) {
     return apiClient.get('core/security-events/', { params })
   },
+  authLogs(params = {}) {
+    return apiClient.get('analytics/auth-logs/', { params })
+  },
+  securityAlerts(params = {}) {
+    return apiClient.get('analytics/security-alerts/', { params })
+  },
+  dashboard(params = {}) {
+    return apiClient.get('analytics/dashboard/', { params })
+  },
+  statistics() {
+    return apiClient.get('analytics/statistics/')
+  },
+  systemMetrics(params = {}) {
+    return apiClient.get('analytics/system-metrics/', { params })
+  },
+  userBehavior(params = {}) {
+    return apiClient.get('analytics/user-behavior/', { params })
+  },
+  faceRecognitionStats(params = {}) {
+    return apiClient.get('analytics/face-recognition-stats/', { params })
+  },
+  modelPerformance(params = {}) {
+    return apiClient.get('analytics/model-performance/', { params })
+  },
+  dataQuality(params = {}) {
+    return apiClient.get('analytics/data-quality/', { params })
+  },
+  monitoringOverview() {
+    return apiClient.get('analytics/monitoring/overview/')
+  },
   systemStatus() {
     return apiClient.get('core/status/')
+  }
+}
+
+export const webhookApi = {
+  listEvents(params = {}) {
+    return apiClient.get('webhooks/events/', { params })
+  },
+  listEventLogs(params = {}) {
+    return apiClient.get('webhooks/event-logs/', { params })
+  },
+  listDeliveries(params = {}) {
+    return apiClient.get('webhooks/deliveries/', { params })
+  },
+  endpointStats(endpointId) {
+    return apiClient.get(`webhooks/endpoints/${endpointId}/stats/`)
+  },
+  testEndpoint(endpointId, payload) {
+    return apiClient.post(`webhooks/endpoints/${endpointId}/test/`, payload)
+  },
+  regenerateSecret(endpointId) {
+    return apiClient.post(`webhooks/endpoints/${endpointId}/regenerate_secret/`)
+  },
+  failedDeliveries(params = {}) {
+    return apiClient.get('webhooks/deliveries/failed/', { params })
+  },
+  retryDelivery(deliveryId) {
+    return apiClient.post(`webhooks/deliveries/${deliveryId}/retry/`)
+  },
+  stats(params = {}) {
+    return apiClient.get('webhooks/stats/', { params })
+  },
+  retryFailed() {
+    return apiClient.post('webhooks/retry-failed/')
+  },
+  clearLogs(params = {}) {
+    return apiClient.delete('webhooks/clear-logs/', { params })
   }
 }
 
@@ -257,7 +329,7 @@ export const streamingApi = {
 
 export const systemApi = {
   status() {
-    return apiClient.get('system/status/')
+    return apiClient.get('core/status/')
   }
 }
 

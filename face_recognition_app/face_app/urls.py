@@ -23,7 +23,7 @@ from drf_spectacular.views import (
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
-# Temporarily disabled: from face_app import admin_dashboard  # noqa: F401
+from face_app import admin_dashboard  # noqa: F401
 
 urlpatterns = [
     path("admin/", admin.site.urls),

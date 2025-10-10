@@ -19,6 +19,12 @@ urlpatterns = [
     # Analytics dashboard
     path('dashboard/', views.AnalyticsDashboardView.as_view(), name='dashboard'),
     path('statistics/', views.StatisticsView.as_view(), name='statistics'),
+    path('system-metrics/', views.SystemMetricsListView.as_view(), name='system_metrics'),
+    path('user-behavior/', views.UserBehaviorAnalyticsListView.as_view(), name='user_behavior'),
+    path('face-recognition-stats/', views.FaceRecognitionStatsListView.as_view(), name='face_recognition_stats'),
+    path('model-performance/', views.ModelPerformanceListView.as_view(), name='model_performance'),
+    path('data-quality/', views.DataQualityMetricsListView.as_view(), name='data_quality_metrics'),
+    path('monitoring/overview/', views.AnalysisMonitoringView.as_view(), name='analysis_monitoring'),
     
     # API endpoints
     path('api/daily/', get_daily_analytics, name='api_daily_analytics'),

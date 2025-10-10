@@ -2,79 +2,86 @@
 Recognition app views
 """
 from rest_framework import generics, permissions
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.response import Response
-from rest_framework import status
-from django.shortcuts import get_object_or_404
-from .models import FaceEmbedding, EnrollmentSession, AuthenticationAttempt
+from auth_service.authentication import APIKeyAuthentication, JWTClientAuthentication
+from auth_service.models import FaceEnrollment, AuthenticationSession, FaceRecognitionAttempt
 from .serializers import (
-    FaceEmbeddingSerializer, 
-    EnrollmentSessionSerializer, 
-    AuthenticationAttemptSerializer
+    FaceEnrollmentSummarySerializer,
+    AuthenticationSessionSummarySerializer,
+    FaceRecognitionAttemptSummarySerializer,
 )
 
 
 class FaceEmbeddingListView(generics.ListAPIView):
     """List all face embeddings for the authenticated user"""
-    serializer_class = FaceEmbeddingSerializer
+    serializer_class = FaceEnrollmentSummarySerializer
+    authentication_classes = [APIKeyAuthentication, JWTClientAuthentication]
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        return FaceEmbedding.objects.filter(client_user__client=self.request.client)
+        if hasattr(self.request, 'client'):
+            return FaceEnrollment.objects.filter(client=self.request.client)
+        return FaceEnrollment.objects.none()
 
 
 class FaceEmbeddingDetailView(generics.RetrieveAPIView):
     """Retrieve face embedding detail"""
-    serializer_class = FaceEmbeddingSerializer
+    serializer_class = FaceEnrollmentSummarySerializer
+    authentication_classes = [APIKeyAuthentication, JWTClientAuthentication]
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        return FaceEmbedding.objects.filter(client_user__client=self.request.client)
+        if hasattr(self.request, 'client'):
+            return FaceEnrollment.objects.filter(client=self.request.client)
+        return FaceEnrollment.objects.none()
 
 
 class EnrollmentSessionListView(generics.ListAPIView):
     """List enrollment sessions"""
-    serializer_class = EnrollmentSessionSerializer
+    serializer_class = AuthenticationSessionSummarySerializer
+    authentication_classes = [APIKeyAuthentication, JWTClientAuthentication]
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
         # Filter by client user - assuming we have client context in request
         if hasattr(self.request, 'client'):
-            return EnrollmentSession.objects.filter(client_user__client=self.request.client)
-        return EnrollmentSession.objects.none()
+            return AuthenticationSession.objects.filter(client=self.request.client)
+        return AuthenticationSession.objects.none()
 
 
 class EnrollmentSessionDetailView(generics.RetrieveAPIView):
     """Retrieve enrollment session detail"""
-    serializer_class = EnrollmentSessionSerializer
+    serializer_class = AuthenticationSessionSummarySerializer
+    authentication_classes = [APIKeyAuthentication, JWTClientAuthentication]
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
         # Filter by client user - assuming we have client context in request
         if hasattr(self.request, 'client'):
-            return EnrollmentSession.objects.filter(client_user__client=self.request.client)
-        return EnrollmentSession.objects.none()
+            return AuthenticationSession.objects.filter(client=self.request.client)
+        return AuthenticationSession.objects.none()
 
 
 class AuthenticationAttemptListView(generics.ListAPIView):
     """List authentication attempts"""
-    serializer_class = AuthenticationAttemptSerializer
+    serializer_class = FaceRecognitionAttemptSummarySerializer
+    authentication_classes = [APIKeyAuthentication, JWTClientAuthentication]
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
         # Filter by client user - assuming we have client context in request
         if hasattr(self.request, 'client'):
-            return AuthenticationAttempt.objects.filter(client_user__client=self.request.client)
-        return AuthenticationAttempt.objects.none()
+            return FaceRecognitionAttempt.objects.filter(client=self.request.client)
+        return FaceRecognitionAttempt.objects.none()
 
 
 class AuthenticationAttemptDetailView(generics.RetrieveAPIView):
     """Retrieve authentication attempt detail"""
-    serializer_class = AuthenticationAttemptSerializer
+    serializer_class = FaceRecognitionAttemptSummarySerializer
+    authentication_classes = [APIKeyAuthentication, JWTClientAuthentication]
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
         # Filter by client user - assuming we have client context in request
         if hasattr(self.request, 'client'):
-            return AuthenticationAttempt.objects.filter(client_user__client=self.request.client)
-        return AuthenticationAttempt.objects.none()
+            return FaceRecognitionAttempt.objects.filter(client=self.request.client)
+        return FaceRecognitionAttempt.objects.none()

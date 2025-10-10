@@ -11,7 +11,7 @@ from django.conf import settings
 from django.utils import timezone
 from django.db import models
 from celery import shared_task
-from clients.models import Client
+from clients.models import Client, ClientWebhookLog
 from webhooks.models import WebhookEndpoint, WebhookDelivery, WebhookEventLog
 import time
 
@@ -31,7 +31,7 @@ class WebhookService:
         self.timestamp_header = self.config.get('TIMESTAMP_HEADER', 'X-FR-Timestamp')
         self.event_header = self.config.get('EVENT_HEADER', 'X-FR-Event')
     
-    def send_webhook(self, client_id, event_name, event_data, source='system'):
+    def send_webhook(self, client_id, event_name, event_data, source='system', endpoint_ids=None):
         """
         Send webhook to all subscribed endpoints for a client
         """
@@ -58,9 +58,25 @@ class WebhookService:
             status='active',
             subscribed_events__contains=[event_name]
         )
+
+        if endpoint_ids:
+            endpoints = endpoints.filter(id__in=endpoint_ids)
         
+        client_log = ClientWebhookLog.objects.create(
+            client=client,
+            event_type=event_name,
+            payload=event_data,
+            status='pending',
+            attempt_count=0,
+            max_attempts=self.max_retries,
+        )
+
         if not endpoints.exists():
             logger.info(f"No active webhook endpoints for client {client_id} and event {event_name}")
+            client_log.status = 'failed'
+            client_log.error_message = 'No active webhook endpoints configured'
+            client_log.delivered_at = timezone.now()
+            client_log.save(update_fields=['status', 'error_message', 'delivered_at'])
             return
         
         # Create event log
@@ -75,7 +91,12 @@ class WebhookService:
         # Send to each endpoint
         for endpoint in endpoints:
             self._schedule_webhook_delivery(endpoint, event_name, event_data, event_log)
-        
+            client_log.attempt_count += 1
+
+        client_log.status = 'success'
+        client_log.delivered_at = timezone.now()
+        client_log.save(update_fields=['status', 'delivered_at', 'attempt_count'])
+
         logger.info(f"Scheduled webhook delivery for {endpoints.count()} endpoints")
     
     def _schedule_webhook_delivery(self, endpoint, event_name, event_data, event_log):
@@ -253,6 +274,21 @@ class WebhookService:
         except WebhookEventLog.DoesNotExist:
             pass
     
+    def retry_webhook(self, delivery: WebhookDelivery):
+        """
+        Manually requeue a webhook delivery.
+        """
+        if delivery.status not in ['failed', 'abandoned', 'retrying']:
+            return delivery
+
+        delivery.status = 'retrying'
+        delivery.attempt_number = min(delivery.attempt_number + 1, delivery.max_attempts)
+        delivery.next_retry_at = timezone.now()
+        delivery.save(update_fields=['status', 'attempt_number', 'next_retry_at'])
+
+        deliver_webhook_async.delay(delivery.id)
+        return delivery
+
     def retry_failed_webhooks(self):
         """
         Retry failed webhooks that are due for retry
@@ -268,7 +304,7 @@ class WebhookService:
         
         for delivery in deliveries_to_retry:
             logger.info(f"Retrying webhook delivery {delivery.id}")
-            deliver_webhook_async.delay(delivery.id)
+            self.retry_webhook(delivery)
 
     @staticmethod
     def send_processing_error(client, session, error_message):

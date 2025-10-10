@@ -31,6 +31,13 @@ from rest_framework.decorators import (
 from rest_framework.response import Response
 
 from clients.models import ClientUser
+from analytics.models import AuthenticationLog, SecurityAlert
+from analytics.helpers import (
+    track_enrollment_metrics,
+    track_authentication_metrics,
+    update_face_recognition_stats,
+    track_security_event,
+)
 from core.face_recognition_engine import FaceRecognitionEngine
 
 from .authentication import APIKeyAuthentication, JWTClientAuthentication
@@ -711,7 +718,6 @@ def _handle_enrollment_frame(
         
         # Track analytics for enrollment completion
         try:
-            from analytics.helpers import track_enrollment_metrics
             track_enrollment_metrics(client, enrollment, session)
         except Exception as e:
             logger.error(f"Failed to track enrollment analytics: {e}")
@@ -1006,6 +1012,66 @@ def _handle_authentication_frame(
         session.metadata = metadata
         session.save(update_fields=["status", "completed_at", "is_successful", "confidence_score", "metadata"])
 
+        # Audit trail entry
+        try:
+            risk_factors = []
+            if match_fallback_used:
+                risk_factors.append("match_fallback")
+            if obstacles:
+                risk_factors.append("obstacles_detected")
+            if normalized_liveness < 0.6:
+                risk_factors.append("low_liveness")
+
+            AuthenticationLog.objects.create(
+                client=client,
+                attempted_email=(matched_user.profile or {}).get("email") if matched_user else metadata.get("target_user_id"),
+                auth_method="face",
+                success=True,
+                similarity_score=similarity_score,
+                liveness_score=normalized_liveness,
+                quality_score=quality_score,
+                response_time=getattr(attempt, "processing_time_ms", None),
+                ip_address=session.ip_address,
+                user_agent=session.user_agent,
+                device_fingerprint=session.device_fingerprint or metadata.get("device_fingerprint", ""),
+                location=session.metadata.get("location", ""),
+                risk_score=max(0.0, 1.0 - similarity_score),
+                risk_factors=risk_factors,
+                session_id=session.session_token,
+            )
+        except Exception:
+            logger.exception("Failed to persist authentication log entry")
+
+        # Update aggregated recognition stats
+        try:
+            update_face_recognition_stats(client, attempt)
+        except Exception:
+            logger.exception("Failed to update recognition stats for client %s", client.client_id)
+
+        obstacles = auth_result.get("obstacles") or []
+        if obstacles:
+            alert_payload = {
+                "obstacles": obstacles,
+                "session_token": session.session_token,
+                "similarity_score": similarity_score,
+            }
+            try:
+                SecurityAlert.objects.create(
+                    client=client,
+                    alert_type="quality_degradation",
+                    severity="medium",
+                    title="Obstacles detected during authentication",
+                    description=f"Detected obstacles: {', '.join(obstacles)}",
+                    context_data=alert_payload,
+                    ip_address=session.ip_address,
+                )
+            except Exception:
+                logger.exception("Failed to create security alert for obstacles")
+            try:
+                track_security_event(client, session, "obstacles_detected", alert_payload)
+            except Exception:
+                logger.exception("Failed to track security event for obstacles")
+
         # Convert numpy types to Python native types for JSON serialization
         similarity_score = float(auth_result.get("similarity_score", 0.0))
         quality_score = float(auth_result.get("quality_score", 0.0))
@@ -1072,7 +1138,6 @@ def _handle_authentication_frame(
         
         # Track analytics for successful authentication
         try:
-            from analytics.helpers import track_authentication_metrics
             track_authentication_metrics(client, session, success=True, similarity_score=similarity_score)
         except Exception as e:
             logger.error(f"Failed to track authentication analytics: {e}")
@@ -1134,6 +1199,70 @@ def _handle_authentication_frame(
             },
         )
 
+    try:
+        failure_similarity = auth_result.get("similarity_score", 0.0) or 0.0
+        risk_factors = []
+        if attempt_result == "no_match":
+            risk_factors.append("face_not_recognized")
+        if attempt_result == "liveness_failed":
+            risk_factors.append("liveness_failed")
+        if attempt_result == "quality_too_low":
+            risk_factors.append("poor_quality")
+        if auth_result.get("obstacles"):
+            risk_factors.append("obstacles_detected")
+
+        AuthenticationLog.objects.create(
+            client=client,
+            attempted_email=(matched_user.profile or {}).get("email") if matched_user else metadata.get("target_user_id"),
+            auth_method="face",
+            success=False,
+            failure_reason=attempt_result,
+            similarity_score=failure_similarity,
+            liveness_score=normalized_liveness,
+            quality_score=auth_result.get("quality_score", 0.0) or 0.0,
+            response_time=getattr(attempt, "processing_time_ms", None),
+            ip_address=session.ip_address,
+            user_agent=session.user_agent,
+            device_fingerprint=session.device_fingerprint or metadata.get("device_fingerprint", ""),
+            location=session.metadata.get("location", ""),
+            risk_score=min(1.0, 1.0 - failure_similarity if failure_similarity else 0.9),
+            risk_factors=risk_factors,
+            session_id=session.session_token,
+        )
+    except Exception:
+        logger.exception("Failed to persist failed authentication log entry")
+
+    try:
+        update_face_recognition_stats(client, attempt)
+    except Exception:
+        logger.exception("Failed to update recognition stats after failure for client %s", client.client_id)
+
+    alert_context = {
+        "failure_reason": attempt_result,
+        "session_token": session.session_token,
+        "similarity_score": auth_result.get("similarity_score"),
+        "obstacles": auth_result.get("obstacles"),
+    }
+
+    alert_severity = "high" if attempt_result in {"liveness_failed", "spoofing_detected"} else "medium"
+    try:
+        SecurityAlert.objects.create(
+            client=client,
+            alert_type="failed_attempts",
+            severity=alert_severity,
+            title="Authentication attempt failed",
+            description=f"Failure reason: {attempt_result}",
+            context_data=alert_context,
+            ip_address=session.ip_address,
+        )
+    except Exception:
+        logger.exception("Failed to create security alert for failed authentication")
+
+    try:
+        track_security_event(client, session, f"authentication_{attempt_result}", alert_context)
+    except Exception:
+        logger.exception("Failed to log security metric for failed authentication")
+
     session.status = "failed"
     session.completed_at = timezone.now()
     session.is_successful = False  # Fix: Set authentication failure flag
@@ -1151,7 +1280,6 @@ def _handle_authentication_frame(
     
     # Track analytics for failed authentication
     try:
-        from analytics.helpers import track_authentication_metrics
         track_authentication_metrics(client, session, success=False, similarity_score=auth_result.get('similarity_score', 0.0))
     except Exception as e:
         logger.error(f"Failed to track authentication analytics: {e}")
