@@ -29,6 +29,7 @@ from rest_framework.decorators import (
     permission_classes,
 )
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema, OpenApiResponse, extend_schema_view
 
 from clients.models import ClientUser
 from analytics.models import AuthenticationLog, SecurityAlert
@@ -57,6 +58,10 @@ from .serializers import (
     FaceImageUploadSerializer,
     SessionStatusSerializer,
     SystemMetricsSerializer,
+    EnrollmentCreateResponseSerializer,
+    AuthSessionCreateResponseSerializer,
+    ErrorResponseSerializer,
+    FaceFrameResponseSerializer,
 )
 
 logger = logging.getLogger("face_recognition")
@@ -228,6 +233,18 @@ def _resolve_engine_user(client, engine_id: Optional[str]) -> Optional[ClientUse
 # ---------------------------------------------------------------------------
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Session Management"],
+        summary="List Authentication Sessions",
+        description="Retrieve a paginated list of authentication sessions for the authenticated client.",
+    ),
+    retrieve=extend_schema(
+        tags=["Session Management"],
+        summary="Retrieve an Authentication Session",
+        description="Get detailed information about a specific authentication session by its ID.",
+    ),
+)
 class AuthenticationSessionViewSet(viewsets.ReadOnlyModelViewSet):
     """Read-only access to authentication sessions for the authenticated client."""
 
@@ -241,6 +258,12 @@ class AuthenticationSessionViewSet(viewsets.ReadOnlyModelViewSet):
             return self.queryset.filter(client=self.request.client)
         return self.queryset.none()
 
+    @extend_schema(
+        tags=["Session Management"],
+        summary="Get Session Status",
+        description="Check the current status of an authentication or enrollment session.",
+        responses={200: SessionStatusSerializer, 404: OpenApiResponse(description="Not Found")}
+    )
     @action(detail=True, methods=["get"])
     def status(self, request, pk=None):
         session = self.get_object()
@@ -260,6 +283,38 @@ class AuthenticationSessionViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Face Enrollment"],
+        summary="List Face Enrollments",
+        description="Retrieve a list of all face enrollments associated with the client.",
+    ),
+    retrieve=extend_schema(
+        tags=["Face Enrollment"],
+        summary="Retrieve a Face Enrollment",
+        description="Get detailed information about a specific face enrollment by its ID.",
+    ),
+    create=extend_schema(
+        tags=["Face Enrollment"],
+        summary="Create a Face Enrollment (Manual)",
+        description="Manually create a face enrollment record. This is typically handled by the session-based enrollment flow.",
+    ),
+    update=extend_schema(
+        tags=["Face Enrollment"],
+        summary="Update a Face Enrollment",
+        description="Update the details of an existing face enrollment.",
+    ),
+    partial_update=extend_schema(
+        tags=["Face Enrollment"],
+        summary="Partially Update a Face Enrollment",
+        description="Partially update the details of an existing face enrollment.",
+    ),
+    destroy=extend_schema(
+        tags=["Face Enrollment"],
+        summary="Delete a Face Enrollment",
+        description="Permanently delete a face enrollment record.",
+    ),
+)
 class FaceEnrollmentViewSet(viewsets.ModelViewSet):
     """Manage enrollments for client users."""
 
@@ -282,6 +337,17 @@ class FaceEnrollmentViewSet(viewsets.ModelViewSet):
 # ---------------------------------------------------------------------------
 
 
+@extend_schema(
+    tags=["Face Enrollment"],
+    summary="Create Enrollment Session",
+    description="Initializes a session to enroll a new user by capturing face frames. A `session_token` is returned, which must be used for subsequent frame uploads.",
+    request=EnrollmentRequestSerializer,
+    responses={
+        201: EnrollmentCreateResponseSerializer,
+        400: OpenApiResponse(response=ErrorResponseSerializer, description="Bad Request - Invalid input or user not found."),
+        401: OpenApiResponse(response=ErrorResponseSerializer, description="Unauthorized - Invalid API key."),
+    },
+)
 @api_view(["POST"])
 @authentication_classes([APIKeyAuthentication, JWTClientAuthentication])
 @permission_classes([permissions.IsAuthenticated])
@@ -361,7 +427,8 @@ def create_enrollment_session(request):
         "expires_at": session.expires_at,
         "message": "Enrollment session created. Stream frames to continue.",
     }
-    return Response(response_payload, status=status.HTTP_201_CREATED)
+    response_serializer = EnrollmentCreateResponseSerializer(response_payload)
+    return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +436,17 @@ def create_enrollment_session(request):
 # ---------------------------------------------------------------------------
 
 
+@extend_schema(
+    tags=["Face Authentication"],
+    summary="Create Authentication Session",
+    description="Initializes a session to authenticate a user. For verification, provide a `user_id`. For identification, omit the `user_id`. A `session_token` is returned for use in frame processing.",
+    request=AuthenticationRequestSerializer,
+    responses={
+        201: AuthSessionCreateResponseSerializer,
+        400: OpenApiResponse(response=ErrorResponseSerializer, description="Bad Request - Invalid input."),
+        401: OpenApiResponse(response=ErrorResponseSerializer, description="Unauthorized - Invalid API key."),
+    },
+)
 @api_view(["POST"])
 @authentication_classes([APIKeyAuthentication, JWTClientAuthentication])
 @permission_classes([permissions.IsAuthenticated])
@@ -421,7 +499,8 @@ def create_authentication_session(request):
         "session_type": session.session_type,
         "message": "Authentication session created. Stream frames to continue.",
     }
-    return Response(response_payload, status=status.HTTP_201_CREATED)
+    response_serializer = AuthSessionCreateResponseSerializer(response_payload)
+    return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +508,18 @@ def create_authentication_session(request):
 # ---------------------------------------------------------------------------
 
 
+@extend_schema(
+    tags=["Face Authentication", "Face Enrollment"],
+    summary="Process Face Image Frame",
+    description="Upload a single frame (image) for an active enrollment or authentication session. The server processes the frame for face detection, quality checks, and liveness, returning immediate feedback.",
+    request=FaceImageUploadSerializer,
+    responses={
+        200: FaceFrameResponseSerializer,
+        400: OpenApiResponse(response=ErrorResponseSerializer, description="Bad Request - Invalid image, expired session, or other processing error."),
+        401: OpenApiResponse(response=ErrorResponseSerializer, description="Unauthorized - Invalid API key."),
+        404: OpenApiResponse(response=ErrorResponseSerializer, description="Not Found - Session token not found."),
+    },
+)
 @api_view(["POST"])
 @authentication_classes([APIKeyAuthentication, JWTClientAuthentication])
 @permission_classes([permissions.IsAuthenticated])
@@ -913,7 +1004,7 @@ def _handle_authentication_frame(
             # Try direct resolution first (for proper client:external_user_id format)
             matched_user = _resolve_engine_user(client, engine_user_id)
             
-            # If not found, try to construct proper engine_user_id
+            # If not found, try to construct proper format
             if not matched_user and ":" not in engine_user_id:
                 # Engine returned just external_user_id, construct proper format
                 constructed_engine_id = _engine_user_id(client.client_id, engine_user_id)
@@ -1258,11 +1349,6 @@ def _handle_authentication_frame(
     except Exception:
         logger.exception("Failed to create security alert for failed authentication")
 
-    try:
-        track_security_event(client, session, f"authentication_{attempt_result}", alert_context)
-    except Exception:
-        logger.exception("Failed to log security metric for failed authentication")
-
     session.status = "failed"
     session.completed_at = timezone.now()
     session.is_successful = False  # Fix: Set authentication failure flag
@@ -1374,22 +1460,3 @@ def get_client_analytics(request):
         "sessions": sessions_stats,
     }
     return Response(payload)
-
-
-# ---------------------------------------------------------------------------
-# System metrics (read-only)
-# ---------------------------------------------------------------------------
-
-
-class SystemMetricsViewSet(viewsets.ReadOnlyModelViewSet):
-    """Expose stored system metrics for observability."""
-
-    queryset = SystemMetrics.objects.all()
-    serializer_class = SystemMetricsSerializer
-    authentication_classes = [APIKeyAuthentication, JWTClientAuthentication]
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        if hasattr(self.request, "client"):
-            return self.queryset.filter(client=self.request.client)
-        return self.queryset.none()

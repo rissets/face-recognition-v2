@@ -176,10 +176,10 @@
           <strong>Manajemen Akun</strong>
           <span>Kelola profil, update data pengguna, lihat device & security alerts.</span>
         </button>
-        <button class="info-card" type="button" @click="goTo('/recognition-data')">
+        <!-- <button class="info-card" type="button" @click="goTo('/recognition-data')">
           <strong>Analisa Data Embedding</strong>
           <span>Periksa embedding, sesi enrollment, serta riwayat autentikasi.</span>
-        </button>
+        </button> -->
         <button class="info-card" type="button" @click="goTo('/streaming')">
           <strong>Streaming & WebRTC</strong>
           <span>Monitoring sesi streaming, signaling, dan troubleshooting WebRTC.</span>

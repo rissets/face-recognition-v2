@@ -471,34 +471,29 @@ SPECTACULAR_SETTINGS = {
     "TAGS": [
         {
             "name": "Authentication",
-            "description": "User authentication and JWT token management",
+            "description": "Endpoints for creating authentication and enrollment sessions, and processing face images.",
         },
         {
-            "name": "Face Enrollment",
-            "description": "Face enrollment and embedding management",
-        },
-        {
-            "name": "Face Recognition",
-            "description": "Real-time face authentication and verification",
-        },
-        {
-            "name": "WebRTC",
-            "description": "WebRTC signaling and streaming sessions",
+            "name": "Client Management",
+            "description": "Endpoints for managing clients and their users.",
         },
         {
             "name": "Analytics",
-            "description": "System analytics and security monitoring",
-        },
-        {
-            "name": "User Management",
-            "description": "User profile and device management",
+            "description": "Endpoints for retrieving analytics and system metrics.",
         },
         {
             "name": "System",
-            "description": "System status and health checks",
+            "description": "Endpoints for checking system status and health.",
+        },
+        {
+            "name": "Webhooks",
+            "description": "Endpoints related to webhook management and logs.",
+        },
+        {
+            "name": "Streaming",
+            "description": "Endpoints for managing WebRTC streaming sessions.",
         },
     ],
-
     "AUTHENTICATION_WHITELIST": [
         "auth_service.authentication.APIKeyAuthentication",
         "auth_service.authentication.JWTClientAuthentication",

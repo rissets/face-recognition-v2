@@ -589,6 +589,27 @@ paths:
               schema:
                 $ref: '#/components/schemas/Client'
           description: ''
+    delete:
+      operationId: api_clients_clients_destroy
+      description: Permanently delete a client. This is a destructive action and typically
+        restricted.
+      summary: Delete a Client (Admin Only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client.
+        required: true
+      tags:
+      - Client Management
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
     get:
       operationId: api_clients_clients_retrieve
       description: Get detailed information about the authenticated client.
@@ -649,27 +670,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Client'
           description: ''
-    delete:
-      operationId: api_clients_clients_destroy
-      description: Permanently delete a client. This is a destructive action and typically
-        restricted.
-      summary: Delete a Client (Admin Only)
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this Client.
-        required: true
-      tags:
-      - Client Management
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      responses:
-        '204':
-          description: No response body
   /api/clients/clients/{id}/reset_credentials/:
     post:
       operationId: api_clients_clients_reset_credentials_create
@@ -823,6 +823,27 @@ paths:
               schema:
                 $ref: '#/components/schemas/ClientUser'
           description: ''
+    delete:
+      operationId: api_clients_users_destroy
+      description: Permanently delete a client user and all their associated data,
+        including enrollments.
+      summary: Delete a Client User
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client User.
+        required: true
+      tags:
+      - Client Management
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
     get:
       operationId: api_clients_users_retrieve
       description: Get detailed information about a specific user by their ID.
@@ -883,27 +904,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/ClientUser'
           description: ''
-    delete:
-      operationId: api_clients_users_destroy
-      description: Permanently delete a client user and all their associated data,
-        including enrollments.
-      summary: Delete a Client User
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this Client User.
-        required: true
-      tags:
-      - Client Management
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      responses:
-        '204':
-          description: No response body
   /api/clients/users/{id}/activate/:
     post:
       operationId: api_clients_users_activate_create
@@ -1288,6 +1288,26 @@ paths:
               schema:
                 $ref: '#/components/schemas/FaceEnrollment'
           description: ''
+    delete:
+      operationId: api_auth_enrollments_destroy
+      description: Permanently delete a face enrollment record.
+      summary: Delete a Face Enrollment
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Face Enrollment.
+        required: true
+      tags:
+      - Face Enrollment
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
     get:
       operationId: api_auth_enrollments_retrieve
       description: Get detailed information about a specific face enrollment by its
@@ -1349,26 +1369,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/FaceEnrollment'
           description: ''
-    delete:
-      operationId: api_auth_enrollments_destroy
-      description: Permanently delete a face enrollment record.
-      summary: Delete a Face Enrollment
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this Face Enrollment.
-        required: true
-      tags:
-      - Face Enrollment
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      responses:
-        '204':
-          description: No response body
   /api/auth/enrollment/:
     post:
       operationId: api_auth_enrollment_create
@@ -1508,7 +1508,9 @@ paths:
   /api/webhooks/events/:
     get:
       operationId: api_webhooks_events_list
-      description: Expose registered webhook event definitions.
+      description: Retrieve a list of all possible webhook events that can be subscribed
+        to.
+      summary: List Webhook Events
       parameters:
       - name: page
         required: false
@@ -1517,7 +1519,7 @@ paths:
         schema:
           type: integer
       tags:
-      - api
+      - Webhooks
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -1531,7 +1533,8 @@ paths:
   /api/webhooks/events/{id}/:
     get:
       operationId: api_webhooks_events_retrieve
-      description: Expose registered webhook event definitions.
+      description: Get details of a specific webhook event.
+      summary: Retrieve a Webhook Event
       parameters:
       - in: path
         name: id
@@ -1541,7 +1544,7 @@ paths:
         description: A UUID string identifying this Webhook Event.
         required: true
       tags:
-      - api
+      - Webhooks
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -1555,7 +1558,8 @@ paths:
   /api/webhooks/endpoints/:
     get:
       operationId: api_webhooks_endpoints_list
-      description: Manage webhook endpoints for the authenticated client.
+      description: Retrieve a list of all webhook endpoints configured for the client.
+      summary: List Webhook Endpoints
       parameters:
       - name: page
         required: false
@@ -1564,7 +1568,7 @@ paths:
         schema:
           type: integer
       tags:
-      - api
+      - Webhooks
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -1577,9 +1581,10 @@ paths:
           description: ''
     post:
       operationId: api_webhooks_endpoints_create
-      description: Manage webhook endpoints for the authenticated client.
+      description: Create a new endpoint to receive webhook notifications.
+      summary: Create a Webhook Endpoint
       tags:
-      - api
+      - Webhooks
       requestBody:
         content:
           application/json:
@@ -1605,7 +1610,8 @@ paths:
   /api/webhooks/endpoints/{id}/:
     patch:
       operationId: api_webhooks_endpoints_partial_update
-      description: Manage webhook endpoints for the authenticated client.
+      description: Partially update the configuration of an existing webhook endpoint.
+      summary: Partially Update a Webhook Endpoint
       parameters:
       - in: path
         name: id
@@ -1615,7 +1621,7 @@ paths:
         description: A UUID string identifying this Webhook Endpoint.
         required: true
       tags:
-      - api
+      - Webhooks
       requestBody:
         content:
           application/json:
@@ -1627,64 +1633,6 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/PatchedWebhookEndpointRequest'
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WebhookEndpoint'
-          description: ''
-    get:
-      operationId: api_webhooks_endpoints_retrieve
-      description: Manage webhook endpoints for the authenticated client.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this Webhook Endpoint.
-        required: true
-      tags:
-      - api
-      security:
-      - ApiKeyAuth: []
-      - BearerAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WebhookEndpoint'
-          description: ''
-    put:
-      operationId: api_webhooks_endpoints_update
-      description: Manage webhook endpoints for the authenticated client.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this Webhook Endpoint.
-        required: true
-      tags:
-      - api
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/WebhookEndpointRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/WebhookEndpointRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/WebhookEndpointRequest'
-        required: true
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -1697,7 +1645,8 @@ paths:
           description: ''
     delete:
       operationId: api_webhooks_endpoints_destroy
-      description: Manage webhook endpoints for the authenticated client.
+      description: Permanently delete a webhook endpoint.
+      summary: Delete a Webhook Endpoint
       parameters:
       - in: path
         name: id
@@ -1707,17 +1656,17 @@ paths:
         description: A UUID string identifying this Webhook Endpoint.
         required: true
       tags:
-      - api
+      - Webhooks
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
       responses:
         '204':
           description: No response body
-  /api/webhooks/endpoints/{id}/regenerate_secret/:
-    post:
-      operationId: api_webhooks_endpoints_regenerate_secret_create
-      description: Rotate the secret used for signing webhook payloads.
+    get:
+      operationId: api_webhooks_endpoints_retrieve
+      description: Get detailed information about a specific webhook endpoint.
+      summary: Retrieve a Webhook Endpoint
       parameters:
       - in: path
         name: id
@@ -1727,7 +1676,69 @@ paths:
         description: A UUID string identifying this Webhook Endpoint.
         required: true
       tags:
-      - api
+      - Webhooks
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+          description: ''
+    put:
+      operationId: api_webhooks_endpoints_update
+      description: Update the configuration of an existing webhook endpoint.
+      summary: Update a Webhook Endpoint
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Endpoint.
+        required: true
+      tags:
+      - Webhooks
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+          description: ''
+  /api/webhooks/endpoints/{id}/regenerate_secret/:
+    post:
+      operationId: api_webhooks_endpoints_regenerate_secret_create
+      description: Generates a new secret token for a webhook endpoint, invalidating
+        the old one. This is used to sign outgoing webhook payloads.
+      summary: Regenerate Webhook Secret
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Endpoint.
+        required: true
+      tags:
+      - Webhooks
       requestBody:
         content:
           application/json:
@@ -1753,7 +1764,9 @@ paths:
   /api/webhooks/endpoints/{id}/stats/:
     get:
       operationId: api_webhooks_endpoints_stats_retrieve
-      description: Return delivery statistics for an endpoint.
+      description: Retrieve delivery statistics for a specific webhook endpoint, including
+        success rate and average delivery time.
+      summary: Get Endpoint Statistics
       parameters:
       - in: path
         name: id
@@ -1763,7 +1776,8 @@ paths:
         description: A UUID string identifying this Webhook Endpoint.
         required: true
       tags:
-      - api
+      - Webhooks
+      - Analytics
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -1777,7 +1791,9 @@ paths:
   /api/webhooks/endpoints/{id}/test/:
     post:
       operationId: api_webhooks_endpoints_test_create
-      description: Trigger a test webhook delivery.
+      description: Sends a test event to the specified webhook endpoint to verify
+        its configuration and connectivity.
+      summary: Test a Webhook Endpoint
       parameters:
       - in: path
         name: id
@@ -1787,7 +1803,7 @@ paths:
         description: A UUID string identifying this Webhook Endpoint.
         required: true
       tags:
-      - api
+      - Webhooks
       requestBody:
         content:
           application/json:
@@ -1813,7 +1829,8 @@ paths:
   /api/webhooks/deliveries/:
     get:
       operationId: api_webhooks_deliveries_list
-      description: Read-only access to webhook delivery history.
+      description: Retrieve a list of all webhook delivery attempts for the client.
+      summary: List Webhook Deliveries
       parameters:
       - name: page
         required: false
@@ -1822,7 +1839,8 @@ paths:
         schema:
           type: integer
       tags:
-      - api
+      - Webhooks
+      - Analytics
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -1836,9 +1854,12 @@ paths:
   /api/webhooks/deliveries/failed/:
     get:
       operationId: api_webhooks_deliveries_failed_retrieve
-      description: Return recent failed deliveries.
+      description: A convenient shortcut to retrieve a list of the 100 most recent
+        failed webhook deliveries.
+      summary: List Failed Deliveries
       tags:
-      - api
+      - Webhooks
+      - Analytics
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -1852,7 +1873,8 @@ paths:
   /api/webhooks/deliveries/{id}/:
     get:
       operationId: api_webhooks_deliveries_retrieve
-      description: Read-only access to webhook delivery history.
+      description: Get detailed information about a specific webhook delivery attempt.
+      summary: Retrieve a Webhook Delivery
       parameters:
       - in: path
         name: id
@@ -1862,7 +1884,8 @@ paths:
         description: A UUID string identifying this Webhook Delivery.
         required: true
       tags:
-      - api
+      - Webhooks
+      - Analytics
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -1876,7 +1899,8 @@ paths:
   /api/webhooks/deliveries/{id}/retry/:
     post:
       operationId: api_webhooks_deliveries_retry_create
-      description: Retry an individual delivery.
+      description: Schedules a retry for a single failed webhook delivery.
+      summary: Retry a Webhook Delivery
       parameters:
       - in: path
         name: id
@@ -1886,7 +1910,7 @@ paths:
         description: A UUID string identifying this Webhook Delivery.
         required: true
       tags:
-      - api
+      - Webhooks
       requestBody:
         content:
           application/json:
@@ -1912,7 +1936,8 @@ paths:
   /api/webhooks/event-logs/:
     get:
       operationId: api_webhooks_event_logs_list
-      description: Inspect historical webhook event logs for the authenticated client.
+      description: Retrieve a list of historical webhook event logs for the client.
+      summary: List Webhook Event Logs
       parameters:
       - name: page
         required: false
@@ -1921,7 +1946,8 @@ paths:
         schema:
           type: integer
       tags:
-      - api
+      - Webhooks
+      - Analytics
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -1935,7 +1961,8 @@ paths:
   /api/webhooks/event-logs/{id}/:
     get:
       operationId: api_webhooks_event_logs_retrieve
-      description: Inspect historical webhook event logs for the authenticated client.
+      description: Get detailed information about a specific webhook event log.
+      summary: Retrieve a Webhook Event Log
       parameters:
       - in: path
         name: id
@@ -1945,7 +1972,8 @@ paths:
         description: A UUID string identifying this Webhook Event Log.
         required: true
       tags:
-      - api
+      - Webhooks
+      - Analytics
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -1959,9 +1987,12 @@ paths:
   /api/webhooks/stats/:
     get:
       operationId: api_webhooks_stats_retrieve
-      description: Aggregate webhook statistics for the authenticated client.
+      description: Retrieve aggregate webhook statistics for the client over a specified
+        time period (default is 30 days).
+      summary: Get Webhook Statistics
       tags:
-      - api
+      - Webhooks
+      - Analytics
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -1971,9 +2002,11 @@ paths:
   /api/webhooks/retry-failed/:
     post:
       operationId: api_webhooks_retry_failed_create
-      description: Retry failed webhook deliveries for the authenticated client.
+      description: Initiates a retry process for the 50 oldest failed webhook deliveries
+        for the client.
+      summary: Retry All Failed Webhooks
       tags:
-      - api
+      - Webhooks
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -1983,9 +2016,11 @@ paths:
   /api/webhooks/clear-logs/:
     delete:
       operationId: api_webhooks_clear_logs_destroy
-      description: Remove webhook logs older than the specified number of days.
+      description: Permanently deletes webhook event and delivery logs older than
+        a specified number of days (default is 90).
+      summary: Clear Old Webhook Logs
       tags:
-      - api
+      - Webhooks
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
@@ -2317,7 +2352,9 @@ paths:
   /api/recognition/embeddings/:
     get:
       operationId: api_recognition_embeddings_list
-      description: List all face embeddings for the authenticated user
+      description: This endpoint is deprecated. Use the 'Face Enrollment' endpoints
+        instead. It retrieves a list of face enrollments (embeddings).
+      summary: List Face Embeddings (Legacy)
       parameters:
       - name: page
         required: false
@@ -2326,10 +2363,11 @@ paths:
         schema:
           type: integer
       tags:
-      - api
+      - Legacy Recognition
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
+      deprecated: true
       responses:
         '200':
           content:
@@ -2340,7 +2378,9 @@ paths:
   /api/recognition/embeddings/{id}/:
     get:
       operationId: api_recognition_embeddings_retrieve
-      description: Retrieve face embedding detail
+      description: This endpoint is deprecated. Use the 'Face Enrollment' endpoints
+        instead. It retrieves a specific face enrollment (embedding).
+      summary: Retrieve Face Embedding (Legacy)
       parameters:
       - in: path
         name: id
@@ -2349,10 +2389,11 @@ paths:
           format: uuid
         required: true
       tags:
-      - api
+      - Legacy Recognition
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
+      deprecated: true
       responses:
         '200':
           content:
@@ -2363,7 +2404,9 @@ paths:
   /api/recognition/sessions/:
     get:
       operationId: api_recognition_sessions_list
-      description: List enrollment sessions
+      description: This endpoint is deprecated. Use the 'Session Management' endpoints
+        instead. It retrieves a list of authentication sessions.
+      summary: List Enrollment Sessions (Legacy)
       parameters:
       - name: page
         required: false
@@ -2372,10 +2415,11 @@ paths:
         schema:
           type: integer
       tags:
-      - api
+      - Legacy Recognition
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
+      deprecated: true
       responses:
         '200':
           content:
@@ -2386,7 +2430,9 @@ paths:
   /api/recognition/sessions/{id}/:
     get:
       operationId: api_recognition_sessions_retrieve
-      description: Retrieve enrollment session detail
+      description: This endpoint is deprecated. Use the 'Session Management' endpoints
+        instead. It retrieves a specific authentication session.
+      summary: Retrieve Enrollment Session (Legacy)
       parameters:
       - in: path
         name: id
@@ -2395,10 +2441,11 @@ paths:
           format: uuid
         required: true
       tags:
-      - api
+      - Legacy Recognition
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
+      deprecated: true
       responses:
         '200':
           content:
@@ -2409,7 +2456,9 @@ paths:
   /api/recognition/attempts/:
     get:
       operationId: api_recognition_attempts_list
-      description: List authentication attempts
+      description: This endpoint is deprecated. Use analytics or session status endpoints
+        instead. It retrieves a list of face recognition attempts.
+      summary: List Authentication Attempts (Legacy)
       parameters:
       - name: page
         required: false
@@ -2418,10 +2467,11 @@ paths:
         schema:
           type: integer
       tags:
-      - api
+      - Legacy Recognition
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
+      deprecated: true
       responses:
         '200':
           content:
@@ -2432,7 +2482,9 @@ paths:
   /api/recognition/attempts/{id}/:
     get:
       operationId: api_recognition_attempts_retrieve
-      description: Retrieve authentication attempt detail
+      description: This endpoint is deprecated. Use analytics or session status endpoints
+        instead. It retrieves a specific face recognition attempt.
+      summary: Retrieve Authentication Attempt (Legacy)
       parameters:
       - in: path
         name: id
@@ -2441,10 +2493,11 @@ paths:
           format: uuid
         required: true
       tags:
-      - api
+      - Legacy Recognition
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
+      deprecated: true
       responses:
         '200':
           content:

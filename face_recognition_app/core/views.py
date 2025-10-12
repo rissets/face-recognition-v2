@@ -13,6 +13,7 @@ import platform
 import time
 import psutil
 from django.conf import settings
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 
 from .models import SystemConfiguration, AuditLog, SecurityEvent, HealthCheck
 from .serializers import (
@@ -23,6 +24,8 @@ from .serializers import (
     SystemStatusSerializer,
     ClientTokenSerializer,
     ClientUserAuthSerializer,
+    ErrorResponseSerializer,
+    SuccessResponseSerializer,
 )
 from .services import ThirdPartyIntegrationService
 from auth_service.authentication import APIKeyAuthentication
@@ -30,6 +33,18 @@ from auth_service.models import AuthenticationSession, FaceEnrollment, FaceRecog
 from clients.models import Client, ClientUser
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["System"],
+        summary="List System Configurations",
+        description="Retrieve a list of system configuration settings. (Admin only)",
+    ),
+    retrieve=extend_schema(
+        tags=["System"],
+        summary="Retrieve a System Configuration",
+        description="Get details of a specific system configuration setting. (Admin only)",
+    ),
+)
 class SystemConfigurationViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for system configuration (admin only)
@@ -46,6 +61,18 @@ class SystemConfigurationViewSet(viewsets.ReadOnlyModelViewSet):
         return self.queryset.none()
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["System", "Analytics"],
+        summary="List Audit Logs",
+        description="Retrieve a list of audit log entries for the authenticated client.",
+    ),
+    retrieve=extend_schema(
+        tags=["System", "Analytics"],
+        summary="Retrieve an Audit Log",
+        description="Get details of a specific audit log entry.",
+    ),
+)
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for audit logs (filtered by client)
@@ -62,6 +89,18 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         return self.queryset.none()
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["System", "Analytics"],
+        summary="List Security Events",
+        description="Retrieve a list of security events for the authenticated client.",
+    ),
+    retrieve=extend_schema(
+        tags=["System", "Analytics"],
+        summary="Retrieve a Security Event",
+        description="Get details of a specific security event.",
+    ),
+)
 class SecurityEventViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for security events (filtered by client)
@@ -78,6 +117,16 @@ class SecurityEventViewSet(viewsets.ReadOnlyModelViewSet):
         return self.queryset.none()
 
 
+@extend_schema(
+    tags=["Authentication"],
+    summary="Authenticate Client",
+    description="Authenticates a client using their API Key and Secret to obtain a short-lived JWT for subsequent API calls. This is the first step in the authentication flow.",
+    request=ClientTokenSerializer,
+    responses={
+        200: OpenApiResponse(description="JWT Token Response"),
+        401: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid credentials"),
+    },
+)
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 def authenticate_client(request):
@@ -118,6 +167,16 @@ def authenticate_client(request):
     return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
 
 
+@extend_schema(
+    tags=["Authentication"],
+    summary="Authenticate Client User",
+    description="Authenticates a specific user belonging to the client. This is a secondary authentication step and its usage depends on the application's security model.",
+    request=ClientUserAuthSerializer,
+    responses={
+        200: OpenApiResponse(description="User authentication success response"),
+        401: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid credentials or user not found"),
+    },
+)
 @api_view(['POST'])
 def authenticate_client_user(request):
     """
@@ -160,6 +219,15 @@ def authenticate_client_user(request):
     return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
 
 
+@extend_schema(
+    tags=["System"],
+    summary="Get System Status",
+    description="Provides a comprehensive overview of the system's health, including database connectivity, service status, and key operational statistics.",
+    responses={
+        200: SystemStatusSerializer,
+        500: OpenApiResponse(response=ErrorResponseSerializer, description="Internal Server Error"),
+    },
+)
 @api_view(['GET'])
 @permission_classes([permissions.AllowAny])
 def system_status(request):
@@ -221,6 +289,15 @@ def system_status(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@extend_schema(
+    tags=["System"],
+    summary="Health Check",
+    description="A lightweight endpoint for load balancers and uptime monitoring to quickly check if the service is operational.",
+    responses={
+        200: OpenApiResponse(description="Service is healthy"),
+        503: OpenApiResponse(description="Service is unhealthy"),
+    },
+)
 @api_view(['GET'])
 @permission_classes([permissions.AllowAny])
 def health_check(request):
@@ -245,6 +322,17 @@ def health_check(request):
         }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
+@extend_schema(
+    tags=["System", "Analytics"],
+    summary="Log a Security Event",
+    description="Allows authenticated clients to log custom security-related events from their applications into the system for centralized monitoring and auditing.",
+    request=SecurityEventSerializer,
+    responses={
+        200: SuccessResponseSerializer,
+        400: OpenApiResponse(response=ErrorResponseSerializer, description="Bad Request"),
+        401: OpenApiResponse(response=ErrorResponseSerializer, description="Unauthorized"),
+    },
+)
 @api_view(['POST'])
 @authentication_classes([APIKeyAuthentication, JWTClientAuthentication])
 @permission_classes([permissions.IsAuthenticated])
@@ -276,6 +364,15 @@ def log_security_event(request):
     return Response({'success': True, 'message': 'Security event logged'})
 
 
+@extend_schema(
+    tags=["Client Management"],
+    summary="Get Client Information",
+    description="Retrieves detailed information about the currently authenticated client, including configuration, rate limits, features, and usage analytics.",
+    responses={
+        200: OpenApiResponse(description="Client information response"),
+        401: OpenApiResponse(response=ErrorResponseSerializer, description="Unauthorized"),
+    },
+)
 @api_view(['GET'])
 @authentication_classes([APIKeyAuthentication, JWTClientAuthentication])
 @permission_classes([permissions.IsAuthenticated])

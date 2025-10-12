@@ -40,7 +40,38 @@ from .serializers import (
 )
 
 
-
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Client Management"],
+        summary="List Clients",
+        description="Retrieve the client record for the authenticated API key. Non-admin keys can only see their own client.",
+    ),
+    retrieve=extend_schema(
+        tags=["Client Management"],
+        summary="Retrieve Client Details",
+        description="Get detailed information about the authenticated client.",
+    ),
+    create=extend_schema(
+        tags=["Client Management"],
+        summary="Create a Client (Admin Only)",
+        description="Create a new client. This endpoint is typically restricted to system administrators.",
+    ),
+    update=extend_schema(
+        tags=["Client Management"],
+        summary="Update Client Details",
+        description="Update the configuration of the authenticated client.",
+    ),
+    partial_update=extend_schema(
+        tags=["Client Management"],
+        summary="Partially Update Client Details",
+        description="Partially update the configuration of the authenticated client.",
+    ),
+    destroy=extend_schema(
+        tags=["Client Management"],
+        summary="Delete a Client (Admin Only)",
+        description="Permanently delete a client. This is a destructive action and typically restricted.",
+    ),
+)
 class ClientViewSet(viewsets.ModelViewSet):
     """CRUD and analytics for clients authenticated via API key."""
 
@@ -56,7 +87,9 @@ class ClientViewSet(viewsets.ModelViewSet):
         return self.queryset.none()
 
     @extend_schema(
-        summary="Retrieve aggregated usage metrics for the client.",
+        tags=["Client Management", "Analytics"],
+        summary="Get Client Statistics",
+        description="Retrieve aggregated usage metrics and statistics for the authenticated client, such as user counts, authentication attempts, and API call volume.",
         responses=ClientStatsSerializer,
     )
     @action(detail=True, methods=["get"])
@@ -100,7 +133,9 @@ class ClientViewSet(viewsets.ModelViewSet):
         return round((success / total) * 100, 2)
 
     @extend_schema(
-        summary="Rotate API and webhook credentials for the client.",
+        tags=["Client Management"],
+        summary="Reset Client Credentials",
+        description="Rotate API keys, secret keys, or webhook secrets for the authenticated client. The old credentials will be invalidated.",
         request=ClientCredentialsResetSerializer,
         responses=ClientCredentialsResetResponseSerializer,
     )
@@ -137,27 +172,42 @@ class ClientViewSet(viewsets.ModelViewSet):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List client users for the authenticated tenant.",
+        tags=["Client Management"],
+        summary="List Client Users",
+        description="Retrieve a paginated list of users associated with the authenticated client.",
         responses=ClientUserSerializer,
     ),
     retrieve=extend_schema(
-        summary="Retrieve a client user detail.",
+        tags=["Client Management"],
+        summary="Retrieve a Client User",
+        description="Get detailed information about a specific user by their ID.",
         responses=ClientUserSerializer,
     ),
     create=extend_schema(
-        summary="Create a new client user.",
+        tags=["Client Management"],
+        summary="Create a Client User",
+        description="Create a new user associated with the authenticated client.",
         request=ClientUserWriteSerializer,
         responses=ClientUserSerializer,
     ),
     update=extend_schema(
-        summary="Update a client user.",
+        tags=["Client Management"],
+        summary="Update a Client User",
+        description="Update the details of an existing client user.",
         request=ClientUserWriteSerializer,
         responses=ClientUserSerializer,
     ),
     partial_update=extend_schema(
-        summary="Partially update a client user.",
+        tags=["Client Management"],
+        summary="Partially Update a Client User",
+        description="Partially update the details of an existing client user.",
         request=ClientUserWriteSerializer,
         responses=ClientUserSerializer,
+    ),
+    destroy=extend_schema(
+        tags=["Client Management"],
+        summary="Delete a Client User",
+        description="Permanently delete a client user and all their associated data, including enrollments.",
     ),
 )
 class ClientUserViewSet(viewsets.ModelViewSet):
@@ -177,7 +227,9 @@ class ClientUserViewSet(viewsets.ModelViewSet):
         serializer.save(client=self.request.client)
 
     @extend_schema(
-        summary="Enable face authentication for a client user.",
+        tags=["Client Management"],
+        summary="Activate Face Authentication",
+        description="Enable the face authentication feature for a specific client user.",
         responses=ClientUserToggleResponseSerializer,
     )
     @action(detail=True, methods=["post"])
@@ -194,7 +246,9 @@ class ClientUserViewSet(viewsets.ModelViewSet):
         )
 
     @extend_schema(
-        summary="Disable face authentication for a client user.",
+        tags=["Client Management"],
+        summary="Deactivate Face Authentication",
+        description="Disable the face authentication feature for a specific client user.",
         responses=ClientUserToggleResponseSerializer,
     )
     @action(detail=True, methods=["post"])
@@ -211,7 +265,9 @@ class ClientUserViewSet(viewsets.ModelViewSet):
         )
 
     @extend_schema(
-        summary="List enrollment records for the client user.",
+        tags=["Client Management", "Face Enrollment"],
+        summary="List User Enrollments",
+        description="Retrieve a list of all face enrollment records for a specific client user.",
         responses=ClientUserEnrollmentListSerializer,
     )
     @action(detail=True, methods=["get"])
@@ -234,6 +290,18 @@ class ClientUserViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Client Management", "Analytics"],
+        summary="List API Usage Logs",
+        description="Retrieve a paginated list of API usage logs for the authenticated client.",
+    ),
+    retrieve=extend_schema(
+        tags=["Client Management", "Analytics"],
+        summary="Retrieve API Usage Log",
+        description="Get detailed information about a specific API usage log entry.",
+    ),
+)
 class ClientAPIUsageViewSet(viewsets.ReadOnlyModelViewSet):
     """Per-client API usage history."""
 
@@ -248,6 +316,18 @@ class ClientAPIUsageViewSet(viewsets.ReadOnlyModelViewSet):
         return self.queryset.none()
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Client Management", "Webhooks"],
+        summary="List Webhook Logs",
+        description="Retrieve a paginated list of webhook delivery logs for the authenticated client.",
+    ),
+    retrieve=extend_schema(
+        tags=["Client Management", "Webhooks"],
+        summary="Retrieve Webhook Log",
+        description="Get detailed information about a specific webhook delivery log entry.",
+    ),
+)
 class ClientWebhookLogViewSet(viewsets.ReadOnlyModelViewSet):
     """Expose webhook delivery logs for observability."""
 
@@ -262,6 +342,11 @@ class ClientWebhookLogViewSet(viewsets.ReadOnlyModelViewSet):
         return self.queryset.none()
 
     @action(detail=False, methods=["get"])
+    @extend_schema(
+        tags=["Client Management", "Webhooks"],
+        summary="List Failed Webhook Logs",
+        description="A convenient shortcut to retrieve a list of the 50 most recent failed webhook deliveries.",
+    )
     def failed(self, request):
         """Shortcut to inspect failed deliveries."""
         failed_logs = self.get_queryset().filter(status="failed").order_by("-created_at")[

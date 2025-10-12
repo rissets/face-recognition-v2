@@ -11,6 +11,7 @@ from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action, api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from auth_service.authentication import APIKeyAuthentication, JWTClientAuthentication
 from .models import WebhookDelivery, WebhookEndpoint, WebhookEvent, WebhookEventLog
@@ -25,6 +26,18 @@ from .serializers import (
 from .services import WebhookService
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Webhooks"],
+        summary="List Webhook Events",
+        description="Retrieve a list of all possible webhook events that can be subscribed to.",
+    ),
+    retrieve=extend_schema(
+        tags=["Webhooks"],
+        summary="Retrieve a Webhook Event",
+        description="Get details of a specific webhook event.",
+    ),
+)
 class WebhookEventViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Expose registered webhook event definitions.
@@ -46,6 +59,38 @@ class WebhookEventViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Webhooks"],
+        summary="List Webhook Endpoints",
+        description="Retrieve a list of all webhook endpoints configured for the client.",
+    ),
+    retrieve=extend_schema(
+        tags=["Webhooks"],
+        summary="Retrieve a Webhook Endpoint",
+        description="Get detailed information about a specific webhook endpoint.",
+    ),
+    create=extend_schema(
+        tags=["Webhooks"],
+        summary="Create a Webhook Endpoint",
+        description="Create a new endpoint to receive webhook notifications.",
+    ),
+    update=extend_schema(
+        tags=["Webhooks"],
+        summary="Update a Webhook Endpoint",
+        description="Update the configuration of an existing webhook endpoint.",
+    ),
+    partial_update=extend_schema(
+        tags=["Webhooks"],
+        summary="Partially Update a Webhook Endpoint",
+        description="Partially update the configuration of an existing webhook endpoint.",
+    ),
+    destroy=extend_schema(
+        tags=["Webhooks"],
+        summary="Delete a Webhook Endpoint",
+        description="Permanently delete a webhook endpoint.",
+    ),
+)
 class WebhookEndpointViewSet(viewsets.ModelViewSet):
     """
     Manage webhook endpoints for the authenticated client.
@@ -65,6 +110,11 @@ class WebhookEndpointViewSet(viewsets.ModelViewSet):
         secret = serializer.validated_data.get("secret_token") or secrets.token_urlsafe(32)
         serializer.save(client=self.request.client, secret_token=secret)
 
+    @extend_schema(
+        tags=["Webhooks"],
+        summary="Regenerate Webhook Secret",
+        description="Generates a new secret token for a webhook endpoint, invalidating the old one. This is used to sign outgoing webhook payloads.",
+    )
     @action(detail=True, methods=["post"])
     def regenerate_secret(self, request, pk=None):
         """Rotate the secret used for signing webhook payloads."""
@@ -78,6 +128,11 @@ class WebhookEndpointViewSet(viewsets.ModelViewSet):
             }
         )
 
+    @extend_schema(
+        tags=["Webhooks"],
+        summary="Test a Webhook Endpoint",
+        description="Sends a test event to the specified webhook endpoint to verify its configuration and connectivity.",
+    )
     @action(detail=True, methods=["post"])
     def test(self, request, pk=None):
         """Trigger a test webhook delivery."""
@@ -109,6 +164,11 @@ class WebhookEndpointViewSet(viewsets.ModelViewSet):
             }
         )
 
+    @extend_schema(
+        tags=["Webhooks", "Analytics"],
+        summary="Get Endpoint Statistics",
+        description="Retrieve delivery statistics for a specific webhook endpoint, including success rate and average delivery time.",
+    )
     @action(detail=True, methods=["get"])
     def stats(self, request, pk=None):
         """Return delivery statistics for an endpoint."""
@@ -149,6 +209,18 @@ class WebhookEndpointViewSet(viewsets.ModelViewSet):
         )
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Webhooks", "Analytics"],
+        summary="List Webhook Event Logs",
+        description="Retrieve a list of historical webhook event logs for the client.",
+    ),
+    retrieve=extend_schema(
+        tags=["Webhooks", "Analytics"],
+        summary="Retrieve a Webhook Event Log",
+        description="Get detailed information about a specific webhook event log.",
+    ),
+)
 class WebhookEventLogViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Inspect historical webhook event logs for the authenticated client.
@@ -171,6 +243,18 @@ class WebhookEventLogViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset.order_by("-created_at")
 
 
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Webhooks", "Analytics"],
+        summary="List Webhook Deliveries",
+        description="Retrieve a list of all webhook delivery attempts for the client.",
+    ),
+    retrieve=extend_schema(
+        tags=["Webhooks", "Analytics"],
+        summary="Retrieve a Webhook Delivery",
+        description="Get detailed information about a specific webhook delivery attempt.",
+    ),
+)
 class WebhookDeliveryViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Read-only access to webhook delivery history.
@@ -186,6 +270,11 @@ class WebhookDeliveryViewSet(viewsets.ReadOnlyModelViewSet):
             return self.queryset.filter(endpoint__client=self.request.client).order_by("-created_at")
         return self.queryset.none()
 
+    @extend_schema(
+        tags=["Webhooks", "Analytics"],
+        summary="List Failed Deliveries",
+        description="A convenient shortcut to retrieve a list of the 100 most recent failed webhook deliveries.",
+    )
     @action(detail=False, methods=["get"])
     def failed(self, request):
         """Return recent failed deliveries."""
@@ -193,6 +282,11 @@ class WebhookDeliveryViewSet(viewsets.ReadOnlyModelViewSet):
         serializer = self.get_serializer(failed_deliveries, many=True)
         return Response(serializer.data)
 
+    @extend_schema(
+        tags=["Webhooks"],
+        summary="Retry a Webhook Delivery",
+        description="Schedules a retry for a single failed webhook delivery.",
+    )
     @action(detail=True, methods=["post"])
     def retry(self, request, pk=None):
         """Retry an individual delivery."""
@@ -214,18 +308,11 @@ class WebhookDeliveryViewSet(viewsets.ReadOnlyModelViewSet):
 # ---------------------------------------------------------------------------#
 
 
-def _parse_iso_date(value, default):
-    if not value:
-        return default
-    try:
-        parsed = timezone.datetime.fromisoformat(value)
-        if timezone.is_naive(parsed):
-            parsed = timezone.make_aware(parsed)
-        return parsed
-    except ValueError:
-        return default
-
-
+@extend_schema(
+    tags=["Webhooks", "Analytics"],
+    summary="Get Webhook Statistics",
+    description="Retrieve aggregate webhook statistics for the client over a specified time period (default is 30 days).",
+)
 @api_view(["GET"])
 @authentication_classes([APIKeyAuthentication, JWTClientAuthentication])
 @permission_classes([permissions.IsAuthenticated])
@@ -295,6 +382,11 @@ def get_webhook_stats(request):
     return Response(serializer.data)
 
 
+@extend_schema(
+    tags=["Webhooks"],
+    summary="Retry All Failed Webhooks",
+    description="Initiates a retry process for the 50 oldest failed webhook deliveries for the client.",
+)
 @api_view(["POST"])
 @authentication_classes([APIKeyAuthentication, JWTClientAuthentication])
 @permission_classes([permissions.IsAuthenticated])
@@ -325,6 +417,11 @@ def retry_failed_webhooks(request):
     )
 
 
+@extend_schema(
+    tags=["Webhooks"],
+    summary="Clear Old Webhook Logs",
+    description="Permanently deletes webhook event and delivery logs older than a specified number of days (default is 90).",
+)
 @api_view(["DELETE"])
 @authentication_classes([APIKeyAuthentication, JWTClientAuthentication])
 @permission_classes([permissions.IsAuthenticated])

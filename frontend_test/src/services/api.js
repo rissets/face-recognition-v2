@@ -143,10 +143,10 @@ export const clientUsersApi = {
 
 export const sessionApi = {
   createEnrollment(payload) {
-    return apiClient.post('auth/enrollment/create/', payload)
+    return apiClient.post('auth/enrollment/', payload)
   },
   createAuthentication(payload) {
-    return apiClient.post('auth/authentication/create/', payload)
+    return apiClient.post('auth/authentication/', payload)
   },
   processFrame(payload) {
     const isFormData = typeof FormData !== 'undefined' && payload instanceof FormData
@@ -161,7 +161,7 @@ export const sessionApi = {
     return apiClient.post('auth/process-image/', payload, config)
   },
   sessionStatus(token) {
-    return apiClient.get(`auth/session/${token}/status/`)
+    return apiClient.get(`auth/sessions/${token}/status/`)
   }
 }
 
@@ -338,3 +338,12 @@ export const authApi = {
     return Promise.reject(new Error('User registration is disabled in third-party client mode'))
   }
 }
+
+// Disable unused endpoints
+Object.keys(recognitionApi).forEach(key => {
+  recognitionApi[key] = () => Promise.reject(new Error('This endpoint is deprecated and disabled.'))
+})
+
+Object.keys(webhookApi).forEach(key => {
+  webhookApi[key] = () => Promise.reject(new Error('This endpoint is not used in the frontend test and is disabled.'))
+})

@@ -12,7 +12,7 @@
           <RouterLink to="/dashboard">Overview</RouterLink>
           <RouterLink to="/enrollment">Enrollment</RouterLink>
           <RouterLink to="/face-login">Face Login</RouterLink>
-          <RouterLink to="/recognition-data">Data</RouterLink>
+          <!-- <RouterLink to="/recognition-data">Data</RouterLink> -->
           <RouterLink to="/analytics">Analytics</RouterLink>
           <RouterLink to="/streaming">Streaming</RouterLink>
           <RouterLink to="/webrtc/enrollment">WebRTC Enroll</RouterLink>

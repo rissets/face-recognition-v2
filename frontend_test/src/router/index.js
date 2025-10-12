@@ -45,11 +45,11 @@ const routes = [
     component: () => import('../views/FaceAuthenticationView.vue'),
     meta: { requiresAuth: true }
   },
-  {
-    path: '/recognition-data',
-    component: () => import('../views/RecognitionDataView.vue'),
-    meta: { requiresAuth: true }
-  },
+  // {
+  //   path: '/recognition-data',
+  //   component: () => import('../views/RecognitionDataView.vue'),
+  //   meta: { requiresAuth: true }
+  // },
   {
     path: '/streaming',
     component: () => import('../views/StreamingTestView.vue'),

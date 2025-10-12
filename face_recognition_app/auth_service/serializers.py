@@ -302,6 +302,25 @@ class AuthenticationResponseSerializer(serializers.Serializer):
     message = serializers.CharField(help_text="Human readable guidance.", required=False)
 
 
+class EnrollmentCreateResponseSerializer(serializers.Serializer):
+    """Serializer for the response after creating an enrollment session."""
+    session_token = serializers.CharField(help_text="The token for the created enrollment session.")
+    enrollment_id = serializers.CharField(help_text="The unique identifier for the new enrollment record.")
+    status = serializers.CharField(help_text="The initial status of the enrollment, typically 'pending'.")
+    target_samples = serializers.IntegerField(help_text="The number of successful frames required to complete the enrollment.")
+    expires_at = serializers.DateTimeField(help_text="The timestamp when the session will expire.")
+    message = serializers.CharField(help_text="A human-readable message providing guidance for the next steps.")
+
+
+class AuthSessionCreateResponseSerializer(serializers.Serializer):
+    """Serializer for the response after creating an authentication session."""
+    session_token = serializers.CharField(help_text="The token for the created authentication session.")
+    status = serializers.CharField(help_text="The initial status of the session, typically 'active'.")
+    expires_at = serializers.DateTimeField(help_text="The timestamp when the session will expire.")
+    session_type = serializers.CharField(help_text="The type of session, either 'verification' or 'identification'.")
+    message = serializers.CharField(help_text="A human-readable message providing guidance for the next steps.")
+
+
 class EnrollmentResponseSerializer(serializers.Serializer):
     """Serializer for enrollment session creation response."""
 
@@ -322,9 +341,10 @@ class SessionStatusSerializer(serializers.Serializer):
     session_type = serializers.CharField()
     created_at = serializers.DateTimeField()
     expires_at = serializers.DateTimeField()
-    completed_at = serializers.DateTimeField(required=False)
+    completed_at = serializers.DateTimeField(required=False, allow_null=True)
     result = serializers.CharField(required=False)
     metadata = serializers.JSONField(required=False)
+    enrollment_status = serializers.CharField(required=False, help_text="Status of the enrollment if session_type is 'enrollment'")
 
 
 class ErrorResponseSerializer(serializers.Serializer):
@@ -342,39 +362,40 @@ class FaceFrameResponseSerializer(serializers.Serializer):
     All fields are optional except `success` - responses vary based on workflow stage.
     """
 
-    success = serializers.BooleanField()
-    session_status = serializers.CharField(required=False)
-    session_token = serializers.CharField(required=False)
-    message = serializers.CharField(required=False)
-    error = serializers.CharField(required=False)
-    requires_more_frames = serializers.BooleanField(required=False)
-    frame_accepted = serializers.BooleanField(required=False)
-    frame_rejected = serializers.BooleanField(required=False)
-    attempted_frame = serializers.IntegerField(required=False)
-    frames_processed = serializers.IntegerField(required=False)
-    completed_samples = serializers.IntegerField(required=False)
-    target_samples = serializers.IntegerField(required=False)
-    enrollment_progress = serializers.FloatField(required=False)
-    enrollment_complete = serializers.BooleanField(required=False)
-    liveness_verified = serializers.BooleanField(required=False)
-    liveness_score = serializers.FloatField(required=False)
-    liveness_data = serializers.JSONField(required=False)
-    liveness_blinks = serializers.IntegerField(required=False)
-    liveness_motion_events = serializers.IntegerField(required=False)
-    similarity_score = serializers.FloatField(required=False)
-    quality_score = serializers.FloatField(required=False)
-    anti_spoofing_score = serializers.FloatField(required=False)
-    preview_image = serializers.CharField(required=False)
-    obstacles = serializers.ListField(child=serializers.CharField(), required=False)
-    obstacles_detected = serializers.ListField(child=serializers.CharField(), required=False)
-    obstacle_confidence = serializers.JSONField(required=False)
-    match_fallback_used = serializers.BooleanField(required=False)
-    match_fallback_explanation = serializers.CharField(required=False)
-    authentication_metadata = serializers.JSONField(required=False)
-    matched_user = serializers.DictField(required=False)
-    liveness_reason = serializers.CharField(required=False)
-    result = serializers.CharField(required=False)
-    processing_time_ms = serializers.FloatField(required=False)
+    success = serializers.BooleanField(help_text="Indicates if the frame was processed successfully.")
+    session_status = serializers.CharField(required=False, help_text="The current status of the session.")
+    session_token = serializers.CharField(required=False, help_text="The session token for context.")
+    message = serializers.CharField(required=False, help_text="A human-readable message about the result.")
+    error = serializers.CharField(required=False, help_text="An error message if processing failed.")
+    requires_more_frames = serializers.BooleanField(required=False, help_text="True if the session requires more frames to complete.")
+    frame_accepted = serializers.BooleanField(required=False, help_text="True if this specific frame was accepted for processing.")
+    frame_rejected = serializers.BooleanField(required=False, help_text="True if this frame was rejected.")
+    attempted_frame = serializers.IntegerField(required=False, help_text="The sequence number of the frame that was attempted.")
+    frames_processed = serializers.IntegerField(required=False, help_text="The total number of frames successfully processed so far.")
+    completed_samples = serializers.IntegerField(required=False, help_text="Number of accepted samples for enrollment.")
+    target_samples = serializers.IntegerField(required=False, help_text="Total number of samples required for enrollment.")
+    enrollment_progress = serializers.FloatField(required=False, help_text="The progress of the enrollment as a percentage (0-100).")
+    enrollment_complete = serializers.BooleanField(required=False, help_text="True if the enrollment process is complete.")
+    liveness_verified = serializers.BooleanField(required=False, help_text="True if liveness has been verified.")
+    liveness_score = serializers.FloatField(required=False, help_text="A score indicating the confidence of liveness detection.")
+    liveness_data = serializers.JSONField(required=False, help_text="Detailed data from the liveness detection process.")
+    liveness_blinks = serializers.IntegerField(required=False, help_text="Number of blinks detected during the session.")
+    liveness_motion_events = serializers.IntegerField(required=False, help_text="Number of motion events detected.")
+    similarity_score = serializers.FloatField(required=False, help_text="The similarity score in an authentication attempt.")
+    quality_score = serializers.FloatField(required=False, help_text="A score representing the quality of the face image.")
+    anti_spoofing_score = serializers.FloatField(required=False, help_text="A score indicating the confidence against spoofing attempts.")
+    preview_image = serializers.CharField(required=False, help_text="A base64-encoded data URL of a preview image.")
+    obstacles = serializers.ListField(child=serializers.CharField(), required=False, help_text="A list of detected obstacles (e.g., 'face_too_small').")
+    obstacles_detected = serializers.ListField(child=serializers.CharField(), required=False, help_text="Deprecated. Use 'obstacles'.")
+    obstacle_confidence = serializers.JSONField(required=False, help_text="A dictionary with confidence scores for detected obstacles.")
+    match_fallback_used = serializers.BooleanField(required=False, help_text="Indicates if a fallback matching mechanism was used.")
+    match_fallback_explanation = serializers.CharField(required=False, help_text="Explanation for why a fallback was used.")
+    authentication_metadata = serializers.JSONField(required=False, help_text="Additional metadata related to the authentication attempt.")
+    matched_user = serializers.DictField(required=False, help_text="Information about the matched user.")
+    liveness_reason = serializers.CharField(required=False, help_text="The reason for the liveness verification result.")
+    result = serializers.CharField(required=False, help_text="The final result of the operation.")
+    processing_time_ms = serializers.FloatField(required=False, help_text="The time taken to process the frame in milliseconds.")
+    rejection_reason = serializers.CharField(required=False, help_text="Reason for frame rejection.")
 
 
 class ImageValidationErrorSerializer(serializers.Serializer):
