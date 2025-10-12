@@ -201,6 +201,8 @@
       <p v-else class="status-warning">Client belum dimuat. Klik "Muat Ulang" untuk mencoba lagi.</p>
     </section>
 
+    <ApiUsagePanel />
+
     <section class="section">
       <h2>Tambah Pengguna Client</h2>
       <p class="section-subtitle">Formulir sederhana tanpa perlu menyusun JSON manual.</p>
@@ -271,6 +273,7 @@
         <table class="data-table">
           <thead>
             <tr>
+              <th>Foto</th>
               <th>Pengguna</th>
               <th>Kontak</th>
               <th>Enrollment</th>
@@ -281,6 +284,19 @@
           </thead>
           <tbody>
             <tr v-for="user in users" :key="user.id">
+              <td class="profile-picture-cell">
+                <div class="profile-picture">
+                  <img 
+                    v-if="user.profile_image_url" 
+                    :src="user.profile_image_url" 
+                    :alt="`Profile ${user.display_name}`"
+                    @error="($event) => $event.target.style.display = 'none'"
+                  />
+                  <div v-else class="profile-picture-placeholder">
+                    {{ (user.display_name || user.external_user_id)?.charAt(0)?.toUpperCase() || '?' }}
+                  </div>
+                </div>
+              </td>
               <td>
                 <strong>{{ user.display_name }}</strong>
                 <div class="mono small">{{ user.external_user_id }}</div>
@@ -354,6 +370,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { clientUsersApi, coreApi } from '../services/api'
+import ApiUsagePanel from '../components/ApiUsagePanel.vue'
 
 const authStore = useAuthStore()
 
@@ -719,3 +736,40 @@ watch(
   }
 )
 </script>
+
+<style scoped>
+.profile-picture-cell {
+  width: 60px;
+  padding: 8px !important;
+}
+
+.profile-picture {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f3f4f6;
+  border: 2px solid #e5e7eb;
+}
+
+.profile-picture img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-picture-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-weight: bold;
+  font-size: 16px;
+}
+</style>

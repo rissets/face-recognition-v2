@@ -1,14 +1,10 @@
-from django.contrib import admin
-from unfold.admin import ModelAdmin
-from .models import AuthenticationSession, FaceEnrollment
-
 """
 Auth service admin configuration
 """
 from django.contrib import admin
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
-from .models import AuthenticationSession, FaceEnrollment
+from .models import AuthenticationSession, FaceEnrollment, LivenessDetectionResult, FaceRecognitionAttempt
 
 
 @admin.register(AuthenticationSession)
@@ -51,6 +47,72 @@ class AuthenticationSessionAdmin(ModelAdmin):
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('client', 'client_user')
+
+
+@admin.register(LivenessDetectionResult)
+class LivenessDetectionResultAdmin(ModelAdmin):
+    """Admin for liveness detection results"""
+    list_display = ('client', 'session', 'status', 'confidence_score', 'blink_detected', 'motion_detected', 'created_at')
+    list_filter = ('status', 'blink_detected', 'motion_detected', 'created_at', 'client__tier')
+    search_fields = ('client__name', 'client__client_id', 'session__session_token')
+    readonly_fields = ('id', 'created_at', 'processing_time_ms', 'frames_analyzed')
+    date_hierarchy = 'created_at'
+    
+    fieldsets = (
+        ('Detection Info', {
+            'fields': ('id', 'client', 'session', 'status', 'confidence_score')
+        }),
+        ('Methods & Results', {
+            'fields': ('methods_used', 'blink_detected', 'motion_detected', 'texture_score')
+        }),
+        ('Analysis Data', {
+            'fields': ('face_movements', 'frames_analyzed', 'processing_time_ms'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('metadata',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamp', {
+            'fields': ('created_at',)
+        })
+    )
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('client', 'session')
+
+
+@admin.register(FaceRecognitionAttempt)
+class FaceRecognitionAttemptAdmin(ModelAdmin):
+    """Admin for face recognition attempts"""
+    list_display = ('client', 'session', 'result', 'similarity_score', 'confidence_score', 'created_at')
+    list_filter = ('result', 'created_at', 'client__tier')
+    search_fields = ('client__name', 'client__client_id', 'session__session_token', 'matched_user__external_user_id')
+    readonly_fields = ('id', 'created_at', 'processing_time_ms')
+    date_hierarchy = 'created_at'
+    
+    fieldsets = (
+        ('Attempt Info', {
+            'fields': ('id', 'client', 'session', 'matched_user', 'matched_enrollment')
+        }),
+        ('Results & Scores', {
+            'fields': ('result', 'similarity_score', 'confidence_score', 'face_quality_score', 'liveness_score')
+        }),
+        ('Technical Details', {
+            'fields': ('processing_time_ms', 'error_details'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('metadata',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamp', {
+            'fields': ('created_at',)
+        })
+    )
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('client', 'session', 'matched_user', 'matched_enrollment')
 
 
 @admin.register(FaceEnrollment)

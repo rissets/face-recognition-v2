@@ -4,10 +4,11 @@ API views for webhook management.
 from __future__ import annotations
 
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.db.models import Avg, Count, Q
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action, api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
@@ -21,8 +22,22 @@ from .serializers import (
     WebhookEventLogSerializer,
     WebhookEventSerializer,
     WebhookStatsSerializer,
-    WebhookTestSerializer,
 )
+
+
+def _parse_iso_date(date_string, default_value):
+    """Parse ISO date string, return default if parsing fails"""
+    if not date_string:
+        return default_value
+    
+    try:
+        parsed = parse_datetime(date_string)
+        if parsed:
+            return parsed
+    except (ValueError, TypeError):
+        pass
+    
+    return default_value
 from .services import WebhookService
 
 

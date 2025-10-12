@@ -128,14 +128,28 @@ class HybridImageField(serializers.Field):
 class AuthenticationSessionSerializer(serializers.ModelSerializer):
     """Serializer for authentication sessions"""
     
+    client_user_info = serializers.SerializerMethodField()
+    
     class Meta:
         model = AuthenticationSession
         fields = [
-            'id', 'session_token', 'client', 'session_type', 'status',
-            'ip_address', 'user_agent', 'metadata', 'created_at',
-            'expires_at', 'completed_at'
+            'id', 'session_token', 'client', 'client_user', 'client_user_info',
+            'session_type', 'status', 'ip_address', 'user_agent', 
+            'metadata', 'created_at', 'expires_at', 'completed_at'
         ]
-        read_only_fields = ['id', 'session_token', 'created_at']
+        read_only_fields = ['id', 'session_token', 'created_at', 'client_user_info']
+
+    def get_client_user_info(self, obj):
+        """Get client user information if available"""
+        if obj.client_user:
+            return {
+                'id': str(obj.client_user.id),
+                'external_user_id': obj.client_user.external_user_id,
+                'display_name': obj.client_user.display_name,
+                'is_enrolled': obj.client_user.is_enrolled,
+                'profile_image_url': obj.client_user.profile_image.url if obj.client_user.profile_image else None
+            }
+        return None
     
     def create(self, validated_data):
         """Create session with auto-generated token"""

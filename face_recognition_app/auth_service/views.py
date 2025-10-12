@@ -744,10 +744,17 @@ def _handle_enrollment_frame(
         if saved_path:
             enrollment.face_image_path = saved_path
             
-        # Also save to client user profile image if not already set
-        if face_snapshot and not client_user.profile_image:
+        # Always update client user profile image with the latest/best quality frame
+        if face_snapshot:
             from django.core.files.base import ContentFile
             try:
+                # Delete old profile image if exists
+                if client_user.profile_image:
+                    try:
+                        client_user.profile_image.delete(save=False)
+                    except Exception as delete_error:
+                        logger.warning(f"Could not delete old profile image: {delete_error}")
+                
                 filename = f"profile_{client_user.external_user_id}_{enrollment.sample_number}.jpg"
                 client_user.profile_image.save(
                     filename,
@@ -755,9 +762,9 @@ def _handle_enrollment_frame(
                     save=False
                 )
                 client_user.save(update_fields=['profile_image'])
-                logger.info(f"Saved profile image for client user {client_user.external_user_id}")
+                logger.info(f"Updated profile image for client user {client_user.external_user_id}")
             except Exception as e:
-                logger.error(f"Failed to save profile image for client user: {e}")
+                logger.error(f"Failed to update profile image for client user: {e}")
     
     enrollment.metadata = {
         **(enrollment.metadata or {}),
@@ -780,10 +787,12 @@ def _handle_enrollment_frame(
         completion_ts = timezone.now()
         session.status = "completed"
         session.completed_at = completion_ts
+        session.is_successful = True  # Set enrollment success flag
+        session.confidence_score = result.get("quality_score", 0.0)  # Store quality as confidence
         metadata["final_status"] = "completed"
         metadata["liveness_verified"] = True
         session.metadata = metadata
-        session.save(update_fields=["status", "completed_at", "metadata"])
+        session.save(update_fields=["status", "completed_at", "is_successful", "confidence_score", "metadata"])
 
         enrollment.metadata["completed_at"] = completion_ts.isoformat()
         enrollment.save(update_fields=["metadata", "updated_at"])
@@ -1098,10 +1107,24 @@ def _handle_authentication_frame(
         session.completed_at = timezone.now()
         session.is_successful = True  # Fix: Set authentication success flag
         session.confidence_score = auth_result.get("similarity_score", 0.0)  # Store confidence in session
+        
+        # Update client_user field if identification was successful and we have a matched user
+        if session.session_type == "identification" and matched_user and not session.client_user:
+            session.client_user = matched_user
+            logger.info(f"Updated session client_user to {matched_user.external_user_id} for identification session")
+        
         metadata["final_status"] = "success"
         metadata["recognized_user_id"] = str(matched_user.id) if matched_user else None
         session.metadata = metadata
-        session.save(update_fields=["status", "completed_at", "is_successful", "confidence_score", "metadata"])
+        session.save(update_fields=["status", "completed_at", "is_successful", "confidence_score", "client_user", "metadata"])
+
+        # Extract variables needed for audit and risk assessment
+        match_fallback_used = auth_result.get("match_fallback_used", False)
+        obstacles = auth_result.get("obstacles") or []
+        
+        # Convert numpy types to Python native types for JSON serialization
+        similarity_score = float(auth_result.get("similarity_score", 0.0))
+        quality_score = float(auth_result.get("quality_score", 0.0))
 
         # Audit trail entry
         try:
@@ -1139,7 +1162,6 @@ def _handle_authentication_frame(
         except Exception:
             logger.exception("Failed to update recognition stats for client %s", client.client_id)
 
-        obstacles = auth_result.get("obstacles") or []
         if obstacles:
             alert_payload = {
                 "obstacles": obstacles,
@@ -1163,10 +1185,6 @@ def _handle_authentication_frame(
             except Exception:
                 logger.exception("Failed to track security event for obstacles")
 
-        # Convert numpy types to Python native types for JSON serialization
-        similarity_score = float(auth_result.get("similarity_score", 0.0))
-        quality_score = float(auth_result.get("quality_score", 0.0))
-        
         # Clean liveness_data from numpy types
         clean_liveness_data = {}
         if liveness_data:
@@ -1177,10 +1195,6 @@ def _handle_authentication_frame(
                     clean_liveness_data[key] = [float(v.item()) if hasattr(v, 'item') else v for v in value]
                 else:
                     clean_liveness_data[key] = value
-
-        # match_fallback_used indicates whether the authentication used a fallback/backup 
-        # matching algorithm when the primary algorithm failed or had low confidence
-        match_fallback_used = auth_result.get("match_fallback_used", False)
         
         payload = {
             "success": True,

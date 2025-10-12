@@ -112,14 +112,28 @@ The response provides immediate feedback on the frame and the overall progress o
 
 **Response (Enrollment Complete):**
 
-Once enough valid frames have been collected, the enrollment is finalized.
+Once enough valid frames have been collected, the enrollment is finalized. The best quality frame is automatically saved as the user's profile image.
 
 ```json
 {
     "success": true,
     "session_status": "completed",
     "enrollment_complete": true,
-    "message": "Enrollment completed successfully."
+    "message": "Enrollment completed successfully.",
+    "profile_image_saved": true
+}
+```
+
+**Note:** The profile image is automatically captured and stored during enrollment. You can access the profile image URL through the Client User API:
+
+```json
+{
+    "id": "user-uuid",
+    "external_user_id": "user123",
+    "display_name": "John Doe", 
+    "is_enrolled": true,
+    "profile_image_url": "https://storage.example.com/client_users/profiles/2025/10/12/profile_user123_1.jpg",
+    "enrollment_completed_at": "2025-10-12T10:30:00Z"
 }
 ```
 

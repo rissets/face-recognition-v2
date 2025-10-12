@@ -201,11 +201,7 @@ class FaceRecognitionStatsAdmin(ModelAdmin):
         else:
             color = 'red'
         
-        return format_html(
-            '<span style="color: {}; font-weight: bold;">{:.1f}%</span>',
-            color,
-            rate
-        )
+        return rate
     success_rate_display.short_description = 'Success Rate'
 
 
@@ -289,9 +285,5 @@ class DataQualityMetricsAdmin(ModelAdmin):
         else:
             color = 'red'
         
-        return format_html(
-            '<span style="color: {}; font-weight: bold;">{:.1f}%</span>',
-            color,
-            score
-        )
+        return score
     quality_score_display.short_description = 'Quality Score'

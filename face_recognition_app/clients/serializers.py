@@ -81,6 +81,7 @@ class ClientUserSerializer(serializers.ModelSerializer):
     """Serialise client user profiles from upstream systems."""
 
     display_name = serializers.CharField(read_only=True)
+    profile_image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = ClientUser
@@ -98,6 +99,7 @@ class ClientUserSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'display_name',
+            'profile_image_url',
         ]
         read_only_fields = [
             'id',
@@ -107,7 +109,17 @@ class ClientUserSerializer(serializers.ModelSerializer):
             'last_recognition_at',
             'created_at',
             'updated_at',
+            'profile_image_url',
         ]
+
+    def get_profile_image_url(self, obj):
+        """Get the profile image URL if it exists"""
+        if obj.profile_image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.profile_image.url)
+            return obj.profile_image.url
+        return None
 
 
 class ClientAPIUsageSerializer(serializers.ModelSerializer):

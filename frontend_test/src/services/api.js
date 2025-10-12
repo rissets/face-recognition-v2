@@ -117,6 +117,12 @@ export const clientApi = {
   },
   resetCredentials(clientId, payload) {
     return apiClient.post(`clients/clients/${clientId}/reset_credentials/`, payload)
+  },
+  apiUsage(params = {}) {
+    return apiClient.get('clients/usage/', { params })
+  },
+  apiUsageDetail(usageId) {
+    return apiClient.get(`clients/usage/${usageId}/`)
   }
 }
 

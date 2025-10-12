@@ -56,7 +56,7 @@ class ClientAdmin(ModelAdmin):
 
     def client_id(self, obj):
         """Display client ID with formatting"""
-        return format_html('<code>{}</code>', obj.client_id)
+        return obj.client_id
     client_id.short_description = "Client ID"
     
     def get_queryset(self, request):
@@ -95,11 +95,7 @@ class ClientUserAdmin(ModelAdmin):
     def user_profile_name(self, obj):
         """Display user name from profile"""
         if obj.profile and obj.profile.get('name'):
-            return format_html(
-                '<strong>{}</strong><br><small>{}</small>',
-                obj.profile['name'],
-                obj.profile.get('email', '')
-            )
+            return obj.profile.get('name') or obj.external_user_id
         return "-"
     user_profile_name.short_description = "Profile Name"
     
@@ -145,11 +141,7 @@ class ClientAPIUsageAdmin(ModelAdmin):
                 color = 'orange'  
             else:
                 color = 'red'
-            return format_html(
-                '<span style="color: {};">{:.2f}ms</span>',
-                color,
-                obj.response_time_ms
-            )
+            return obj.response_time_ms
         return "-"
     response_time_display.short_description = "Response Time"
     

@@ -197,7 +197,7 @@ if USE_MINIO:
     AWS_ACCESS_KEY_ID = config("MINIO_ACCESS_KEY", default="minioadmin")
     AWS_SECRET_ACCESS_KEY = config("MINIO_SECRET_KEY", default="minioadmin123")
     AWS_STORAGE_BUCKET_NAME = config("MINIO_BUCKET_NAME", default="face-recognition")
-    AWS_S3_ENDPOINT_URL = config("MINIO_ENDPOINT", default="http://minio:9000")
+    AWS_S3_ENDPOINT_URL = config("MINIO_ENDPOINT", default="http://127.0.0.1:9000")
     AWS_S3_REGION_NAME = config("MINIO_REGION", default="us-east-1")
     AWS_DEFAULT_ACL = None
     AWS_S3_OBJECT_PARAMETERS = {
