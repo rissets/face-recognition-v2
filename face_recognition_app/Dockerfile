@@ -6,17 +6,13 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV PIP_NO_CACHE_DIR=1
-ENV OPENCV_IO_ENABLE_OPENEXR=1
-ENV QT_X11_NO_MITSHM=1
-ENV QT_QPA_PLATFORM=offscreen
-ENV DISPLAY=:99
-ENV OPENCV_LOG_LEVEL=ERROR
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     libpq-dev \
+    libgl1-mesa-dri \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -25,11 +21,6 @@ RUN apt-get update && apt-get install -y \
     libgthread-2.0-0 \
     libopenblas-dev \
     liblapack-dev \
-    libjpeg-dev \
-    libpng-dev \
-    libtiff-dev \
-    libfontconfig1-dev \
-    libfreetype6-dev \
     pkg-config \
     wget \
     curl \
