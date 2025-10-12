@@ -6,6 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV PIP_NO_CACHE_DIR=1
+ENV QT_QPA_PLATFORM=offscreen
+ENV DISPLAY=:99
+ENV OPENCV_LOG_LEVEL=ERROR
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -24,9 +27,15 @@ RUN apt-get update && apt-get install -y \
     libpng-dev \
     libtiff-dev \
     libatlas-base-dev \
+    libfontconfig1-dev \
+    libfreetype6-dev \
+    libx11-dev \
+    libxss1 \
+    libgconf-2-4 \
     pkg-config \
     wget \
     curl \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
@@ -38,6 +47,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
+
+# Fix OpenCV installation to ensure headless version is used
+RUN python fix_opencv.py
 
 # Create necessary directories
 RUN mkdir -p media static logs staticfiles

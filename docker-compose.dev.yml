@@ -98,6 +98,10 @@ services:
       DB_ENGINE: django.db.backends.postgresql
       DB_NAME: face_recognition
       DB_USER: postgres
+      # OpenCV environment variables to prevent GUI library requirements
+      QT_QPA_PLATFORM: offscreen
+      DISPLAY: ":99"
+      OPENCV_LOG_LEVEL: ERROR
       DB_PASSWORD: password_rahasia
       DB_HOST: postgres
       DB_PORT: 5432
