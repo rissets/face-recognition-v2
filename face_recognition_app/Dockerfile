@@ -12,7 +12,6 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     libpq-dev \
-    libgl1-mesa-dri \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -21,6 +20,10 @@ RUN apt-get update && apt-get install -y \
     libgthread-2.0-0 \
     libopenblas-dev \
     liblapack-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libatlas-base-dev \
     pkg-config \
     wget \
     curl \
