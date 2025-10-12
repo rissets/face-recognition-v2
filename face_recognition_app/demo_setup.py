@@ -461,9 +461,9 @@ Headers: Authorization: ApiKey {credentials['api_key']}:SECRET_KEY
 - Security: {credentials['webhook_url']}/security
 
 🌐 API Documentation:
-- Swagger UI: http://127.0.0.1:8000/api/docs/
-- ReDoc: http://127.0.0.1:8000/api/redoc/
-- Schema: http://127.0.0.1:8000/api/schema/
+- Swagger UI: http://127.0.0.1:8003/api/docs/
+- ReDoc: http://127.0.0.1:8003/api/redoc/
+- Schema: http://127.0.0.1:8003/api/schema/
 """)
 
 def print_admin_info():
@@ -471,7 +471,7 @@ def print_admin_info():
     print(f"\n🔧 Admin Interface")
     print("=" * 30)
     print(f"""
-Django Unfold Admin: http://127.0.0.1:8000/admin/
+Django Unfold Admin: http://127.0.0.1:8003/admin/
 
 Available Models:
 - Clients (Client management)
@@ -517,8 +517,8 @@ def main():
         print(f"   - Webhooks: Configured")
         print(f"   - Credentials: Saved to demo_credentials.json")
         print(f"\n🚀 Your third-party face authentication service is ready!")
-        print(f"   - Server: http://127.0.0.1:8000/")
-        print(f"   - API Docs: http://127.0.0.1:8000/api/docs/")
+        print(f"   - Server: http://127.0.0.1:8003/")
+        print(f"   - API Docs: http://127.0.0.1:8003/api/docs/")
         
     except Exception as e:
         print(f"❌ Error during setup: {str(e)}")

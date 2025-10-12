@@ -76,7 +76,7 @@ services:
     volumes:
       - chroma_dev_data:/chroma/chroma
     ports:
-      - "8001:8000"
+      - "8004:8000"
     networks:
       - face_recognition_dev_network
 
@@ -118,7 +118,7 @@ services:
       - django_dev_media:/app/media
       - django_dev_logs:/app/logs
     ports:
-      - "8000:8000"
+      - "8003:8000"
     networks:
       - face_recognition_dev_network
     command: >
@@ -137,7 +137,7 @@ services:
       - ./frontend_test:/app
       - /app/node_modules
     ports:
-      - "8080:8080"
+      - "8005:8080"
     networks:
       - face_recognition_dev_network
     environment:

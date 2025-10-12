@@ -100,7 +100,7 @@ services:
     volumes:
       - chroma_data:/chroma/chroma
     ports:
-      - "8001:8000"
+      - "8004:8000"
     networks:
       - face_recognition_network
     healthcheck:
@@ -167,7 +167,7 @@ services:
       - django_static:/app/static
       - django_logs:/app/logs
     ports:
-      - "8000:8000"
+      - "8003:8000"
     networks:
       - face_recognition_network
     healthcheck:

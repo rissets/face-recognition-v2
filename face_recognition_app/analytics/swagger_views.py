@@ -133,7 +133,7 @@ User = get_user_model()
                         "Success Response",
                         value={
                             "count": 150,
-                            "next": "http://localhost:8000/api/v1/analytics/auth-logs/?page=2",
+                            "next": "http://localhost:8003/api/v1/analytics/auth-logs/?page=2",
                             "previous": None,
                             "results": [
                                 {
@@ -374,7 +374,7 @@ class AuthenticationLogDetailView(generics.RetrieveAPIView):
                         "Success Response",
                         value={
                             "count": 25,
-                            "next": "http://localhost:8000/api/v1/analytics/security-alerts/?page=2",
+                            "next": "http://localhost:8003/api/v1/analytics/security-alerts/?page=2",
                             "previous": None,
                             "results": [
                                 {

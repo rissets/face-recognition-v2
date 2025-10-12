@@ -106,7 +106,7 @@ User = get_user_model()
                         "Success Response",
                         value={
                             "count": 25,
-                            "next": "http://localhost:8000/api/v1/recognition/embeddings/?page=2",
+                            "next": "http://localhost:8003/api/v1/recognition/embeddings/?page=2",
                             "previous": None,
                             "results": [
                                 {

@@ -463,7 +463,7 @@ SPECTACULAR_SETTINGS = {
     },
     "SERVERS": [
         {
-            "url": "http://127.0.0.1:8000",
+            "url": "http://127.0.0.1:8003",
             "description": "Development Server",
         },
         {
