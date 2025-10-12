@@ -487,7 +487,9 @@ const faceAuthDisabled = computed(() => {
   return diff > 0 ? diff : 0
 })
 
-const hasUsers = computed(() => users.value.length > 0)
+const hasUsers = computed(
+  () => Array.isArray(users.value) && users.value.length > 0
+)
 
 function humanizeKey(key) {
   if (!key) return ''
@@ -595,7 +597,9 @@ async function loadUsers() {
   feedback.error = ''
   try {
     const response = await clientUsersApi.list({ ordering: '-created_at' })
-    users.value = response.data
+    const payload = response.data
+    const records = Array.isArray(payload) ? payload : payload?.results || []
+    users.value = records
   } catch (error) {
     feedback.error = parseError(error)
   } finally {

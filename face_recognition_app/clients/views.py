@@ -28,10 +28,14 @@ from auth_service.authentication import APIKeyAuthentication, JWTClientAuthentic
 from .models import Client, ClientAPIUsage, ClientUser, ClientWebhookLog
 from .serializers import (
     ClientAPIUsageSerializer,
+    ClientCredentialsResetResponseSerializer,
     ClientCredentialsResetSerializer,
     ClientSerializer,
     ClientStatsSerializer,
+    ClientUserEnrollmentListSerializer,
     ClientUserSerializer,
+    ClientUserToggleResponseSerializer,
+    ClientUserWriteSerializer,
     ClientWebhookLogSerializer,
 )
 
@@ -51,6 +55,10 @@ class ClientViewSet(viewsets.ModelViewSet):
             return self.queryset.filter(id=self.request.client.id)
         return self.queryset.none()
 
+    @extend_schema(
+        summary="Retrieve aggregated usage metrics for the client.",
+        responses=ClientStatsSerializer,
+    )
     @action(detail=True, methods=["get"])
     def stats(self, request, pk=None):
         """Return aggregated usage metrics for the client."""
@@ -91,6 +99,11 @@ class ClientViewSet(viewsets.ModelViewSet):
         success = webhook_qs.filter(status="success").count()
         return round((success / total) * 100, 2)
 
+    @extend_schema(
+        summary="Rotate API and webhook credentials for the client.",
+        request=ClientCredentialsResetSerializer,
+        responses=ClientCredentialsResetResponseSerializer,
+    )
     @action(detail=True, methods=["post"])
     def reset_credentials(self, request, pk=None):
         """Rotate client secrets or API keys."""
@@ -122,6 +135,31 @@ class ClientViewSet(viewsets.ModelViewSet):
         )
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List client users for the authenticated tenant.",
+        responses=ClientUserSerializer,
+    ),
+    retrieve=extend_schema(
+        summary="Retrieve a client user detail.",
+        responses=ClientUserSerializer,
+    ),
+    create=extend_schema(
+        summary="Create a new client user.",
+        request=ClientUserWriteSerializer,
+        responses=ClientUserSerializer,
+    ),
+    update=extend_schema(
+        summary="Update a client user.",
+        request=ClientUserWriteSerializer,
+        responses=ClientUserSerializer,
+    ),
+    partial_update=extend_schema(
+        summary="Partially update a client user.",
+        request=ClientUserWriteSerializer,
+        responses=ClientUserSerializer,
+    ),
+)
 class ClientUserViewSet(viewsets.ModelViewSet):
     """Manage client users within the authenticated tenant."""
 
@@ -138,38 +176,62 @@ class ClientUserViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(client=self.request.client)
 
+    @extend_schema(
+        summary="Enable face authentication for a client user.",
+        responses=ClientUserToggleResponseSerializer,
+    )
     @action(detail=True, methods=["post"])
     def activate(self, request, pk=None):
         user = self.get_object()
         user.face_auth_enabled = True
         user.save(update_fields=["face_auth_enabled"])
-        return Response({"message": "User face authentication enabled"})
+        serialized = ClientUserSerializer(user, context={"request": request})
+        return Response(
+            {
+                "message": "User face authentication enabled",
+                "user": serialized.data,
+            }
+        )
 
+    @extend_schema(
+        summary="Disable face authentication for a client user.",
+        responses=ClientUserToggleResponseSerializer,
+    )
     @action(detail=True, methods=["post"])
     def deactivate(self, request, pk=None):
         user = self.get_object()
         user.face_auth_enabled = False
         user.save(update_fields=["face_auth_enabled"])
-        return Response({"message": "User face authentication disabled"})
+        serialized = ClientUserSerializer(user, context={"request": request})
+        return Response(
+            {
+                "message": "User face authentication disabled",
+                "user": serialized.data,
+            }
+        )
 
+    @extend_schema(
+        summary="List enrollment records for the client user.",
+        responses=ClientUserEnrollmentListSerializer,
+    )
     @action(detail=True, methods=["get"])
     def enrollments(self, request, pk=None):
         user = self.get_object()
         enrollments = user.enrollments.all()
-        return Response(
-            {
-                "count": enrollments.count(),
-                "enrollments": [
-                    {
-                        "id": enrollment.id,
-                        "status": enrollment.status,
-                        "quality_score": enrollment.face_quality_score,
-                        "created_at": enrollment.created_at,
-                    }
-                    for enrollment in enrollments
-                ],
-            }
-        )
+        payload = {
+            "count": enrollments.count(),
+            "enrollments": [
+                {
+                    "id": enrollment.id,
+                    "status": enrollment.status,
+                    "quality_score": enrollment.face_quality_score,
+                    "created_at": enrollment.created_at,
+                }
+                for enrollment in enrollments
+            ],
+        }
+        serializer = ClientUserEnrollmentListSerializer(payload)
+        return Response(serializer.data)
 
 
 class ClientAPIUsageViewSet(viewsets.ReadOnlyModelViewSet):

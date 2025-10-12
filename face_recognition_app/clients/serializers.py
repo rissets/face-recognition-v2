@@ -178,3 +178,58 @@ class ClientCredentialsResetSerializer(serializers.Serializer):
         if not any(attrs.values()):
             raise serializers.ValidationError("Select at least one credential to rotate.")
         return attrs
+
+
+class ClientCredentialsResetResponseSerializer(serializers.Serializer):
+    """Response body when credentials are rotated."""
+
+    message = serializers.CharField()
+    credentials = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Map of rotated credential identifiers to their new values.",
+    )
+
+
+class ClientUserWriteSerializer(serializers.ModelSerializer):
+    """Request payload for creating or updating client users."""
+
+    profile = serializers.JSONField(required=False, default=dict)
+    metadata = serializers.JSONField(required=False, default=dict)
+
+    class Meta:
+        model = ClientUser
+        fields = [
+            'external_user_id',
+            'external_user_uuid',
+            'profile',
+            'metadata',
+            'face_auth_enabled',
+        ]
+        extra_kwargs = {
+            'external_user_id': {'required': True},
+            'face_auth_enabled': {'required': False, 'default': True},
+        }
+
+
+class ClientUserToggleResponseSerializer(serializers.Serializer):
+    """Response envelope after toggling face authentication."""
+
+    message = serializers.CharField()
+    user = ClientUserSerializer()
+
+
+class ClientUserEnrollmentSerializer(serializers.Serializer):
+    """Minimal enrollment summary for a client user."""
+
+    id = serializers.UUIDField()
+    status = serializers.CharField()
+    quality_score = serializers.FloatField(allow_null=True)
+    created_at = serializers.DateTimeField()
+
+
+class ClientUserEnrollmentListSerializer(serializers.Serializer):
+    """Response payload for listing user enrollments."""
+
+    count = serializers.IntegerField()
+    enrollments = ClientUserEnrollmentSerializer(many=True)

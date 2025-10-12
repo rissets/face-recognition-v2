@@ -190,26 +190,34 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "static"
 STATICFILES_DIRS = [BASE_DIR / "staticfiles"]
 # MinIO Configuration for Media Storage
-USE_MINIO = config("USE_MINIO", default=False, cast=bool)
+USE_MINIO = config("USE_MINIO", default=True, cast=bool)
 
 if USE_MINIO:
     # MinIO Storage Settings
     AWS_ACCESS_KEY_ID = config("MINIO_ACCESS_KEY", default="minioadmin")
     AWS_SECRET_ACCESS_KEY = config("MINIO_SECRET_KEY", default="minioadmin123")
     AWS_STORAGE_BUCKET_NAME = config("MINIO_BUCKET_NAME", default="face-recognition")
-    AWS_S3_ENDPOINT_URL = config("MINIO_ENDPOINT", default="http://localhost:9000")
-    # AWS_S3_REGION_NAME = config("MINIO_REGION", default="us-east-1")
+    AWS_S3_ENDPOINT_URL = config("MINIO_ENDPOINT", default="http://minio:9000")
+    AWS_S3_REGION_NAME = config("MINIO_REGION", default="us-east-1")
     AWS_DEFAULT_ACL = None
     AWS_S3_OBJECT_PARAMETERS = {
         'CacheControl': 'max-age=86400',
     }
     AWS_S3_FILE_OVERWRITE = False
+    AWS_S3_CUSTOM_DOMAIN = None
+    AWS_S3_USE_SSL = config("MINIO_USE_SSL", default=False, cast=bool)
+    AWS_S3_VERIFY = config("MINIO_VERIFY_SSL", default=False, cast=bool)
     AWS_LOCATION = 'media'
     
-    DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
-    STATICFILES_STORAGE = 'storages.backends.s3boto3.S3StaticStorage'
+    # Custom storage classes for better MinIO compatibility
+    DEFAULT_FILE_STORAGE = 'core.storage.MinIOMediaStorage'
+    STATICFILES_STORAGE = 'core.storage.MinIOStaticStorage'
     
-    MEDIA_URL = f"{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/{AWS_LOCATION}/"
+    # Proper URL configuration for MinIO
+    if config("ENVIRONMENT", default="development") == "production":
+        MEDIA_URL = f"https://{config('DOMAIN')}/media/"
+    else:
+        MEDIA_URL = f"{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/{AWS_LOCATION}/"
 else:
     # Local file storage (development)
     MEDIA_URL = "/media/"
@@ -282,16 +290,11 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 # CORS Configuration
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://localhost:3000",
-    "http://localhost:8080",    # Frontend test app
-    "http://127.0.0.1:8080",
-    "http://localhost:8081",    # Alternative port
-    "http://127.0.0.1:8081",
-    "http://127.0.0.1:5173",
-]
+CORS_ALLOWED_ORIGINS = config(
+    "CORS_ALLOWED_ORIGINS",
+    default="http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173",
+    cast=lambda v: [s.strip() for s in v.split(",")]
+)
 
 CORS_ALLOW_CREDENTIALS = True
 

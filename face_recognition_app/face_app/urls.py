@@ -24,9 +24,13 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 from face_app import admin_dashboard  # noqa: F401
+from core.views import health_check
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    
+    # Health check endpoint
+    path("health/", health_check, name="health_check"),
     
     # API Documentation
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

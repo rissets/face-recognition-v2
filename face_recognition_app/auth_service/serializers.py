@@ -293,27 +293,26 @@ class WebRTCSignalingSerializer(serializers.Serializer):
 
 
 class AuthenticationResponseSerializer(serializers.Serializer):
-    """Serializer for authentication response"""
-    session_token = serializers.CharField()
-    status = serializers.CharField()
-    result = serializers.CharField(required=False)
-    user_id = serializers.CharField(required=False)
-    confidence_score = serializers.FloatField(required=False)
-    liveness_score = serializers.FloatField(required=False)
-    processing_time = serializers.FloatField(required=False)
-    message = serializers.CharField(required=False)
-    next_step = serializers.CharField(required=False)
+    """Serializer for authentication session creation response."""
+
+    session_token = serializers.CharField(help_text="Authentication session token.")
+    status = serializers.CharField(help_text="Initial session status.")
+    session_type = serializers.CharField(help_text="Authentication session type.")
+    expires_at = serializers.DateTimeField(help_text="Session expiration timestamp.")
+    message = serializers.CharField(help_text="Human readable guidance.", required=False)
 
 
 class EnrollmentResponseSerializer(serializers.Serializer):
-    """Serializer for enrollment response"""
-    session_token = serializers.CharField()
-    enrollment_id = serializers.CharField(required=False)
-    status = serializers.CharField()
-    quality_score = serializers.FloatField(required=False)
-    liveness_score = serializers.FloatField(required=False)
-    message = serializers.CharField(required=False)
-    next_step = serializers.CharField(required=False)
+    """Serializer for enrollment session creation response."""
+
+    session_token = serializers.CharField(help_text="Enrollment session token.")
+    enrollment_id = serializers.CharField(help_text="Identifier of the created enrollment.")
+    status = serializers.CharField(help_text="Current enrollment session status.")
+    target_samples = serializers.IntegerField(
+        help_text="Number of frames required to complete enrollment."
+    )
+    expires_at = serializers.DateTimeField(help_text="Enrollment session expiry timestamp.")
+    message = serializers.CharField(help_text="Human readable guidance.", required=False)
 
 
 class SessionStatusSerializer(serializers.Serializer):
@@ -337,6 +336,47 @@ class ErrorResponseSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField(required=False)
 
 
+class FaceFrameResponseSerializer(serializers.Serializer):
+    """
+    Serializer describing the payload returned when processing enrollment or authentication frames.
+    All fields are optional except `success` - responses vary based on workflow stage.
+    """
+
+    success = serializers.BooleanField()
+    session_status = serializers.CharField(required=False)
+    session_token = serializers.CharField(required=False)
+    message = serializers.CharField(required=False)
+    error = serializers.CharField(required=False)
+    requires_more_frames = serializers.BooleanField(required=False)
+    frame_accepted = serializers.BooleanField(required=False)
+    frame_rejected = serializers.BooleanField(required=False)
+    attempted_frame = serializers.IntegerField(required=False)
+    frames_processed = serializers.IntegerField(required=False)
+    completed_samples = serializers.IntegerField(required=False)
+    target_samples = serializers.IntegerField(required=False)
+    enrollment_progress = serializers.FloatField(required=False)
+    enrollment_complete = serializers.BooleanField(required=False)
+    liveness_verified = serializers.BooleanField(required=False)
+    liveness_score = serializers.FloatField(required=False)
+    liveness_data = serializers.JSONField(required=False)
+    liveness_blinks = serializers.IntegerField(required=False)
+    liveness_motion_events = serializers.IntegerField(required=False)
+    similarity_score = serializers.FloatField(required=False)
+    quality_score = serializers.FloatField(required=False)
+    anti_spoofing_score = serializers.FloatField(required=False)
+    preview_image = serializers.CharField(required=False)
+    obstacles = serializers.ListField(child=serializers.CharField(), required=False)
+    obstacles_detected = serializers.ListField(child=serializers.CharField(), required=False)
+    obstacle_confidence = serializers.JSONField(required=False)
+    match_fallback_used = serializers.BooleanField(required=False)
+    match_fallback_explanation = serializers.CharField(required=False)
+    authentication_metadata = serializers.JSONField(required=False)
+    matched_user = serializers.DictField(required=False)
+    liveness_reason = serializers.CharField(required=False)
+    result = serializers.CharField(required=False)
+    processing_time_ms = serializers.FloatField(required=False)
+
+
 class ImageValidationErrorSerializer(serializers.Serializer):
     """Serializer for image validation errors with helpful messages"""
     error = serializers.CharField()
@@ -358,3 +398,38 @@ class ImageValidationErrorSerializer(serializers.Serializer):
             ],
             'error_code': 'IMAGE_VALIDATION_ERROR'
         }
+
+
+class AnalyticsPeriodSerializer(serializers.Serializer):
+    """Serializer describing a time range used for analytics aggregations."""
+
+    start = serializers.DateTimeField()
+    end = serializers.DateTimeField()
+
+
+class EnrollmentAnalyticsSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    active = serializers.IntegerField()
+    pending = serializers.IntegerField()
+
+
+class AttemptAnalyticsSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    success = serializers.IntegerField()
+    failed = serializers.IntegerField()
+    avg_similarity = serializers.FloatField(allow_null=True, required=False)
+
+
+class SessionAnalyticsSerializer(serializers.Serializer):
+    total = serializers.IntegerField()
+    completed = serializers.IntegerField()
+    failed = serializers.IntegerField()
+
+
+class ClientAnalyticsResponseSerializer(serializers.Serializer):
+    """Serializer for the aggregate analytics payload exposed to clients."""
+
+    period = AnalyticsPeriodSerializer()
+    enrollments = EnrollmentAnalyticsSerializer()
+    authentication_attempts = AttemptAnalyticsSerializer()
+    sessions = SessionAnalyticsSerializer()
