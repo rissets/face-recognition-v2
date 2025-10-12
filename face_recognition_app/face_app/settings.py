@@ -187,8 +187,11 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "static"
-STATICFILES_DIRS = [BASE_DIR / "staticfiles"]
+STATIC_ROOT = BASE_DIR / "staticfiles" / "collected"
+STATICFILES_DIRS = [
+    BASE_DIR / "static",  # For admin dashboard files
+    BASE_DIR / "staticfiles"  # For other static files
+]
 # MinIO Configuration for Media Storage
 USE_MINIO = config("USE_MINIO", default=True, cast=bool)
 
