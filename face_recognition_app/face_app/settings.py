@@ -334,6 +334,16 @@ SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 
+# SSL/HTTPS Settings for Production
+if not DEBUG:
+    SECURE_SSL_REDIRECT = config("SECURE_SSL_REDIRECT", default=True, cast=bool)
+    SECURE_PROXY_SSL_HEADER = (
+        config("SECURE_PROXY_SSL_HEADER_NAME", default="HTTP_X_FORWARDED_PROTO"),
+        config("SECURE_PROXY_SSL_HEADER_VALUE", default="https")
+    )
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_SECURE = True
+
 # Face Recognition Settings
 FACE_RECOGNITION_CONFIG = {
     "MODEL_NAME": "buffalo_l",
