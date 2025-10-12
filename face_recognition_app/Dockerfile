@@ -10,6 +10,7 @@ ENV PIP_NO_CACHE_DIR=1
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
+    cmake \
     libpq-dev \
     libgl1-mesa-dri \
     libglib2.0-0 \
@@ -18,6 +19,9 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     libgthread-2.0-0 \
+    libopenblas-dev \
+    liblapack-dev \
+    pkg-config \
     wget \
     curl \
     && rm -rf /var/lib/apt/lists/*
