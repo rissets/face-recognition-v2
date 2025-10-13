@@ -3,10 +3,30 @@
     <section class="section">
       <header>
         <h2>Login via Face Recognition</h2>
-        <p>
-          Buat session autentikasi, hidupkan kamera, dan biarkan minimal tiga frame terkirim. Pastikan melakukan kedipan
-          mata (idealnya dua kali) agar pemeriksaan liveness terpenuhi sebelum verifikasi dinyatakan berhasil.
-        </p>
+        <div class="guide-section">
+          <h3>🔐 Panduan Authentication:</h3>
+          <ol>
+            <li><strong>Pilih Mode Authentication:</strong>
+              <ul>
+                <li><strong>Identification</strong> - Sistem akan mengenali siapa Anda dari database</li>
+                <li><strong>Verification</strong> - Verifikasi identitas dengan memasukkan External User ID</li>
+              </ul>
+            </li>
+            <li><strong>Aktifkan Kamera</strong> - Pastikan wajah terlihat jelas</li>
+            <li><strong>Buat Session</strong> - Sistem siap untuk autentikasi</li>
+            <li><strong>Mulai Face Login</strong> - Sistem akan memverifikasi identitas:
+              <ul>
+                <li>👁️ <strong>Kedipkan mata</strong> untuk membuktikan Anda manusia</li>
+                <li>📸 <strong>Tatap kamera langsung</strong> dengan wajah jelas</li>
+                <li>🚫 <strong>Hindari obstacle</strong> - jangan tutup wajah dengan tangan/benda</li>
+                <li>⏱️ <strong>Tunggu beberapa detik</strong> untuk proses verifikasi</li>
+              </ul>
+            </li>
+          </ol>
+          <div class="tips">
+            <strong>💡 Tips:</strong> Pastikan Anda sudah terdaftar di sistem (sudah melakukan enrollment) sebelum mencoba login.
+          </div>
+        </div>
       </header>
       <div class="layout-split">
         <div>
@@ -111,6 +131,17 @@
               <div class="session-tile">
                 <span>Liveness</span>
                 <strong>{{ lastLiveness }}</strong>
+                <span class="status-pill" :class="livenessVerified ? 'success' : 'warning'">
+                  {{ livenessVerified ? 'Verified' : 'Pending' }}
+                </span>
+              </div>
+              <div class="session-tile" v-if="obstaclesDetected.length > 0">
+                <span>Obstacles</span>
+                <div class="obstacle-list">
+                  <span v-for="obstacle in obstaclesDetected" :key="obstacle" class="status-pill danger">
+                    {{ obstacle }}
+                  </span>
+                </div>
               </div>
             </div>
             <div class="info-card">
@@ -128,7 +159,11 @@
               <span class="mono">External ID: {{ recognizedUser.external_user_id }}</span>
               <span class="mono">Enrolled: {{ recognizedUser.is_enrolled ? 'Yes' : 'No' }}</span>
             </div>
-            <div class="info-card" v-if="lastResult?.message">
+            <div class="info-card" v-if="sessionFeedback">
+              <strong>Session Feedback</strong>
+              <span>{{ sessionFeedback }}</span>
+            </div>
+            <div class="info-card" v-if="lastResult?.message && lastResult.message !== sessionFeedback">
               <strong>Pesan Sistem</strong>
               <span>{{ lastResult.message }}</span>
             </div>
@@ -225,12 +260,15 @@ const manualForm = reactive({
   file: null
 })
 
-const captureIntervalMs = 1200
+const captureIntervalMs = 800 // Lebih cepat untuk authentication
 const captureTimer = ref(null)
 
 const isCameraActive = computed(() => cameraActive.value)
 const sessionToken = computed(() => authSession.value?.session_token || '')
 const lastResult = computed(() => streamingState.lastResult)
+const sessionFeedback = computed(() => streamingState.lastResult?.session_feedback || '')
+const livenessVerified = computed(() => streamingState.lastResult?.liveness_verified || false)
+const obstaclesDetected = computed(() => streamingState.lastResult?.obstacles || [])
 
 const lastLiveness = computed(() => {
   const direct = streamingState.lastResult?.liveness_blinks
@@ -472,9 +510,23 @@ async function sendFrame(frameData, overrideToken) {
     const data = response.data
     streamingState.lastResult = data
 
+    // Enhanced session-based feedback
+    const sessionFeedback = data.session_feedback || data.message || ''
+    const livenessVerified = data.liveness_verified || false
+    const obstacles = data.obstacles || []
+
     if (data.requires_more_frames) {
       errors.session = ''
-      addLog('info', data.message || 'Lanjutkan streaming untuk verifikasi.', JSON.stringify(data, null, 2))
+      let message = sessionFeedback || 'Lanjutkan streaming untuk verifikasi.'
+      if (obstacles.length > 0) {
+        message += ` Obstacle detected: ${obstacles.join(', ')}`
+      }
+      addLog('info', message, {
+        frames_processed: data.frames_processed,
+        liveness_score: data.liveness_score,
+        liveness_verified: livenessVerified,
+        obstacles: obstacles
+      })
       return data
     }
 
@@ -486,22 +538,48 @@ async function sendFrame(frameData, overrideToken) {
       if (data.matched_user) {
         successMessage += ` - ${data.matched_user.display_name || data.matched_user.external_user_id}`
       }
-      if (data.match_fallback_used) {
-        successMessage += ' (menggunakan algoritma fallback)'
+      
+      // Session-based authentication info
+      const authMetadata = data.authentication_metadata || {}
+      if (authMetadata.algorithm_used === 'session_based') {
+        successMessage += ' (session-based liveness detection)'
       }
       
-      addLog('success', successMessage, JSON.stringify(data, null, 2))
+      addLog('success', successMessage, {
+        similarity_score: data.similarity_score,
+        liveness_score: data.liveness_score,
+        liveness_verified: livenessVerified,
+        quality_score: data.quality_score,
+        algorithm: authMetadata.algorithm_used,
+        confidence_level: authMetadata.confidence_level,
+        session_feedback: sessionFeedback
+      })
       stopStreaming()
     } else {
       recognizedUser.value = null
-      const failureMsg = data.message || data.error || 'Autentikasi gagal'
-      errors.session = failureMsg
-      addLog('warning', failureMsg, JSON.stringify(data, null, 2))
-      if (data.session_finalized) {
+      const failureMsg = sessionFeedback || data.message || data.error || 'Autentikasi gagal'
+      
+      // Don't show error immediately, let it continue for a few frames
+      if (streamingState.framesSent > 3) {
+        errors.session = failureMsg
+      }
+      
+      addLog('info', failureMsg, {
+        similarity_score: data.similarity_score,
+        liveness_score: data.liveness_score,
+        liveness_verified: livenessVerified,
+        obstacles: obstacles,
+        session_feedback: sessionFeedback,
+        frames_sent: streamingState.framesSent
+      })
+      
+      // Only stop if explicitly told to or after many attempts
+      if (data.session_finalized || streamingState.framesSent > 15) {
         stopStreaming()
       }
       if (data.requires_new_session) {
         addLog('warning', 'Session perlu dibuat ulang. Tekan Reset lalu buat session baru.')
+        stopStreaming()
       }
     }
 
@@ -574,3 +652,58 @@ onBeforeUnmount(() => {
   cameraRef.value?.stop()
 })
 </script>
+
+<style scoped>
+.obstacle-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+.obstacle-list .status-pill {
+  font-size: 0.75rem;
+  padding: 0.125rem 0.5rem;
+}
+
+.guide-section {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+.guide-section h3 {
+  margin-top: 0;
+  color: #1e293b;
+  font-size: 1.1rem;
+}
+
+.guide-section ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.guide-section ol li {
+  margin-bottom: 0.5rem;
+}
+
+.guide-section ul {
+  margin: 0.25rem 0;
+  padding-left: 1rem;
+}
+
+.guide-section ul li {
+  margin-bottom: 0.25rem;
+}
+
+.tips {
+  background: #dcfce7;
+  border: 1px solid #16a34a;
+  border-radius: 0.25rem;
+  padding: 0.5rem;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+</style>

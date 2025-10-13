@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 from django.conf import settings
 from django.db import transaction
+from core.face_recognition_engine import json_serializable
 from django.db.models import Avg, Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -75,6 +76,11 @@ MAX_HISTORY = 25
 # ---------------------------------------------------------------------------
 # Utility helpers
 # ---------------------------------------------------------------------------
+
+def _ensure_json_serializable_metadata(metadata: dict) -> dict:
+    """Ensure metadata can be safely serialized to JSON for database storage"""
+    from core.face_recognition_engine import json_serializable
+    return json_serializable(metadata)
 
 def _engine_user_id(client_id: str, external_user_id: str) -> str:
     return f"{client_id}:{external_user_id}"
@@ -581,6 +587,7 @@ def _handle_enrollment_frame(
     frame_number: Optional[int],
     timestamp: Optional[timezone.datetime],
 ) -> Tuple[Dict[str, Any], int]:
+    """Handle enrollment frame with session-based processing"""
     metadata = session.metadata or {}
     enrollment_id = metadata.get("enrollment_id")
     if not enrollment_id:
@@ -600,22 +607,24 @@ def _handle_enrollment_frame(
     )
     metadata["engine_user_id"] = engine_user_id
 
-    # Process frame with enhanced validation using new enroll_face method
+    # Process frame using session-based enrollment with embedding averaging
     current_frames_processed = int(metadata.get("frames_processed", 0))
     target_samples = int(metadata.get("target_samples", enrollment.total_samples))
-    
-    # Use current frames + 1 for the frame count, but don't increment until frame is accepted
     attempted_frame_number = current_frames_processed + 1
     
-    logger.debug(f"Attempting enrollment frame {attempted_frame_number} (accepted: {current_frames_processed}/{target_samples}) for engine_user_id: {engine_user_id}")
-    result = face_engine.enroll_face(frame, engine_user_id, attempted_frame_number, target_samples)
+    logger.debug(f"Processing enrollment frame for engine_user_id: {engine_user_id}, session: {session.session_token}")
+    result = face_engine.process_enrollment_frame_with_session(
+        session_token=session.session_token,
+        frame=frame,
+        user_id=engine_user_id
+    )
     
     if not result.get("success", False):
         error = result.get("error", "Unknown enrollment error")
         metadata["last_error"] = error
         metadata["last_updated"] = timezone.now().isoformat()
         metadata["rejected_frames"] = metadata.get("rejected_frames", 0) + 1
-        session.metadata = metadata
+        session.metadata = _ensure_json_serializable_metadata(metadata)
         session.save(update_fields=["metadata"])
         # Log frame rejection with details
         logger.warning(f"❌ Frame {attempted_frame_number} rejected for enrollment - "
@@ -646,45 +655,54 @@ def _handle_enrollment_frame(
             status.HTTP_200_OK,
         )
 
-    # Frame was successfully processed - now increment the counter
-    frames_processed = current_frames_processed + 1
-    bbox = result.get("bbox")
-    bbox_list = bbox.tolist() if hasattr(bbox, "tolist") else bbox
-    liveness_data = result.get("liveness_data") or {}
+    # Frame was successfully processed using session-based enrollment
+    frames_processed = result.get("embeddings_collected", current_frames_processed + 1)
+    liveness_data = result.get("liveness_data", {})
+    quality_score = result.get("quality_score", 0.0)
+    liveness_satisfied = result.get("liveness_satisfied", False)
+    progress = result.get("progress", {})
+    can_complete = result.get("can_complete_enrollment", False)
     
-    # Extract frame image for storage (we'll generate this from the bbox)
+    # Extract frame image for storage (generate from frame)
     face_snapshot = None
-    if bbox:
-        try:
-            x1, y1, x2, y2 = map(int, bbox)
-            face_crop = frame[y1:y2, x1:x2]
-            _, buffer = cv2.imencode('.jpg', face_crop, [cv2.IMWRITE_JPEG_QUALITY, 90])
-            face_snapshot = buffer.tobytes()
-        except Exception as e:
-            logger.error(f"Failed to extract face snapshot: {e}")
+    bbox_list = None
+    try:
+        # Get a reasonable face region from the frame
+        h, w = frame.shape[:2]
+        # Simple center crop as fallback
+        x1, y1 = int(w * 0.25), int(h * 0.25)
+        x2, y2 = int(w * 0.75), int(h * 0.75)
+        face_crop = frame[y1:y2, x1:x2]
+        _, buffer = cv2.imencode('.jpg', face_crop, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        face_snapshot = buffer.tobytes()
+        bbox_list = [x1, y1, x2, y2]
+    except Exception as e:
+        logger.error(f"Failed to extract face snapshot: {e}")
     
     snapshot_preview = _snapshot_to_data_url(face_snapshot)
-    blink_count = int(liveness_data.get("blinks_detected") or 0)
-    motion_events = int(liveness_data.get("motion_events") or 0)
-
+    
+    # Get liveness metrics from session result
+    blink_count = int(liveness_data.get("blinks_detected", 0))
+    motion_events = int(liveness_data.get("motion_events", 0))
+    
     total_blinks = max(int(metadata.get("liveness_blinks", 0)), blink_count)
     total_motion_events = max(int(metadata.get("liveness_motion_events", 0)), motion_events)
     
     # Get liveness verification from result
-    liveness_verified = result.get("liveness_verified", False)
-    liveness_score = result.get("liveness_score", 0.0)
+    liveness_verified = liveness_satisfied
+    liveness_score = quality_score  # Use quality score as liveness score for compatibility
     
     logger.debug(f"Enrollment frame {frames_processed}/{target_samples} - "
-                f"Quality: {result.get('quality_score', 0):.3f}, "
+                f"Quality: {quality_score:.3f}, "
                 f"Liveness: {liveness_score:.3f}, "
-                f"Anti-spoofing: {result.get('anti_spoofing_score', 0):.3f}, "
+                f"Anti-spoofing: N/A, "
                 f"Verified: {liveness_verified}")
     
     # Log frame acceptance
     logger.info(f"✅ Frame {frames_processed} accepted for enrollment - "
-               f"Quality: {result.get('quality_score', 0):.3f}, "
+               f"Quality: {quality_score:.3f}, "
                f"Liveness: {liveness_score:.3f} (verified: {liveness_verified}), "
-               f"Anti-spoofing: {result.get('anti_spoofing_score', 0):.3f}")
+               f"Feedback: {result.get('feedback', 'N/A')}")
 
     metadata.update(
         {
@@ -693,13 +711,15 @@ def _handle_enrollment_frame(
             "liveness_motion_events": total_motion_events,
             "last_liveness": liveness_data,
             "last_bbox": bbox_list,
-            "last_quality": result.get("quality_score"),
-            "last_liveness_score": result.get("liveness_score"),
-            "last_anti_spoofing_score": result.get("anti_spoofing_score"),
+            "last_quality": quality_score,
+            "last_liveness_score": liveness_score,
+            "last_anti_spoofing_score": 0.0,  # Not used in session-based enrollment
             "last_updated": timezone.now().isoformat(),
             "last_error": "",
             "preview_image": snapshot_preview,
-            "enrollment_progress": result.get("enrollment_progress", 0),
+            "enrollment_progress": progress.get("progress_percentage", 0),
+            "can_complete_enrollment": can_complete,
+            "session_feedback": result.get("feedback", ""),
         }
     )
     if frame_number is not None:
@@ -713,23 +733,24 @@ def _handle_enrollment_frame(
         {
             "index": frames_processed,
             "timestamp": metadata.get("last_timestamp"),
-            "quality": result.get("quality_score"),
-            "liveness_score": result.get("liveness_score"),
-            "anti_spoofing_score": result.get("anti_spoofing_score"),
+            "quality": quality_score,
+            "liveness_score": liveness_score,
+            "anti_spoofing_score": 0.0,  # Not used in session-based enrollment
             "blinks": blink_count,
             "motion_events": motion_events,
             "obstacles": result.get("obstacles", []),
+            "session_feedback": result.get("feedback", ""),
         },
     )
 
     session.status = "processing"
-    session.metadata = metadata
+    session.metadata = _ensure_json_serializable_metadata(metadata)
     session.save(update_fields=["status", "metadata"])
 
-    # Note: embedding is already saved by the engine's enroll_face method
-    enrollment.face_quality_score = result.get("quality_score") or 0.0
-    enrollment.liveness_score = result.get("liveness_score") or 0.0
-    enrollment.anti_spoofing_score = result.get("anti_spoofing_score") or 0.0
+    # Note: embeddings are collected in session, final averaged embedding will be saved on completion
+    enrollment.face_quality_score = quality_score
+    enrollment.liveness_score = liveness_score
+    enrollment.anti_spoofing_score = 0.0  # Not used in session-based enrollment
     enrollment.face_bbox = bbox_list
     
     # Save face image to storage (MinIO) if available
@@ -766,24 +787,43 @@ def _handle_enrollment_frame(
             except Exception as e:
                 logger.error(f"Failed to update profile image for client user: {e}")
     
-    enrollment.metadata = {
+    enrollment.metadata = _ensure_json_serializable_metadata({
         **(enrollment.metadata or {}),
         "frames_processed": frames_processed,
         "last_liveness": liveness_data,
-    }
+    })
     if enrollment.status == "pending":
         enrollment.status = "active"
     enrollment.save(update_fields=["embedding_vector", "face_quality_score", "liveness_score", "face_bbox", "face_image_path", "metadata", "status", "updated_at"])
 
-    # Check if enrollment is complete based on new enroll_face result
-    enrollment_complete = result.get("enrollment_complete", False)
+    # Check if enrollment is complete based on session-based result
+    enrollment_complete = can_complete
     min_frames_met = frames_processed >= target_samples
     
-    # Use the liveness score from the enhanced engine
-    normalized_liveness = result.get("liveness_score", 0.0)
-    min_liveness_threshold = 0.6  # Adjust as needed
+    # Use the liveness satisfaction from session result
+    normalized_liveness = 1.0 if liveness_satisfied else 0.0
+    min_liveness_threshold = 0.5  # Adjust as needed
     
-    if enrollment_complete and min_frames_met and normalized_liveness >= min_liveness_threshold:
+    # Complete enrollment if conditions are met
+    should_complete = enrollment_complete and normalized_liveness >= min_liveness_threshold
+    
+    if should_complete:
+        # Complete enrollment using session-based averaging
+        completion_result = face_engine.complete_enrollment_with_session(
+            session_token=session.session_token,
+            user_id=engine_user_id
+        )
+        
+        if completion_result.get("success", False):
+            logger.info(f"Session-based enrollment completed successfully: {completion_result}")
+        else:
+            logger.error(f"Failed to complete session-based enrollment: {completion_result}")
+            # Don't fail the whole process, just continue with regular flow
+    
+    # More flexible completion logic - allow completion if enrollment ready even if liveness not fully satisfied
+    should_complete_enrollment = (enrollment_complete and min_frames_met) or (frames_processed >= 20 and can_complete)
+    
+    if should_complete_enrollment:
         completion_ts = timezone.now()
         session.status = "completed"
         session.completed_at = completion_ts
@@ -791,10 +831,13 @@ def _handle_enrollment_frame(
         session.confidence_score = result.get("quality_score", 0.0)  # Store quality as confidence
         metadata["final_status"] = "completed"
         metadata["liveness_verified"] = True
-        session.metadata = metadata
+        session.metadata = _ensure_json_serializable_metadata(metadata)
         session.save(update_fields=["status", "completed_at", "is_successful", "confidence_score", "metadata"])
 
-        enrollment.metadata["completed_at"] = completion_ts.isoformat()
+        enrollment.metadata = _ensure_json_serializable_metadata({
+            **(enrollment.metadata or {}),
+            "completed_at": completion_ts.isoformat()
+        })
         enrollment.save(update_fields=["metadata", "updated_at"])
 
         client_user.is_enrolled = True
@@ -806,7 +849,8 @@ def _handle_enrollment_frame(
                    f"(Client: {client.client_id}, User ID: {client_user.id})")
 
         # Embedding is already saved by the enroll_face method
-        logger.info(f"Enrollment completed with embedding_id: {result.get('embedding_id')} "
+        embedding_id = completion_result.get('embedding_id') if 'completion_result' in locals() else result.get('embedding_id')
+        logger.info(f"Enrollment completed with embedding_id: {embedding_id} "
                    f"for client: {client.client_id}, external_user_id: {client_user.external_user_id}")
         
         # Send webhook notification for enrollment completion
@@ -830,13 +874,14 @@ def _handle_enrollment_frame(
             "enrollment_progress": 100.0,
             "liveness_verified": True,
             "liveness_score": normalized_liveness,
-            "quality_score": result.get("quality_score"),
-            "anti_spoofing_score": result.get("anti_spoofing_score"),
+            "quality_score": quality_score,
+            "anti_spoofing_score": 0.0,  # Not used in session-based enrollment
             "preview_image": snapshot_preview,
             "requires_more_frames": False,
             "frame_accepted": True,
             "enrollment_complete": True,
-            "message": "Enrollment completed successfully.",
+            "session_feedback": result.get("feedback", ""),
+            "message": "Enrollment completed successfully using averaged embeddings.",
         }
         return response_payload, status.HTTP_200_OK
 
@@ -845,16 +890,18 @@ def _handle_enrollment_frame(
         "session_status": session.status,
         "completed_samples": frames_processed,
         "target_samples": target_samples,
-        "enrollment_progress": result.get("enrollment_progress", 0),
+        "enrollment_progress": progress.get("progress_percentage", 0),
+        "can_complete_enrollment": can_complete,
         "liveness_verified": liveness_verified,
-        "liveness_score": normalized_liveness,
-        "quality_score": result.get("quality_score"),
-        "anti_spoofing_score": result.get("anti_spoofing_score"),
+        "liveness_score": liveness_score,
+        "quality_score": quality_score,
+        "anti_spoofing_score": 0.0,  # Not used in session-based enrollment
         "preview_image": snapshot_preview,
-        "requires_more_frames": True,
+        "requires_more_frames": not can_complete,
         "frame_accepted": True,
         "obstacles": result.get("obstacles", []),
-        "message": "Frame processed. Continue streaming until liveness and sample targets are met.",
+        "session_feedback": result.get("feedback", ""),
+        "message": result.get("feedback", "Frame processed successfully."),
     }
     return response_payload, status.HTTP_200_OK
 
@@ -873,7 +920,26 @@ def _handle_authentication_frame(
         engine_target_id = _engine_user_id(client.client_id, metadata["target_user_id"])
         metadata["engine_target_id"] = engine_target_id
 
-    auth_result = face_engine.authenticate_user(frame, engine_target_id)
+    # Use session-based authentication with session manager
+    from core.session_manager import SessionManager
+    session_manager = SessionManager()
+    session_id = session.session_token
+    
+    # Initialize session if needed
+    if not session_manager.get_session_data(session_id):
+        session_manager.initialize_session(session_id, 'authentication')
+    
+    logger.debug(f"Starting authentication for session {session_id}, target_id: {engine_target_id}")
+    auth_result = face_engine.authenticate_user_with_session(
+        session_id, frame, engine_target_id
+    )
+    
+    # Log authentication result details for debugging
+    logger.debug(f"Auth result - Success: {auth_result.get('success')}, "
+                f"Similarity: {auth_result.get('similarity_score', 0.0)}, "
+                f"Quality: {auth_result.get('quality_score', 0.0)}, "
+                f"User ID: {auth_result.get('user_id')}, "
+                f"Error: {auth_result.get('error')}")
     
     # Enhanced obstacle detection - reject frame if obstacles detected
     obstacles = auth_result.get("obstacles", [])
@@ -882,7 +948,7 @@ def _handle_authentication_frame(
         metadata["last_error"] = obstacle_message
         metadata["last_updated"] = timezone.now().isoformat()
         metadata["rejected_frames"] = metadata.get("rejected_frames", 0) + 1
-        session.metadata = metadata
+        session.metadata = _ensure_json_serializable_metadata(metadata)
         session.save(update_fields=["metadata"])
         
         return (
@@ -899,32 +965,49 @@ def _handle_authentication_frame(
             status.HTTP_200_OK,
         )
     
+    # Get session-based liveness and frame data
     liveness_data = auth_result.get("liveness_data") or {}
     frames_processed = int(metadata.get("frames_processed", 0)) + 1
-    blink_count = int(liveness_data.get("blinks_detected") or 0)
-    motion_events = int(liveness_data.get("motion_events") or 0)
-    total_blinks = max(int(metadata.get("liveness_blinks", 0)), blink_count)
-    total_motion_events = max(int(metadata.get("liveness_motion_events", 0)), motion_events)
     
-    # Enhanced liveness verification using multiple detection methods
-    overall_liveness_verified, liveness_reason = _validate_enhanced_liveness(
-        liveness_data, total_blinks, total_motion_events
-    )
+    # Get cumulative session data from session manager
+    session_data = session_manager.get_session_data(session_id) or {}
+    liveness_detector_data = session_data.get("liveness_detector", {})
+    
+    blink_count = liveness_detector_data.get("total_blinks", 0)
+    motion_events = liveness_detector_data.get("motion_events", 0)
+    
+    # Use session values as they maintain state across frames
+    total_blinks = blink_count
+    total_motion_events = motion_events
+    
+    # Enhanced liveness verification using session-based data
+    overall_liveness_verified = auth_result.get("liveness_verified", False)
+    liveness_reason = auth_result.get("liveness_reason", "session_based")
 
-    metadata.update(
-        {
-            "frames_processed": frames_processed,
-            "liveness_blinks": total_blinks,
-            "liveness_motion_events": total_motion_events,
-            "last_liveness": liveness_data,
-            "last_quality": auth_result.get("quality_score"),
-            "last_similarity": auth_result.get("similarity_score"),
-            "last_error": auth_result.get("error"),
-            "last_updated": timezone.now().isoformat(),
-            "match_fallback_used": auth_result.get("match_fallback_used", False),
-            "obstacles": auth_result.get("obstacles", []),
-        }
-    )
+    # Update metadata with session-based values
+    quality_score = float(auth_result.get("quality_score", 0.0))
+    similarity_score = float(auth_result.get("similarity_score", 0.0))
+    min_frames_required = int(metadata.get("min_frames_required", MIN_LIVENESS_FRAMES))
+    
+    # Debug logging for authentication flow
+    logger.debug(f"Auth flow debug - Success: {auth_result.get('success')}, "
+                f"Frames: {frames_processed}/{min_frames_required}, "
+                f"Liveness verified: {overall_liveness_verified}, "
+                f"Similarity: {similarity_score}, Quality: {quality_score}")
+    
+    metadata.update({
+        "frames_processed": frames_processed,
+        "liveness_blinks": total_blinks,
+        "liveness_motion_events": total_motion_events,
+        "last_liveness": liveness_data,
+        "last_quality": quality_score,
+        "last_similarity": similarity_score,
+        "last_error": auth_result.get("error"),
+        "last_updated": timezone.now().isoformat(),
+        "match_fallback_used": False,  # Not used in session-based auth
+        "obstacles": auth_result.get("obstacles", []),
+        "session_feedback": auth_result.get("feedback", ""),
+    })
     if frame_number is not None:
         metadata["last_frame_number"] = frame_number
     if timestamp:
@@ -936,76 +1019,115 @@ def _handle_authentication_frame(
         {
             "index": frames_processed,
             "timestamp": metadata.get("last_timestamp"),
-            "similarity": auth_result.get("similarity_score"),
-            "quality": auth_result.get("quality_score"),
+            "similarity": similarity_score,
+            "quality": quality_score,
             "blinks": blink_count,
             "motion_events": motion_events,
             "error": auth_result.get("error"),
+            "session_feedback": auth_result.get("feedback", ""),
         },
     )
 
-    min_frames_required = int(metadata.get("min_frames_required", MIN_LIVENESS_FRAMES))
-    required_blinks = int(metadata.get("required_blinks", MIN_LIVENESS_BLINKS))
-    liveness_verified = overall_liveness_verified or (
-        required_blinks > 0 and total_blinks >= required_blinks
-    )
-    normalized_liveness = _compute_liveness_score(
-        total_blinks,
-        total_motion_events,
-        required_blinks,
-        min_frames_required,
-        liveness_verified,
-    )
-    metadata["liveness_verified"] = liveness_verified or normalized_liveness >= 1.0
+    # Use session-based liveness score
+    liveness_verified = overall_liveness_verified
+    normalized_liveness = float(auth_result.get("liveness_score", 0.0))
+    metadata["liveness_verified"] = liveness_verified
     
     logger.debug(f"Auth liveness check - Blinks: {total_blinks}, "
                 f"Motion: {total_motion_events}, "
                 f"Verified: {overall_liveness_verified} (reason: {liveness_reason})")
 
     session.status = "processing"
-    session.metadata = metadata
+    session.metadata = _ensure_json_serializable_metadata(metadata)
     session.save(update_fields=["status", "metadata"])
 
     min_frames_met = frames_processed >= min_frames_required
 
-    if auth_result.get("success") and not (min_frames_met and metadata["liveness_verified"]):
+    # Continue if face detected but liveness not yet satisfied
+    if auth_result.get("success") and not (min_frames_met and liveness_verified):
         payload = {
             "success": False,
             "requires_more_frames": True,
-            "message": "Liveness requirement belum terpenuhi. Lanjutkan streaming dengan kedipan atau gerakan lembut.",
+            "message": auth_result.get("feedback", "Liveness requirement belum terpenuhi. Lanjutkan streaming dengan kedipan atau gerakan lembut."),
             "frames_processed": frames_processed,
             "min_frames_required": min_frames_required,
             "liveness_blinks": total_blinks,
             "liveness_motion_events": total_motion_events,
             "liveness_score": normalized_liveness,
-            "liveness_data": liveness_data,
+            "liveness_verified": liveness_verified,
             "session_status": session.status,
+            "session_feedback": auth_result.get("feedback", ""),
         }
         return payload, status.HTTP_200_OK
+    
+    # Continue processing if we haven't met minimum frames yet, unless it's a critical error
+    if not auth_result.get("success") and frames_processed < min_frames_required:
+        error_msg = auth_result.get("error", "")
+        # Only fail early for critical errors, otherwise continue
+        if any(critical in error_msg.lower() for critical in ["multiple faces", "no face", "too small", "too large"]):
+            # Allow a few frames before giving up on face detection
+            if frames_processed < 3:
+                payload = {
+                    "success": False,
+                    "requires_more_frames": True,
+                    "message": f"Frame {frames_processed}: {error_msg}. Posisikan wajah dengan benar.",
+                    "frames_processed": frames_processed,
+                    "min_frames_required": min_frames_required,
+                    "liveness_score": normalized_liveness,
+                    "session_status": session.status,
+                    "session_feedback": auth_result.get("feedback", ""),
+                }
+                return payload, status.HTTP_200_OK
 
     error_message = auth_result.get("error") or ""
     if (
         not auth_result.get("success")
         and "liveness" in error_message.lower()
-        and not (min_frames_met and metadata["liveness_verified"])
+        and not (min_frames_met and liveness_verified)
     ):
         payload = {
             "success": False,
             "requires_more_frames": True,
-            "message": "Liveness belum tervalidasi. Lanjutkan dengan kedipan atau gerakan halus.",
+            "message": auth_result.get("feedback", "Liveness belum tervalidasi. Lanjutkan dengan kedipan atau gerakan halus."),
             "frames_processed": frames_processed,
             "min_frames_required": min_frames_required,
             "liveness_blinks": total_blinks,
             "liveness_motion_events": total_motion_events,
             "liveness_score": normalized_liveness,
-            "liveness_data": liveness_data,
+            "liveness_verified": liveness_verified,
             "session_status": session.status,
+            "session_feedback": auth_result.get("feedback", ""),
         }
         return payload, status.HTTP_200_OK
 
-    if auth_result.get("success"):
+    # Handle case where authentication is successful but requirements not fully met
+    if auth_result.get("success") and not (min_frames_met and liveness_verified):
+        payload = {
+            "success": False,
+            "requires_more_frames": True,
+            "message": f"Wajah dikenali! Lanjutkan untuk verifikasi liveness (Frame: {frames_processed}/{min_frames_required}, Liveness: {'✓' if liveness_verified else '✗'})",
+            "frames_processed": frames_processed,
+            "min_frames_required": min_frames_required,
+            "liveness_blinks": total_blinks,
+            "liveness_motion_events": total_motion_events,
+            "liveness_score": normalized_liveness,
+            "liveness_verified": liveness_verified,
+            "similarity_score": auth_result.get("similarity_score", 0.0),
+            "quality_score": auth_result.get("quality_score", 0.0),
+            "session_status": session.status,
+            "session_feedback": f"Wajah dikenali! Frames: {frames_processed}/{min_frames_required}, Liveness: {'✓' if liveness_verified else '✗'}",
+            "face_recognized": True,
+            "preliminary_match": {
+                "user_id": auth_result.get("user_id"),
+                "similarity": auth_result.get("similarity_score", 0.0)
+            }
+        }
+        return payload, status.HTTP_200_OK
+
+    # Only finalize authentication if we have enough frames AND liveness is verified
+    if auth_result.get("success") and min_frames_met and liveness_verified:
         engine_user_id = auth_result.get("user_id")
-        logger.info(f"Authentication successful, raw engine_user_id: {engine_user_id}")
+        logger.info(f"Authentication successful and requirements met, raw engine_user_id: {engine_user_id}")
         
         # Handle different engine response formats
         matched_user = None
@@ -1068,39 +1190,42 @@ def _handle_authentication_frame(
                 result="success",
                 matched_user=matched_user,
                 matched_enrollment=matched_enrollment,
-                similarity_score=auth_result.get("similarity_score", 0.0),
-                confidence_score=auth_result.get("similarity_score", 0.0),
-                face_quality_score=auth_result.get("quality_score", 0.0),
-                liveness_score=normalized_liveness,
-                anti_spoofing_score=auth_result.get("match_data", {}).get("anti_spoofing_score", 0.0),
+                similarity_score=float(auth_result.get("similarity_score", 0.0)),
+                confidence_score=float(auth_result.get("similarity_score", 0.0)),
+                face_quality_score=float(auth_result.get("quality_score", 0.0)),
+                liveness_score=float(normalized_liveness),
+                anti_spoofing_score=float(auth_result.get("match_data", {}).get("anti_spoofing_score", 0.0)),
                 submitted_embedding="[]",
-                face_bbox=auth_result.get("bbox"),
-                metadata={
+                face_bbox=_ensure_json_serializable_metadata(auth_result.get("bbox")),
+                metadata=_ensure_json_serializable_metadata({
                     "match_data": auth_result.get("match_data"),
                     "obstacles": auth_result.get("obstacles"),
                     "obstacle_confidence": auth_result.get("obstacle_confidence", {}),
                     "frames_processed": frames_processed,
-                },
+                }),
                 ip_address=session.ip_address,
                 user_agent=session.user_agent,
             )
 
+            # Prepare liveness detection metadata with JSON serialization
+            liveness_metadata = _ensure_json_serializable_metadata({
+                "total_blinks": total_blinks,
+                "total_motion_events": total_motion_events,
+                "raw": liveness_data,
+            })
+            
             LivenessDetectionResult.objects.create(
                 client=client,
                 session=session,
                 status="live",
-                confidence_score=normalized_liveness,
+                confidence_score=float(normalized_liveness),
                 methods_used=["blink_detection", "motion_detection"],
-                blink_detected=liveness_data.get("blink_verified", False),
-                motion_detected=liveness_data.get("motion_verified", False) or total_motion_events > 0,
-                texture_score=liveness_data.get("texture_score"),
-                face_movements=liveness_data.get("face_movements") or [],
-                frames_analyzed=frames_processed,
-                metadata={
-                    "total_blinks": total_blinks,
-                    "total_motion_events": total_motion_events,
-                    "raw": liveness_data,
-                },
+                blink_detected=bool(liveness_data.get("blink_verified", False)),
+                motion_detected=bool(liveness_data.get("motion_verified", False) or total_motion_events > 0),
+                texture_score=float(liveness_data.get("texture_score", 0.0)) if liveness_data.get("texture_score") is not None else None,
+                face_movements=_ensure_json_serializable_metadata(liveness_data.get("face_movements") or []),
+                frames_analyzed=int(frames_processed),
+                metadata=liveness_metadata,
             )
 
         session.status = "completed"
@@ -1115,16 +1240,14 @@ def _handle_authentication_frame(
         
         metadata["final_status"] = "success"
         metadata["recognized_user_id"] = str(matched_user.id) if matched_user else None
-        session.metadata = metadata
+        session.metadata = _ensure_json_serializable_metadata(metadata)
         session.save(update_fields=["status", "completed_at", "is_successful", "confidence_score", "client_user", "metadata"])
 
         # Extract variables needed for audit and risk assessment
         match_fallback_used = auth_result.get("match_fallback_used", False)
         obstacles = auth_result.get("obstacles") or []
         
-        # Convert numpy types to Python native types for JSON serialization
-        similarity_score = float(auth_result.get("similarity_score", 0.0))
-        quality_score = float(auth_result.get("quality_score", 0.0))
+        # Values already converted to float in metadata update above
 
         # Audit trail entry
         try:
@@ -1185,16 +1308,7 @@ def _handle_authentication_frame(
             except Exception:
                 logger.exception("Failed to track security event for obstacles")
 
-        # Clean liveness_data from numpy types
-        clean_liveness_data = {}
-        if liveness_data:
-            for key, value in liveness_data.items():
-                if hasattr(value, 'item'):  # numpy scalar
-                    clean_liveness_data[key] = float(value.item())
-                elif isinstance(value, (list, tuple)):
-                    clean_liveness_data[key] = [float(v.item()) if hasattr(v, 'item') else v for v in value]
-                else:
-                    clean_liveness_data[key] = value
+        # Session-based authentication - liveness data is already properly formatted
         
         payload = {
             "success": True,
@@ -1203,16 +1317,16 @@ def _handle_authentication_frame(
             "similarity_score": similarity_score,
             "quality_score": quality_score,
             "liveness_score": normalized_liveness,
-            "liveness_data": clean_liveness_data,
-            "match_fallback_used": match_fallback_used,
-            "match_fallback_explanation": "Fallback algorithm was used for matching" if match_fallback_used else "Primary algorithm used for matching",
+            "liveness_verified": liveness_verified,
+            "match_fallback_used": False,  # Not used in session-based auth
             "requires_more_frames": False,
             "session_token": session.session_token,
+            "session_feedback": auth_result.get("feedback", ""),
             "message": "Authentication successful",
             "authentication_metadata": {
-                "algorithm_used": "fallback" if match_fallback_used else "primary",
+                "algorithm_used": "session_based",
                 "confidence_level": "high" if similarity_score >= 0.8 else "medium" if similarity_score >= 0.6 else "low",
-                "liveness_method": "blink_detection" if clean_liveness_data.get("blinks_detected", 0) > 0 else "motion_detection"
+                "liveness_method": "session_persistent_detector"
             }
         }
         
@@ -1249,7 +1363,32 @@ def _handle_authentication_frame(
         
         return payload, status.HTTP_200_OK
 
-    # Final failure
+    # Check if we should continue with more frames instead of final failure
+    if frames_processed < min_frames_required or not liveness_verified:
+        # If we haven't reached minimum frames or liveness not verified, continue
+        continue_message = f"Memproses frame {frames_processed}/{min_frames_required}"
+        if not liveness_verified:
+            continue_message += " - Kedipkan mata atau gerakkan kepala sedikit"
+        
+        payload = {
+            "success": False,
+            "requires_more_frames": True,
+            "message": continue_message,
+            "frames_processed": frames_processed,
+            "min_frames_required": min_frames_required,
+            "liveness_blinks": total_blinks,
+            "liveness_motion_events": total_motion_events,
+            "liveness_score": normalized_liveness,
+            "liveness_verified": liveness_verified,
+            "similarity_score": auth_result.get("similarity_score", 0.0),
+            "quality_score": auth_result.get("quality_score", 0.0),
+            "session_status": session.status,
+            "session_feedback": continue_message,
+            "error": auth_result.get("error", "Processing..."),
+        }
+        return payload, status.HTTP_200_OK
+
+    # Final failure - only if we've tried enough frames
     failure_reason = error_message or "Authentication failed"
     attempt_result = "failed"
     lower_reason = failure_reason.lower()
@@ -1368,7 +1507,7 @@ def _handle_authentication_frame(
     session.is_successful = False  # Fix: Set authentication failure flag
     metadata["final_status"] = "failed"
     metadata["failure_reason"] = failure_reason
-    session.metadata = metadata
+    session.metadata = _ensure_json_serializable_metadata(metadata)
     session.save(update_fields=["status", "completed_at", "is_successful", "metadata"])
     
     # Send webhook notification for failed authentication

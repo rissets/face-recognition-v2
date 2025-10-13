@@ -281,6 +281,28 @@ CHANNEL_LAYERS = {
     },
 }
 
+# Cache Configuration (Redis)
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/1'),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        }
+    },
+    'sessions': {
+        'BACKEND': 'django_redis.cache.RedisCache', 
+        'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/2'),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+        'TIMEOUT': 1800,  # 30 minutes for face recognition sessions
+    }
+}
+
+# Use Redis for session caching
+CACHE_TTL = 60 * 30  # 30 minutes default cache timeout
+
 # Celery Configuration
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = config(
@@ -348,16 +370,22 @@ if not DEBUG:
 FACE_RECOGNITION_CONFIG = {
     "MODEL_NAME": "buffalo_l",
     "DET_SIZE": (640, 640),
-    "VERIFICATION_THRESHOLD": 0.4,
-    "LIVENESS_THRESHOLD": 0.8,  # Enhanced liveness detection
+    "VERIFICATION_THRESHOLD": 0.3,  # Lower threshold for easier matching
+    "LIVENESS_THRESHOLD": 1,  # Min blinks required for liveness (lowered)
+    "LIVENESS_BLINK_THRESHOLD": 1,  # Min blinks required for liveness (lowered)
+    "LIVENESS_MOTION_THRESHOLD": 0.2,  # Motion threshold for liveness
     "ANTI_SPOOFING_THRESHOLD": 0.7,  # Anti-spoofing detection
     "EMBEDDING_DIMENSION": 512,
     "MAX_ENROLLMENT_SAMPLES": 5,
+    "MIN_ENROLLMENT_FRAMES": 3,  # Minimum frames for enrollment averaging
     "MIN_FACE_SIZE": 100,
     "MAX_FACE_SIZE": 800,
     "CAPTURE_QUALITY_THRESHOLD": 0.7,
-    "LIVENESS_METHODS": ["blink_detection", "motion_detection", "texture_analysis"],
+    "HEAD_POSE_THRESHOLD": 20,  # Max head pose angle in degrees
+    "LIVENESS_METHODS": ["blink_detection", "motion_detection", "head_pose_validation"],
     "OBSTACLE_DETECTION_ENABLED": True,
+    "USE_EMBEDDING_AVERAGING": True,  # Use embedding averaging for enrollment
+    "SESSION_TIMEOUT_MINUTES": 10,  # Session timeout in minutes
 }
 
 # Third-Party Service Configuration

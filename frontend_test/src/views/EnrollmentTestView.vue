@@ -3,7 +3,26 @@
     <section class="section">
       <header>
         <h2>Enrollment Wajah via Streaming</h2>
-        <p>Aktifkan kamera, buat session enrollment, lalu kirim sampel secara otomatis sampai target terpenuhi.</p>
+        <div class="guide-section">
+          <h3>📋 Panduan Enrollment:</h3>
+          <ol>
+            <li><strong>Isi External User ID</strong> - Masukkan ID unik untuk user (contoh: john.doe)</li>
+            <li><strong>Aktifkan Kamera</strong> - Pastikan wajah terlihat jelas dengan pencahayaan yang baik</li>
+            <li><strong>Buat Session</strong> - Sistem akan mulai mengumpulkan sampel wajah</li>
+            <li><strong>Mulai Streaming</strong> - Sistem akan menganalisis setiap frame:
+              <ul>
+                <li>💚 <strong>Lakukan kedipan mata</strong> untuk liveness detection</li>
+                <li>🔄 <strong>Gerakkan kepala sedikit</strong> untuk variasi pose</li>
+                <li>✋ <strong>Jangan tutup wajah</strong> dengan tangan atau benda lain</li>
+                <li>💡 <strong>Pastikan pencahayaan baik</strong> untuk kualitas optimal</li>
+              </ul>
+            </li>
+            <li><strong>Tunggu Completion</strong> - Sistem akan otomatis selesai setelah cukup sampel berkualitas</li>
+          </ol>
+          <div class="tips">
+            <strong>💡 Tips:</strong> Jika progress 100% tapi belum selesai, pastikan sudah kedip mata minimal 1x atau gerakkan kepala sedikit.
+          </div>
+        </div>
       </header>
       <div class="layout-split">
         <div>
@@ -108,10 +127,25 @@
               <span>Liveness Score</span>
               <strong>{{ (lastLivenessScore || 0).toFixed(2) }}</strong>
               <small v-if="lastLivenessHint">{{ lastLivenessHint }}</small>
+              <span class="status-pill" :class="livenessVerified ? 'success' : 'warning'">
+                {{ livenessVerified ? 'Verified' : 'Pending' }}
+              </span>
             </div>
             <div class="session-tile">
               <span>Quality Terakhir</span>
               <strong>{{ lastQuality ?? '-' }}</strong>
+            </div>
+            <div class="session-tile" v-if="canComplete">
+              <span>Status Enrollment</span>
+              <span class="status-pill success">Ready to Complete</span>
+            </div>
+            <div class="session-tile" v-if="obstaclesDetected.length > 0">
+              <span>Obstacles Detected</span>
+              <div class="obstacle-list">
+                <span v-for="obstacle in obstaclesDetected" :key="obstacle" class="status-pill danger">
+                  {{ obstacle }}
+                </span>
+              </div>
             </div>
           </div>
             <div class="progress-wrapper">
@@ -130,7 +164,11 @@
               <strong>Preview Wajah Terakhir</strong>
               <img :src="streamingState.lastPreview" alt="Face preview" class="preview-face" />
             </div>
-            <div v-if="lastMessage" class="info-card">
+            <div class="info-card" v-if="sessionFeedback">
+              <strong>Session Feedback</strong>
+              <span>{{ sessionFeedback }}</span>
+            </div>
+            <div class="info-card" v-if="lastMessage && lastMessage !== sessionFeedback">
               <strong>Pesan Terakhir</strong>
               <span>{{ lastMessage }}</span>
             </div>
@@ -247,7 +285,12 @@ const sessionStatus = computed(() => {
 
 const lastQuality = computed(() => streamingState.lastResponse?.quality_score ?? null)
 const lastMessage = computed(() => streamingState.lastResponse?.message ?? '')
+const sessionFeedback = computed(() => streamingState.lastResponse?.session_feedback ?? '')
 const lastLivenessScore = computed(() => streamingState.lastLivenessScore)
+const livenessVerified = computed(() => streamingState.lastResponse?.liveness_verified ?? false)
+const obstaclesDetected = computed(() => streamingState.lastResponse?.obstacles ?? [])
+const canComplete = computed(() => streamingState.lastResponse?.can_complete_enrollment ?? false)
+const enrollmentProgress = computed(() => streamingState.lastResponse?.enrollment_progress ?? 0)
 const lastLivenessHint = computed(() => {
   const info = streamingState.lastLivenessData
   if (!info) return ''
@@ -483,10 +526,13 @@ async function sendFrame(frameData, overrideToken) {
     streamingState.lastLivenessData = data.liveness_data ?? data.last_liveness ?? streamingState.lastLivenessData
     streamingState.lastPreview = data.preview_image || streamingState.lastPreview
 
-    const framesProcessed = data.frames_processed ?? data.completed_samples ?? streamingState.framesSent
+    // Enhanced session-based response handling
+    const framesProcessed = data.completed_samples ?? data.frames_processed ?? streamingState.framesSent
     const targetSamples = data.target_samples ?? session.value?.target_samples ?? settings.targetSamples
     const sessionStatus = data.session_status ?? data.status ?? session.value?.status ?? 'in_progress'
     const requiresMore = data.requires_more_frames === true
+    const progressPercentage = data.enrollment_progress ?? ((framesProcessed / targetSamples) * 100)
+    const sessionFeedback = data.session_feedback || data.message || ''
 
     if (session.value && session.value.session_token === token) {
       session.value.status = sessionStatus
@@ -499,11 +545,17 @@ async function sendFrame(frameData, overrideToken) {
       return data
     }
 
+    // Enhanced feedback with session-based information
     const successState = data.success === true ? 'success' : 'info'
-    addLog(successState, 'Frame diterima', {
+    const logMessage = sessionFeedback || 'Frame diterima'
+    addLog(successState, logMessage, {
       frames: `${framesProcessed}/${targetSamples}`,
+      progress: `${progressPercentage.toFixed(1)}%`,
       liveness_score: data.liveness_score,
-      requires_more_frames: data.requires_more_frames
+      liveness_verified: data.liveness_verified,
+      can_complete: data.can_complete_enrollment,
+      requires_more_frames: data.requires_more_frames,
+      obstacles: data.obstacles || []
     })
 
     if (sessionStatus === 'failed') {
@@ -514,8 +566,11 @@ async function sendFrame(frameData, overrideToken) {
 
     if (sessionStatus === 'completed' && !requiresMore) {
       addLog('success', 'Enrollment selesai', {
-        message: data.message || 'Target sampel tercapai',
-        liveness_score: data.liveness_score
+        message: sessionFeedback || data.message || 'Target sampel tercapai dengan embedding averaging',
+        liveness_score: data.liveness_score,
+        liveness_verified: data.liveness_verified,
+        enrolled_user_id: data.enrolled_user_id,
+        quality_score: data.quality_score
       })
       stopStreaming()
     }
@@ -587,3 +642,58 @@ onBeforeUnmount(() => {
   cameraRef.value?.stop()
 })
 </script>
+
+<style scoped>
+.obstacle-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+.obstacle-list .status-pill {
+  font-size: 0.75rem;
+  padding: 0.125rem 0.5rem;
+}
+
+.guide-section {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+.guide-section h3 {
+  margin-top: 0;
+  color: #1e293b;
+  font-size: 1.1rem;
+}
+
+.guide-section ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.guide-section ol li {
+  margin-bottom: 0.5rem;
+}
+
+.guide-section ul {
+  margin: 0.25rem 0;
+  padding-left: 1rem;
+}
+
+.guide-section ul li {
+  margin-bottom: 0.25rem;
+}
+
+.tips {
+  background: #dbeafe;
+  border: 1px solid #3b82f6;
+  border-radius: 0.25rem;
+  padding: 0.5rem;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+</style>
