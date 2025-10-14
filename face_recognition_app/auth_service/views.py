@@ -969,6 +969,34 @@ def _handle_authentication_frame(
     liveness_data = auth_result.get("liveness_data") or {}
     frames_processed = int(metadata.get("frames_processed", 0)) + 1
     
+    # Check frame limit - stop after 3 frames if no success
+    MAX_AUTH_FRAMES = 8
+    if frames_processed > MAX_AUTH_FRAMES and not auth_result.get("success"):
+        # Stop authentication after max frames without success
+        session.status = "failed"
+        session.completed_at = timezone.now()
+        session.is_successful = False
+        metadata["final_status"] = "failed"
+        metadata["failure_reason"] = f"Authentication failed after {MAX_AUTH_FRAMES} frames - face not recognized clearly"
+        metadata["frames_processed"] = frames_processed
+        session.metadata = _ensure_json_serializable_metadata(metadata)
+        session.save(update_fields=["status", "completed_at", "is_successful", "metadata"])
+        
+        return (
+            {
+                "success": False,
+                "error": f"Wajah tidak dapat dikenali setelah {MAX_AUTH_FRAMES} percobaan",
+                "message": "Pastikan wajah terlihat jelas dan pencahayaan cukup, kemudian coba lagi",
+                "session_status": "failed",
+                "session_finalized": True,
+                "frames_processed": frames_processed,
+                "max_frames_reached": True,
+                "similarity_score": auth_result.get("similarity_score", 0.0),
+                "quality_score": auth_result.get("quality_score", 0.0),
+            },
+            status.HTTP_400_BAD_REQUEST,
+        )
+    
     # Get cumulative session data from session manager
     session_data = session_manager.get_session_data(session_id) or {}
     liveness_detector_data = session_data.get("liveness_detector", {})
@@ -1102,32 +1130,43 @@ def _handle_authentication_frame(
 
     # Handle case where authentication is successful but requirements not fully met
     if auth_result.get("success") and not (min_frames_met and liveness_verified):
-        payload = {
-            "success": False,
-            "requires_more_frames": True,
-            "message": f"Wajah dikenali! Lanjutkan untuk verifikasi liveness (Frame: {frames_processed}/{min_frames_required}, Liveness: {'✓' if liveness_verified else '✗'})",
-            "frames_processed": frames_processed,
-            "min_frames_required": min_frames_required,
-            "liveness_blinks": total_blinks,
-            "liveness_motion_events": total_motion_events,
-            "liveness_score": normalized_liveness,
-            "liveness_verified": liveness_verified,
-            "similarity_score": auth_result.get("similarity_score", 0.0),
-            "quality_score": auth_result.get("quality_score", 0.0),
-            "session_status": session.status,
-            "session_feedback": f"Wajah dikenali! Frames: {frames_processed}/{min_frames_required}, Liveness: {'✓' if liveness_verified else '✗'}",
-            "face_recognized": True,
-            "preliminary_match": {
-                "user_id": auth_result.get("user_id"),
-                "similarity": auth_result.get("similarity_score", 0.0)
+        # If we've reached max frames and face is recognized, allow success with relaxed liveness
+        if frames_processed >= MAX_AUTH_FRAMES:
+            logger.info(f"Authentication success with relaxed liveness after {frames_processed} frames")
+            # Proceed to final success even without full liveness verification
+        else:
+            # Continue asking for more frames if within limit
+            payload = {
+                "success": False,
+                "requires_more_frames": True,
+                "message": f"Wajah dikenali! Lanjutkan untuk verifikasi liveness (Frame: {frames_processed}/{min_frames_required}, Liveness: {'✓' if liveness_verified else '✗'})",
+                "frames_processed": frames_processed,
+                "min_frames_required": min_frames_required,
+                "liveness_blinks": total_blinks,
+                "liveness_motion_events": total_motion_events,
+                "liveness_score": normalized_liveness,
+                "liveness_verified": liveness_verified,
+                "similarity_score": auth_result.get("similarity_score", 0.0),
+                "quality_score": auth_result.get("quality_score", 0.0),
+                "session_status": session.status,
+                "session_feedback": f"Wajah dikenali! Frames: {frames_processed}/{min_frames_required}, Liveness: {'✓' if liveness_verified else '✗'}",
+                "face_recognized": True,
+                "preliminary_match": {
+                    "user_id": auth_result.get("user_id"),
+                    "similarity": auth_result.get("similarity_score", 0.0)
+                }
             }
-        }
-        return payload, status.HTTP_200_OK
+            return payload, status.HTTP_200_OK
 
     # Only finalize authentication if we have enough frames AND liveness is verified
-    if auth_result.get("success") and min_frames_met and liveness_verified:
+    # OR if we've reached max frames and face is successfully recognized (relaxed liveness)
+    relaxed_liveness = (frames_processed >= MAX_AUTH_FRAMES and auth_result.get("success"))
+    if auth_result.get("success") and (min_frames_met and liveness_verified) or relaxed_liveness:
         engine_user_id = auth_result.get("user_id")
-        logger.info(f"Authentication successful and requirements met, raw engine_user_id: {engine_user_id}")
+        if relaxed_liveness:
+            logger.info(f"Authentication successful with relaxed liveness after {frames_processed} frames, raw engine_user_id: {engine_user_id}")
+        else:
+            logger.info(f"Authentication successful and requirements met, raw engine_user_id: {engine_user_id}")
         
         # Handle different engine response formats
         matched_user = None

@@ -559,7 +559,23 @@ async function sendFrame(frameData, overrideToken) {
       recognizedUser.value = null
       const failureMsg = sessionFeedback || data.message || data.error || 'Autentikasi gagal'
       
-      // Don't show error immediately, let it continue for a few frames
+      // Handle max frames reached - show error immediately and stop
+      if (data.max_frames_reached) {
+        errors.session = failureMsg
+        addLog('warning', failureMsg, {
+          similarity_score: data.similarity_score,
+          liveness_score: data.liveness_score,
+          liveness_verified: livenessVerified,
+          obstacles: obstacles,
+          session_feedback: sessionFeedback,
+          frames_sent: streamingState.framesSent,
+          max_frames_reached: true
+        })
+        stopStreaming()
+        return data
+      }
+      
+      // Don't show error immediately for other cases, let it continue for a few frames
       if (streamingState.framesSent > 3) {
         errors.session = failureMsg
       }
@@ -573,8 +589,8 @@ async function sendFrame(frameData, overrideToken) {
         frames_sent: streamingState.framesSent
       })
       
-      // Only stop if explicitly told to or after many attempts
-      if (data.session_finalized || streamingState.framesSent > 15) {
+      // Stop if session finalized or requires new session
+      if (data.session_finalized) {
         stopStreaming()
       }
       if (data.requires_new_session) {
