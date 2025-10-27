@@ -131,6 +131,12 @@ class FaceAuthWebSocketClient:
     
     async def connect_websocket(self, websocket_url: str):
         """Connect to WebSocket"""
+        # Convert http/https to ws/wss if needed
+        if websocket_url.startswith('http://'):
+            websocket_url = websocket_url.replace('http://', 'ws://', 1)
+        elif websocket_url.startswith('https://'):
+            websocket_url = websocket_url.replace('https://', 'wss://', 1)
+        
         print(f"Connecting to WebSocket: {websocket_url}")
         self.ws = await websockets.connect(websocket_url)
         print("WebSocket connected!")
@@ -564,6 +570,7 @@ class FaceAuthWebSocketClient:
         
         # Step 2: Create session
         session = self.create_enrollment_session(user_id)
+        print(f"websocket_url: {session['websocket_url']}")
         print(f"✅ Session created: {session['session_token']}")
         print(f"   Target samples: {session['target_samples']}")
         print(f"   WebSocket URL: {session['websocket_url']}\n")

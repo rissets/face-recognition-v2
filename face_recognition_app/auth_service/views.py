@@ -425,8 +425,9 @@ def create_enrollment_session(request):
 
     face_engine.reset_liveness_detector()
 
-    # Generate WebSocket URL
-    websocket_scheme = "wss" if request.is_secure() else "ws"
+    # Generate WebSocket URL - check for proxy headers
+    is_secure = request.is_secure() or request.META.get('HTTP_X_FORWARDED_PROTO', '').lower() == 'https'
+    websocket_scheme = "wss" if is_secure else "ws"
     websocket_host = request.get_host()
     websocket_url = f"{websocket_scheme}://{websocket_host}/ws/auth/process-image/{session.session_token}/"
 
@@ -504,8 +505,9 @@ def create_authentication_session(request):
 
     face_engine.reset_liveness_detector()
 
-    # Generate WebSocket URL
-    websocket_scheme = "wss" if request.is_secure() else "ws"
+    # Generate WebSocket URL - check for proxy headers
+    is_secure = request.is_secure() or request.META.get('HTTP_X_FORWARDED_PROTO', '').lower() == 'https'
+    websocket_scheme = "wss" if is_secure else "ws"
     websocket_host = request.get_host()
     websocket_url = f"{websocket_scheme}://{websocket_host}/ws/auth/process-image/{session.session_token}/"
 
