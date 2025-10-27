@@ -22,11 +22,7 @@ import streaming.routing
 
 application = ProtocolTypeRouter({
     "http": django_asgi_app,
-    "websocket": AllowedHostsOriginValidator(
-        AuthMiddlewareStack(
-            URLRouter(
-                streaming.routing.websocket_urlpatterns
-            )
-        )
+    "websocket": URLRouter(
+        streaming.routing.websocket_urlpatterns
     ),
 })

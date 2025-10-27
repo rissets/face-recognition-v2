@@ -57,16 +57,21 @@ def json_serializable(obj):
 class LivenessDetector:
     """Enhanced liveness detection for spoofing prevention"""
     
-    def __init__(self):
-        logger.info("Initializing LivenessDetector...")
+    def __init__(self, skip_init=False):
+        """
+        Initialize LivenessDetector
+        Args:
+            skip_init: If True, skip MediaPipe initialization (for restoring from cache)
+        """
+        if not skip_init:
+            logger.info("Initializing LivenessDetector...")
+        
         self.mp_face_mesh = mp.solutions.face_mesh
-        self.face_mesh = self.mp_face_mesh.FaceMesh(
-            static_image_mode=False,
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
-        )
+        self._face_mesh = None  # Lazy initialization
+        
+        # Only initialize MediaPipe if not skipping
+        if not skip_init:
+            self._initialize_face_mesh()
         
         # Eye landmarks for blink detection
         self.LEFT_EYE_LANDMARKS = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
@@ -76,39 +81,57 @@ class LivenessDetector:
         self.LEFT_EYE_POINTS = [33, 160, 158, 133, 153, 144]  
         self.RIGHT_EYE_POINTS = [362, 385, 387, 263, 373, 380]
         
-        # Blink detection parameters - lowered threshold for better detection
-        self.EAR_THRESHOLD = 0.18  # More sensitive blink detection
-        self.ADAPTIVE_FACTOR = 0.5
-        self.CONSECUTIVE_FRAMES = 2
-        self.MIN_BLINK_DURATION = 1
-        self.MAX_BLINK_DURATION = 10
-        self.MOTION_SENSITIVITY = 0.12  # Normalized center shift required to count as motion
-        self.MOTION_EVENT_INTERVAL = 0.35  # Seconds between motion events to avoid over-counting
+        # Blink detection parameters - OPTIMIZED for real-world detection
+        self.EAR_THRESHOLD = 0.22  # LOWERED from 0.25 - detect when eyes close significantly
+        self.ADAPTIVE_FACTOR = 0.75  # LOWERED from 0.80 - more aggressive adaptive threshold
+        self.CONSECUTIVE_FRAMES = 1  # LOWERED from 2 - detect even brief blinks
+        self.MIN_BLINK_DURATION = 1  # Minimum 1 frame
+        self.MAX_BLINK_DURATION = 15  # INCREASED from 10 - allow longer blinks
+        self.MOTION_SENSITIVITY = 0.015  # SUPER SENSITIVE - lowered from 0.03 (2x more sensitive!)
+        self.MOTION_EVENT_INTERVAL = 0.20  # FASTER - lowered from 0.25s
         
         # Tracking variables - made serializable for session management
         self.reset()
+    
+    def _initialize_face_mesh(self):
+        """Initialize MediaPipe FaceMesh (lazy initialization)"""
+        if self._face_mesh is None:
+            self._face_mesh = self.mp_face_mesh.FaceMesh(
+                static_image_mode=False,
+                max_num_faces=1,
+                refine_landmarks=True,
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5
+            )
+    
+    @property
+    def face_mesh(self):
+        """Lazy property for face_mesh"""
+        if self._face_mesh is None:
+            self._initialize_face_mesh()
+        return self._face_mesh
         
     def reset(self):
         """Reset detector for new session"""
-        self.blink_count = 0
-        self.frame_count = 0
-        self.frame_counter = 0  # Add frame_counter for consistency
-        self.total_blinks = 0   # Add total_blinks for session tracking
-        self.valid_blinks = 0   # Add valid_blinks counter
-        self.blink_counter = 0  # Add blink_counter for duration tracking
-        self.ear_history = []   # Add ear_history for adaptive threshold
-        self.motion_history = []
+        # Use blink_count as the main counter (aliased to total_blinks for compatibility)
+        self.blink_count = 0        # Main blink counter - used by consumers
+        self.total_blinks = 0       # Alias for blink_count (kept for compatibility)
+        self.valid_blinks = 0       # Count of valid blinks
+        self.blink_counter = 0      # Current blink duration counter
+        self.frame_count = 0        # Legacy frame counter
+        self.frame_counter = 0      # Current frame counter
+        self.ear_history = []       # EAR history for adaptive threshold
+        self.motion_history = []    # Motion history
         self.previous_landmarks = None
-        self.blink_frames = 0
+        self.blink_frames = 0       # Legacy blink frames
         self.last_ear = 0.0
         self.baseline_ear = None
         self.blink_start_frame = None
         self.last_blink_time = 0
         self.eye_visibility_score = 0.0
         self.blink_quality_scores = []
-        self.motion_events = 0
-        self.motion_score = 0.0
-        self.motion_history = []
+        self.motion_events = 0      # Count of motion events
+        self.motion_score = 0.0     # Cumulative motion score
         self.last_bbox_center = None
         self.last_bbox_size = None
         self.last_motion_time = 0.0
@@ -266,6 +289,7 @@ class LivenessDetector:
             if self.last_bbox_center is None:
                 self.last_bbox_center = current_center
                 self.last_bbox_size = current_size
+                logger.debug(f"Motion tracking initialized: center={current_center}, size={current_size:.1f}")
                 return
 
             delta = np.linalg.norm(current_center - self.last_bbox_center)
@@ -281,17 +305,23 @@ class LivenessDetector:
                 self.motion_events += 1
                 self.motion_score = min(1.0, self.motion_score + normalized_shift)
                 self.last_motion_time = now
+                logger.info(f"✓ MOTION DETECTED! Events: {self.motion_events}, Shift: {normalized_shift:.3f}, Score: {self.motion_score:.3f}")
+
+            # Log every 30 frames for debugging
+            if self.frame_counter % 30 == 0:
+                logger.debug(f"Motion: shift={normalized_shift:.4f}, sensitivity={self.MOTION_SENSITIVITY}, events={self.motion_events}")
 
             # Always keep latest bbox for next frame comparison
             self.last_bbox_center = current_center
             self.last_bbox_size = current_size
 
         except Exception as exc:
-            logger.error(f"Error updating motion data: {exc}")
+            logger.error(f"Error updating motion data: {exc}", exc_info=True)
         
     def detect_blink(self, frame, bbox=None):
         """Enhanced blink detection"""
         try:
+            # Update motion first
             self._update_motion(bbox)
 
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -325,28 +355,37 @@ class LivenessDetector:
                         else:
                             adaptive_threshold = self.EAR_THRESHOLD
                         
+                        # Debug logging
+                        if self.frame_counter % 30 == 0:  # Log every 30 frames
+                            logger.info(f"Frame {self.frame_counter}: EAR={avg_ear:.3f}, Threshold={adaptive_threshold:.3f}, Blinks={self.total_blinks}, Motion={self.motion_events}")
+                        
                         # Blink detection logic
                         if avg_ear < adaptive_threshold:
                             if self.blink_start_frame is None:
                                 self.blink_start_frame = self.frame_counter
+                                logger.debug(f"Blink started at frame {self.frame_counter}, EAR={avg_ear:.3f}")
                             self.blink_counter += 1
                         else:
                             if self.blink_counter >= self.CONSECUTIVE_FRAMES:
                                 # Valid blink detected
                                 blink_duration = self.blink_counter
                                 if self.MIN_BLINK_DURATION <= blink_duration <= self.MAX_BLINK_DURATION:
-                                    self.total_blinks += 1
-                                    self.valid_blinks += 1
+                                    # Increment ALL blink counters
+                                    self.blink_count += 1       # Main counter used by consumers
+                                    self.total_blinks += 1      # Alias for compatibility
+                                    self.valid_blinks += 1      # Valid blinks counter
                                     self.blink_quality_scores.append(avg_quality)
                                     self.last_blink_time = current_time
                                     
-                                    logger.info(f"Blink detected! Total: {self.total_blinks}, Duration: {blink_duration}")
+                                    logger.info(f"✓ BLINK DETECTED! Count: {self.blink_count}, Duration: {blink_duration}, EAR: {avg_ear:.3f}")
+                                else:
+                                    logger.debug(f"Blink rejected: duration={blink_duration} out of range [{self.MIN_BLINK_DURATION}, {self.MAX_BLINK_DURATION}]")
                             
                             self.blink_counter = 0
                             self.blink_start_frame = None
                         
                         return {
-                            'blinks_detected': self.total_blinks,
+                            'blinks_detected': self.blink_count,  # Use blink_count instead of total_blinks
                             'ear': avg_ear,
                             'quality': avg_quality,
                             'threshold': adaptive_threshold,
@@ -354,11 +393,11 @@ class LivenessDetector:
                             'motion_events': self.motion_events,
                             'motion_score': self.motion_score,
                             'motion_verified': self.motion_events > 0,
-                            'blink_verified': self.total_blinks > 0,
+                            'blink_verified': self.blink_count > 0,  # Use blink_count
                             'head_pose': pose_info
                         }
             else:
-                debug_log("No face landmarks detected")
+                logger.warning(f"Frame {self.frame_counter}: No face landmarks detected in MediaPipe")
             
             return {
                 'blinks_detected': self.total_blinks,
@@ -374,7 +413,7 @@ class LivenessDetector:
             }
             
         except Exception as e:
-            logger.error(f"Error in detect_blink: {e}")
+            logger.error(f"Error in detect_blink: {e}", exc_info=True)
             return {
                 'blinks_detected': self.total_blinks,
                 'ear': 0.0,
@@ -476,6 +515,7 @@ class ObstacleDetector:
             face_roi = frame[y1:y2, x1:x2]
             
             if face_roi.size == 0:
+                logger.warning("Empty face ROI for obstacle detection")
                 return obstacles, confidence_scores
                 
             # Detect using face mesh landmarks
@@ -484,33 +524,47 @@ class ObstacleDetector:
             
             if results.multi_face_landmarks:
                 for face_landmarks in results.multi_face_landmarks:
-                    # Glasses detection
+                    # Glasses detection - STRICTER threshold: only if confidence > 0.5
                     glasses_conf = self._detect_glasses_advanced(face_roi, face_landmarks)
-                    if glasses_conf > 0.5:
+                    logger.debug(f"Glasses confidence: {glasses_conf:.2f}")
+                    if glasses_conf > 0.50:  # INCREASED threshold - ignore if < 0.5
                         obstacles.append('glasses')
                         confidence_scores['glasses'] = glasses_conf
+                        logger.info(f"🕶️ GLASSES DETECTED: confidence={glasses_conf:.2f}")
                     
-                    # Mask detection
+                    # Mask detection - keep at 0.3 (masks are serious)
                     mask_conf = self._detect_mask_advanced(face_roi, face_landmarks)
-                    if mask_conf > 0.5:
+                    logger.debug(f"Mask confidence: {mask_conf:.2f}")
+                    if mask_conf > 0.3:  # Keep sensitive for masks
                         obstacles.append('mask')
                         confidence_scores['mask'] = mask_conf
+                        logger.info(f"😷 MASK DETECTED: confidence={mask_conf:.2f}")
                     
-                    # Hat detection
+                    # Hat detection - keep at 0.3
                     hat_conf = self._detect_hat_advanced(face_roi, face_landmarks)
-                    if hat_conf > 0.5:
+                    logger.debug(f"Hat confidence: {hat_conf:.2f}")
+                    if hat_conf > 0.3:  # Keep sensitive for hats
                         obstacles.append('hat')
                         confidence_scores['hat'] = hat_conf
+                        logger.info(f"🎩 HAT DETECTED: confidence={hat_conf:.2f}")
                     
-                    # Hand covering detection
+                    # Hand covering detection - keep at 0.3 (hands are serious)
                     hand_conf = self._detect_hand_covering(face_roi, face_landmarks)
-                    if hand_conf > 0.5:
+                    logger.debug(f"Hand covering confidence: {hand_conf:.2f}")
+                    if hand_conf > 0.3:  # Keep sensitive for hands
                         obstacles.append('hand_covering')
                         confidence_scores['hand_covering'] = hand_conf
+                        logger.info(f"✋ HAND COVERING DETECTED: confidence={hand_conf:.2f}")
+                
+                if obstacles:
+                    logger.info(f"Obstacles detected: {obstacles}")
             else:
                 # Fallback to traditional detection
+                logger.debug("No face mesh landmarks, using traditional obstacle detection")
                 traditional_obstacles = self._detect_obstacles_traditional(face_roi)
                 obstacles.extend(traditional_obstacles)
+                if traditional_obstacles:
+                    logger.info(f"Traditional obstacles detected: {traditional_obstacles}")
             
             return obstacles, confidence_scores
             
@@ -519,42 +573,74 @@ class ObstacleDetector:
             return [], {}
     
     def _detect_glasses_advanced(self, face_roi, landmarks):
-        """Advanced glasses detection"""
+        """Advanced glasses detection - IMPROVED for better sensitivity"""
         try:
             h, w = face_roi.shape[:2]
             confidence = 0.0
             
-            # Reflection detection
+            # Convert to grayscale
             gray = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
             blur = cv2.GaussianBlur(gray, (7, 7), 0)
             
-            bright_spots = cv2.threshold(blur, 240, 255, cv2.THRESH_BINARY)[1]
+            # 1. Reflection detection - glasses have bright reflections
+            bright_spots = cv2.threshold(blur, 220, 255, cv2.THRESH_BINARY)[1]  # LOWERED from 240 to 220
             bright_area = np.sum(bright_spots > 0) / (h * w)
             
-            if bright_area > 0.15:
-                confidence += 0.3
+            logger.debug(f"Glasses detection - bright_area: {bright_area:.4f}")
             
-            # Edge detection around eyes
+            # More sensitive to reflections
+            if bright_area > 0.08:  # LOWERED from 0.15 to 0.08
+                confidence += 0.4  # INCREASED from 0.3 to 0.4
+                logger.debug(f"  ✓ Bright reflections detected: {bright_area:.4f}")
+            
+            # 2. Edge detection around eyes - glasses frames create edges
             eye_regions = []
             for idx in self.EYE_REGION_LEFT + self.EYE_REGION_RIGHT:
                 if idx < len(landmarks.landmark):
                     point = landmarks.landmark[idx]
                     eye_regions.append([int(point.x * w), int(point.y * h)])
             
-            if eye_regions:
+            if len(eye_regions) > 2:
                 # Create eye mask and detect edges
                 eye_mask = np.zeros((h, w), dtype=np.uint8)
-                if len(eye_regions) > 2:
-                    hull = cv2.convexHull(np.array(eye_regions))
-                    cv2.fillPoly(eye_mask, [hull], 255)
-                    
-                    edges = cv2.Canny(gray, 50, 150)
-                    eye_edges = cv2.bitwise_and(edges, eye_mask)
-                    edge_ratio = np.sum(eye_edges > 0) / np.sum(eye_mask > 0) if np.sum(eye_mask > 0) > 0 else 0
-                    
-                    if edge_ratio > 0.1:
-                        confidence += 0.4
+                hull = cv2.convexHull(np.array(eye_regions))
+                
+                # Expand mask to include glasses frames
+                expanded_hull = hull.copy()
+                center = hull.mean(axis=0, keepdims=True).astype(int)
+                expanded_hull = ((hull - center) * 1.3 + center).astype(np.int32)  # Expand by 30%
+                
+                cv2.fillPoly(eye_mask, [expanded_hull], 255)
+                
+                # Enhanced edge detection
+                edges = cv2.Canny(gray, 30, 100)  # LOWERED thresholds from 50,150 to 30,100
+                eye_edges = cv2.bitwise_and(edges, eye_mask)
+                edge_ratio = np.sum(eye_edges > 0) / max(1, np.sum(eye_mask > 0))
+                
+                logger.debug(f"Glasses detection - edge_ratio: {edge_ratio:.4f}")
+                
+                # More sensitive to edges
+                if edge_ratio > 0.05:  # LOWERED from 0.1 to 0.05
+                    confidence += 0.5  # INCREASED from 0.4 to 0.5
+                    logger.debug(f"  ✓ Glasses frame edges detected: {edge_ratio:.4f}")
             
+            # 3. Additional check: uniform brightness around eyes (glass lens effect)
+            if len(eye_regions) > 2:
+                eye_bbox = cv2.boundingRect(np.array(eye_regions))
+                ex, ey, ew, eh = eye_bbox
+                eye_region = gray[ey:ey+eh, ex:ex+ew]
+                
+                if eye_region.size > 0:
+                    # Check for uniform brightness (glass surface has less texture variation)
+                    std_dev = np.std(eye_region)
+                    logger.debug(f"Glasses detection - std_dev: {std_dev:.2f}")
+                    
+                    # Lower std dev might indicate glass surface
+                    if std_dev < 35:  # Threshold for low texture variation
+                        confidence += 0.2
+                        logger.debug(f"  ✓ Uniform brightness (glass surface): std={std_dev:.2f}")
+            
+            logger.debug(f"Glasses detection final confidence: {confidence:.2f}")
             return min(1.0, confidence)
             
         except Exception as e:
@@ -678,9 +764,9 @@ class ObstacleDetector:
                     max_overlap_ratio = max(max_overlap_ratio, overlap_ratio)
             
             # Return confidence based on overlap ratio
-            if max_overlap_ratio > 0.15:  # 15% face coverage threshold
-                confidence = min(1.0, max_overlap_ratio * 4)  # Scale to 0-1
-                logger.debug(f"Hand covering detected: {max_overlap_ratio:.3f} overlap, confidence: {confidence:.3f}")
+            if max_overlap_ratio > 0.10:  # LOWERED from 0.15 to 0.10 (10% face coverage threshold)
+                confidence = min(1.0, max_overlap_ratio * 6)  # INCREASED multiplier from 4 to 6
+                logger.info(f"✋ Hand overlap detected: {max_overlap_ratio:.3f} ({max_overlap_ratio*100:.1f}% of face), confidence: {confidence:.3f}")
                 return confidence
             
             return 0.0
@@ -912,6 +998,127 @@ class FaceRecognitionEngine:
         self.allowed_obstacles = set(self.config.get('NON_BLOCKING_OBSTACLES', ['glasses', 'hat']))
         
         logger.info("Face recognition engine initialized")
+    
+    def detect_faces(self, frame):
+        """Detect faces in frame and return face data"""
+        try:
+            faces = self.app.get(frame)
+            
+            if not faces or len(faces) == 0:
+                return []
+            
+            results = []
+            for face in faces:
+                # Get bbox
+                bbox = face.bbox.astype(int) if hasattr(face, 'bbox') else None
+                
+                # Get normalized embedding
+                if hasattr(face, 'normed_embedding') and face.normed_embedding is not None:
+                    embedding = face.normed_embedding
+                elif hasattr(face, 'embedding') and face.embedding is not None:
+                    embedding = face.embedding
+                    norm = np.linalg.norm(embedding)
+                    if norm > 0:
+                        embedding = embedding / norm
+                    else:
+                        embedding = None
+                else:
+                    embedding = None
+                
+                # Calculate quality score based on detection confidence
+                quality = float(face.det_score) if hasattr(face, 'det_score') else 0.0
+                
+                results.append({
+                    'embedding': embedding,
+                    'bbox': bbox.tolist() if bbox is not None else None,
+                    'quality': quality,
+                    'confidence': float(face.det_score) if hasattr(face, 'det_score') else 0.0,
+                    'landmarks': face.kps.tolist() if hasattr(face, 'kps') else None
+                })
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error detecting faces: {e}", exc_info=True)
+            return []
+    
+    def check_liveness(self, frame, face_data, session_token=None):
+        """
+        Check liveness for detected face
+        Uses session-based detector to track blinks across frames
+        """
+        try:
+            bbox = face_data.get('bbox')
+            if bbox is None:
+                return {
+                    'is_live': False,
+                    'blink_detected': False,
+                    'blink_score': 0.0,
+                    'motion_score': 0.0,
+                    'blinks_detected': 0,
+                    'error': 'No bbox provided'
+                }
+            
+            # Get or create session-based liveness detector
+            if session_token:
+                liveness_detector = self.session_manager.get_or_create_liveness_detector(session_token)
+            else:
+                # Fallback to creating new detector (not recommended for WebSocket)
+                logger.warning("check_liveness called without session_token - creating temporary detector")
+                liveness_detector = LivenessDetector()
+            
+            # Detect blink with the detector
+            blink_result = liveness_detector.detect_blink(frame, bbox)
+            
+            # Update detector state back to cache (important for session persistence!)
+            if session_token:
+                self.session_manager.update_liveness_detector(session_token, liveness_detector)
+            
+            # Calculate blink score from EAR
+            ear = blink_result.get('ear', 0.0)
+            threshold = blink_result.get('threshold', 0.25)
+            
+            # Better blink score calculation - lower EAR = higher score
+            if ear > 0 and ear < threshold:
+                blink_score = min(1.0, (threshold - ear) / threshold)
+            else:
+                blink_score = 0.0
+            
+            # Calculate motion score - normalized to 0-1 range
+            motion_score = min(1.0, blink_result.get('motion_score', 0.0))
+            
+            # Calculate overall liveness score - combines blink and motion
+            blinks_detected = blink_result.get('blinks_detected', 0)
+            motion_events = blink_result.get('motion_events', 0)
+            
+            # Liveness score: average of blink contribution and motion contribution
+            blink_contribution = min(1.0, blinks_detected / 2.0)  # Max out at 2 blinks
+            motion_contribution = min(1.0, motion_events / 3.0)   # Max out at 3 motion events
+            overall_liveness_score = (blink_contribution + motion_contribution) / 2.0
+            
+            return {
+                'is_live': blink_result.get('blink_verified', False) or blink_result.get('motion_verified', False),
+                'blink_detected': blink_result.get('blink_verified', False),
+                'blink_score': blink_score,
+                'liveness_score': overall_liveness_score,  # Add overall liveness score
+                'ear': ear,
+                'motion_score': motion_score,
+                'motion_verified': blink_result.get('motion_verified', False),
+                'blinks_detected': blinks_detected,
+                'motion_events': motion_events,
+                'quality': blink_result.get('quality', 0.0),
+            }
+            
+        except Exception as e:
+            logger.error(f"Error checking liveness: {e}", exc_info=True)
+            return {
+                'is_live': False,
+                'blink_detected': False,
+                'blink_score': 0.0,
+                'motion_score': 0.0,
+                'blinks_detected': 0,
+                'error': str(e)
+            }
     
     def extract_embedding(self, frame):
         """Extract face embedding from frame"""

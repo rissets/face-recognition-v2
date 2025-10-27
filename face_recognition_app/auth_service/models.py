@@ -150,6 +150,7 @@ class FaceEnrollment(models.Model):
         ('active', 'Active'),
         ('inactive', 'Inactive'),
         ('expired', 'Expired'),
+        ('completed', 'Completed'),
     ]
     
     # Primary identification

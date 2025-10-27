@@ -242,9 +242,9 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_THROTTLE_CLASSES": [
-        "rest_framework.throttling.AnonRateThrottle",
-        "rest_framework.throttling.UserRateThrottle",
-    ],
+        "core.throttling.SafeAnonRateThrottle",
+        "core.throttling.SafeUserRateThrottle",
+    ] if not config("DISABLE_THROTTLING", default=False, cast=bool) else [],
     "DEFAULT_THROTTLE_RATES": {"anon": "100/hour", "user": "1000/hour"},
     "DEFAULT_SCHEMA_CLASS": "core.schema.FaceRecognitionAutoSchema",
 }
@@ -265,37 +265,71 @@ SIMPLE_JWT = {
     "USER_ID_CLAIM": "user_id",
 }
 
+# Redis Configuration
+# Build Redis URL with password if provided
+REDIS_PASSWORD = config("REDIS_PASSWORD", default="")
+REDIS_HOST = config("REDIS_HOST", default="127.0.0.1")
+REDIS_PORT = config("REDIS_PORT", default=6379, cast=int)
+
+# Build Redis URL with optional password
+if REDIS_PASSWORD:
+    REDIS_BASE_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}"
+else:
+    REDIS_BASE_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}"
+
+# Redis connection options for better error handling
+REDIS_CONNECTION_KWARGS = {
+    "socket_timeout": 5,
+    "socket_connect_timeout": 5,
+    "health_check_interval": 30,
+    "retry_on_timeout": True,
+}
+
 # Channels Configuration
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [
-                (
-                    config("REDIS_HOST", default="127.0.0.1"),
-                    config("REDIS_PORT", default=6379, cast=int),
-                )
-            ],
+            "hosts": [config("REDIS_CHANNELS_URL", default=f"{REDIS_BASE_URL}/3")],
+            "capacity": 1500,
+            "expiry": 60,
         },
     },
 }
 
 # Cache Configuration (Redis)
+
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": config("REDIS_URL", default="redis://127.0.0.1:6379/1"),
+        "LOCATION": config("REDIS_URL", default=f"{REDIS_BASE_URL}/1"),
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "IGNORE_EXCEPTIONS": True,  # Don't fail silently on Redis errors
+            "CONNECTION_POOL_KWARGS": {
+                "max_connections": 50,
+                "retry_on_timeout": True,
+                "socket_connect_timeout": 5,
+                "socket_timeout": 5,
+            },
         },
+        "KEY_PREFIX": "face_recognition",
     },
     "sessions": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": config("REDIS_URL", default="redis://127.0.0.1:6379/2"),
+        "LOCATION": config("REDIS_CACHE_URL", default=f"{REDIS_BASE_URL}/2"),
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "IGNORE_EXCEPTIONS": True,
+            "CONNECTION_POOL_KWARGS": {
+                "max_connections": 50,
+                "retry_on_timeout": True,
+                "socket_connect_timeout": 5,
+                "socket_timeout": 5,
+            },
         },
         "TIMEOUT": 1800,  # 30 minutes for face recognition sessions
+        "KEY_PREFIX": "face_sessions",
     },
 }
 
@@ -303,10 +337,8 @@ CACHES = {
 CACHE_TTL = 60 * 30  # 30 minutes default cache timeout
 
 # Celery Configuration
-CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://localhost:6379/0")
-CELERY_RESULT_BACKEND = config(
-    "CELERY_RESULT_BACKEND", default="redis://localhost:6379/0"
-)
+CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=f"{REDIS_BASE_URL}/0")
+CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=f"{REDIS_BASE_URL}/0")
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
@@ -316,7 +348,7 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = config(
     "CORS_ALLOWED_ORIGINS",
-    default="http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173",
+    default="http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:5500,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173",
     cast=lambda v: [s.strip() for s in v.split(",")],
 )
 
@@ -325,7 +357,7 @@ CORS_ALLOW_CREDENTIALS = True
 # CSRF Configuration
 CSRF_TRUSTED_ORIGINS = config(
     "CSRF_TRUSTED_ORIGINS",
-    default="http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173",
+    default="http://localhost:3000,http://127.0.0.1:3000, http://127.0.0.1:5500 ,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173",
     cast=lambda v: [s.strip() for s in v.split(",")],
 )
 
@@ -526,11 +558,11 @@ SPECTACULAR_SETTINGS = {
     },
     "SERVERS": [
         {
-            "url": "http://127.0.0.1:8003",
+            "url": "http://127.0.0.1:8000",
             "description": "Development Server",
         },
         {
-            "url": "https://api.facerecognition.com",
+            "url": "https://human-face.hellodigi.id",
             "description": "Production Server",
         },
     ],

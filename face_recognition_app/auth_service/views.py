@@ -425,12 +425,18 @@ def create_enrollment_session(request):
 
     face_engine.reset_liveness_detector()
 
+    # Generate WebSocket URL
+    websocket_scheme = "wss" if request.is_secure() else "ws"
+    websocket_host = request.get_host()
+    websocket_url = f"{websocket_scheme}://{websocket_host}/ws/auth/process-image/{session.session_token}/"
+
     response_payload = {
         "session_token": session.session_token,
         "enrollment_id": str(enrollment.id),
         "status": "pending",
         "target_samples": target_samples,
         "expires_at": session.expires_at,
+        "websocket_url": websocket_url,
         "message": "Enrollment session created. Stream frames to continue.",
     }
     response_serializer = EnrollmentCreateResponseSerializer(response_payload)
@@ -498,11 +504,17 @@ def create_authentication_session(request):
 
     face_engine.reset_liveness_detector()
 
+    # Generate WebSocket URL
+    websocket_scheme = "wss" if request.is_secure() else "ws"
+    websocket_host = request.get_host()
+    websocket_url = f"{websocket_scheme}://{websocket_host}/ws/auth/process-image/{session.session_token}/"
+
     response_payload = {
         "session_token": session.session_token,
         "status": "active",
         "expires_at": session.expires_at,
         "session_type": session.session_type,
+        "websocket_url": websocket_url,
         "message": "Authentication session created. Stream frames to continue.",
     }
     response_serializer = AuthSessionCreateResponseSerializer(response_payload)

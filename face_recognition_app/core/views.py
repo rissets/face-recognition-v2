@@ -247,7 +247,18 @@ def system_status(request):
             db_status = 'error'
         
         # Check Redis (if configured)
-        redis_status = 'healthy'  # Implement Redis check
+        try:
+            from django.core.cache import cache
+            # Test cache connectivity
+            cache.set('health_check_key', 'health_check_value', 10)
+            result = cache.get('health_check_key')
+            if result == 'health_check_value':
+                redis_status = 'healthy'
+                cache.delete('health_check_key')
+            else:
+                redis_status = 'warning'
+        except Exception as e:
+            redis_status = 'error'
         
         # Check Celery (if configured)
         celery_status = 'healthy'  # Implement Celery check
@@ -263,13 +274,15 @@ def system_status(request):
             'total_authentications': FaceRecognitionAttempt.objects.count(),
         }
         
+        # Determine overall status - Redis issues shouldn't mark the system as unhealthy
+        overall_status = 'healthy'
+        if db_status != 'healthy':
+            overall_status = 'error'
+        elif redis_status == 'error' or celery_status != 'healthy' or face_processing_status != 'healthy':
+            overall_status = 'degraded'
+        
         status_data = {
-            'status': 'healthy' if all([
-                db_status == 'healthy',
-                redis_status == 'healthy',
-                celery_status == 'healthy',
-                face_processing_status == 'healthy'
-            ]) else 'degraded',
+            'status': overall_status,
             'uptime': uptime_str,
             'version': getattr(settings, 'VERSION', '1.0.0'),
             'database_status': db_status,

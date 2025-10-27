@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Recognition WebSocket Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .config-section, .video-section, .log-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #5568d3;
+        }
+
+        .btn-success {
+            background: #48bb78;
+            color: white;
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background: #38a169;
+        }
+
+        .btn-danger {
+            background: #f56565;
+            color: white;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: #e53e3e;
+        }
+
+        .video-container {
+            position: relative;
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        video, canvas {
+            max-width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        .status.info {
+            background: #bee3f8;
+            color: #2c5282;
+        }
+
+        .status.success {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .status.error {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+
+        .progress {
+            margin-top: 15px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #e2e8f0;
+            border-radius: 15px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+        }
+
+        .log-container {
+            max-height: 400px;
+            overflow-y: auto;
+            background: #1a202c;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-radius: 3px;
+        }
+
+        .log-entry.info {
+            color: #63b3ed;
+        }
+
+        .log-entry.success {
+            color: #68d391;
+        }
+
+        .log-entry.error {
+            color: #fc8181;
+        }
+
+        .log-entry.warning {
+            color: #f6ad55;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .metric-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: #718096;
+            margin-bottom: 5px;
+        }
+
+        .metric-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #2d3748;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Face Recognition WebSocket Demo</h1>
+
+        <!-- Configuration Section -->
+        <div class="config-section">
+            <h2>Configuration</h2>
+            <div class="form-group">
+                <label>API Key:</label>
+                <input type="text" id="apiKey" value="frapi__SQ0KXIfRrV6KZR8X18T6Sk3A4AE9EWlAws2CTOh46g", placeholder="frapi__SQ0KXIfRrV6KZR8X18T6Sk3A4AE9EWlAws2CTOh46g">
+            </div>
+            <div class="form-group">
+                <label>Secret Key:</label>
+                <input type="password" id="secretKey" value="aydNeNp5nHOY3pl-P88Ys3HGEoxjTId_91KeGr8cXBVyTNuWKityajBJUY18iGOhvGmFud7F_PI6DMDYJKtQBA" placeholder="aydNeNp5nHOY3pl-P88Ys3HGEoxjTId_91KeGr8cXBVyTNuWKityajBJUY18iGOhvGmFud7F_PI6DMDYJKtQBA">
+            </div>
+            <div class="form-group">
+                <label>Base URL:</label>
+                <input type="text" id="baseUrl" value="http://127.0.0.1:8000" placeholder="http://127.0.0.1:8000">
+            </div>
+            <div class="form-group">
+                <label>Mode:</label>
+                <select id="mode">
+                    <option value="enrollment">Enrollment</option>
+                    <option value="verification">Verification</option>
+                    <option value="identification">Identification</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>User ID:</label>
+                <input type="text" id="userId" placeholder="user123">
+                <small>Required for Enrollment and Verification</small>
+            </div>
+            <div class="button-group">
+                <button type="button" class="btn-primary" onclick="event.preventDefault(); createSession(); return false;">Create Session</button>
+            </div>
+        </div>
+
+        <!-- Status Section -->
+        <div id="statusSection" style="display: none;">
+            <div class="status info" id="status">
+                Status: Idle
+            </div>
+            <div class="metrics">
+                <div class="metric-card">
+                    <div class="metric-label">Frames Processed</div>
+                    <div class="metric-value" id="framesProcessed">0</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Liveness Score</div>
+                    <div class="metric-value" id="livenessScore">0.00</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Quality Score</div>
+                    <div class="metric-value" id="qualityScore">0.00</div>
+                </div>
+            </div>
+            <div class="progress">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width: 0%">0%</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Video Section -->
+        <div class="video-section">
+            <h2>Camera</h2>
+            <div class="button-group">
+                <button type="button" class="btn-success" onclick="startCamera(); return false;">Start Camera</button>
+                <button type="button" class="btn-danger" onclick="stopCamera(); return false;">Stop Camera</button>
+                <button type="button" class="btn-primary" id="connectBtn" onclick="connectWebSocket(); return false;" disabled>Connect WebSocket</button>
+                <button type="button" class="btn-danger" id="disconnectBtn" onclick="disconnectWebSocket(); return false;" disabled>Disconnect</button>
+            </div>
+            <div class="video-container" style="margin-top: 20px;">
+                <video id="video" width="640" height="480" autoplay></video>
+                <canvas id="canvas" width="640" height="480" style="display: none;"></canvas>
+            </div>
+        </div>
+
+        <!-- Log Section -->
+        <div class="log-section">
+            <h2>Logs</h2>
+            <div class="button-group">
+                <button type="button" class="btn-danger" onclick="clearLogs(); return false;">Clear Logs</button>
+            </div>
+            <div class="log-container" id="logContainer"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script>
+        let ws = null;
+        let stream = null;
+        let sessionData = null;
+        let jwtToken = null;
+        let frameInterval = null;
+        let frameCount = 0;
+
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        function log(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${timestamp}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            console.log(`[${type}]`, message);
+        }
+
+        function updateStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        function updateMetric(id, value) {
+            document.getElementById(id).textContent = value;
+        }
+
+        function updateProgress(current, total) {
+            const percentage = total > 0 ? (current / total * 100) : 0;
+            const progressFill = document.getElementById('progressFill');
+            progressFill.style.width = `${percentage}%`;
+            progressFill.textContent = `${current}/${total} (${percentage.toFixed(0)}%)`;
+        }
+
+        function clearLogs() {
+            document.getElementById('logContainer').innerHTML = '';
+            return false;
+        }
+
+        async function createSession() {
+            const apiKey = document.getElementById('apiKey').value;
+            const secretKey = document.getElementById('secretKey').value;
+            const baseUrl = document.getElementById('baseUrl').value;
+            const mode = document.getElementById('mode').value;
+            const userId = document.getElementById('userId').value;
+
+            if (!apiKey || !secretKey) {
+                alert('Please enter API key and Secret key');
+                return;
+            }
+
+            if ((mode === 'enrollment' || mode === 'verification') && !userId) {
+                alert('User ID is required for enrollment and verification');
+                return;
+            }
+
+            try {
+                // Step 1: Authenticate client
+                log('🔑 Authenticating client...', 'info');
+                
+                const authUrl = `${baseUrl}/api/core/auth/client/`;
+                const authResponse = await fetch(authUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        api_key: apiKey,
+                        api_secret: secretKey
+                    })
+                });
+
+                if (!authResponse.ok) {
+                    const error = await authResponse.json();
+                    throw new Error(error.error || authResponse.statusText);
+                }
+
+                const authData = await authResponse.json();
+                jwtToken = authData.access_token;
+                log('✅ Client authenticated successfully!', 'success');
+                log(`Token: ${jwtToken.substring(0, 50)}...`, 'info');
+
+                // Step 2: Create session
+                log(`Creating ${mode} session...`, 'info');
+                
+                const endpoint = mode === 'enrollment' ? '/api/auth/enrollment/' : '/api/auth/authentication/';
+                const url = `${baseUrl}${endpoint}`;
+                
+                const body = {
+                    metadata: {
+                        target_samples: 3,
+                        min_frames_required: 3,
+                        required_blinks: 1
+                    }
+                };
+
+                if (mode === 'enrollment') {
+                    body.user_id = userId;
+                    body.session_type = 'webcam';
+                } else {
+                    // Authentication mode
+                    body.session_type = 'webcam';
+                    body.require_liveness = true;
+                    if (mode === 'verification' && userId) {
+                        body.user_id = userId;
+                    }
+                }
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `JWT ${jwtToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || response.statusText);
+                }
+
+                sessionData = await response.json();
+                log('Session created successfully!', 'success');
+                log(`Session Token: ${sessionData.session_token}`, 'info');
+                log(`WebSocket URL: ${sessionData.websocket_url}`, 'info');
+
+                document.getElementById('statusSection').style.display = 'block';
+                document.getElementById('connectBtn').disabled = false;
+                updateStatus(`Session created: ${sessionData.session_token}`, 'success');
+
+            } catch (error) {
+                log(`Error creating session: ${error.message}`, 'error');
+                updateStatus(`Error: ${error.message}`, 'error');
+                alert(`Error: ${error.message}`);
+            }
+            return false; // Prevent any default behavior
+        }
+
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: 640, 
+                        height: 480 
+                    } 
+                });
+                video.srcObject = stream;
+                log('Camera started', 'success');
+            } catch (error) {
+                log(`Error starting camera: ${error.message}`, 'error');
+                alert(`Error: ${error.message}`);
+            }
+            return false;
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+                log('Camera stopped', 'info');
+            }
+            return false;
+        }
+
+        function connectWebSocket() {
+            if (!sessionData || !sessionData.websocket_url) {
+                alert('Please create a session first');
+                return;
+            }
+
+            try {
+                // Convert http/https to ws/wss
+                let wsUrl = sessionData.websocket_url;
+                if (wsUrl.startsWith('http://')) {
+                    wsUrl = wsUrl.replace('http://', 'ws://');
+                } else if (wsUrl.startsWith('https://')) {
+                    wsUrl = wsUrl.replace('https://', 'wss://');
+                }
+
+                log(`Connecting to WebSocket: ${wsUrl}`, 'info');
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    log('WebSocket connected!', 'success');
+                    updateStatus('WebSocket connected', 'success');
+                    document.getElementById('connectBtn').disabled = true;
+                    document.getElementById('disconnectBtn').disabled = false;
+                    
+                    // Start sending frames
+                    startSendingFrames();
+                };
+
+                ws.onmessage = (event) => {
+                    handleWebSocketMessage(JSON.parse(event.data));
+                };
+
+                ws.onerror = (error) => {
+                    log('WebSocket error', 'error');
+                    console.error('WebSocket error:', error);
+                };
+
+                ws.onclose = (event) => {
+                    log(`WebSocket closed (code: ${event.code})`, 'info');
+                    updateStatus('WebSocket disconnected', 'error');
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('disconnectBtn').disabled = true;
+                    stopSendingFrames();
+                };
+
+            } catch (error) {
+                log(`Error connecting WebSocket: ${error.message}`, 'error');
+                updateStatus(`Error: ${error.message}`, 'error');
+                alert(`Error: ${error.message}`);
+            }
+            return false;
+        }
+
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+                stopSendingFrames();
+            }
+            return false;
+        }
+
+        function startSendingFrames() {
+            stopSendingFrames();
+            
+            frameInterval = setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN && video.readyState === video.HAVE_ENOUGH_DATA) {
+                    sendFrame();
+                }
+            }, 100); // 10 FPS
+        }
+
+        function stopSendingFrames() {
+            if (frameInterval) {
+                clearInterval(frameInterval);
+                frameInterval = null;
+            }
+        }
+
+        function sendFrame() {
+            // Draw video frame to canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Convert to base64
+            const imageData = canvas.toDataURL('image/jpeg', 0.8);
+            
+            // Send to WebSocket
+            const message = {
+                type: 'frame',
+                image: imageData
+            };
+            
+            ws.send(JSON.stringify(message));
+            frameCount++;
+        }
+
+        function handleWebSocketMessage(data) {
+            const type = data.type;
+
+            switch(type) {
+                case 'connection_established':
+                    log(`Connection established: ${data.session_type} session`, 'success');
+                    break;
+
+                case 'frame_rejected':
+                    // HANDLE REJECTED FRAMES - display prominently
+                    const obstacles = data.obstacles || [];
+                    const obstacleConf = data.obstacle_confidence || {};
+                    const reason = data.reason || 'Frame rejected';
+                    
+                    log('⛔ FRAME REJECTED!', 'error');
+                    log(`   Reason: ${reason}`, 'error');
+                    if (obstacles.length > 0) {
+                        log(`   Obstacles detected: ${obstacles.join(', ')}`, 'error');
+                        obstacles.forEach(obs => {
+                            const conf = obstacleConf[obs] || 0;
+                            log(`      - ${obs}: ${conf.toFixed(2)} confidence`, 'warning');
+                        });
+                        log('   ⚠️  Please remove obstacles and try again', 'warning');
+                    }
+                    updateStatus('Frame rejected - Remove obstacles', 'error');
+                    break;
+
+                case 'frame_processed':
+                    if (data.success) {
+                        updateMetric('framesProcessed', data.frames_processed);
+                        updateMetric('livenessScore', data.liveness_score?.toFixed(2) || '0.00');
+                        updateMetric('qualityScore', data.quality_score?.toFixed(2) || '0.00');
+                        
+                        if (data.target_samples) {
+                            updateProgress(data.frames_processed, data.target_samples);
+                        } else if (data.min_frames_required) {
+                            updateProgress(data.frames_processed, data.min_frames_required);
+                        }
+                        
+                        // Display detailed status with checkmarks
+                        const blinksOk = data.blinks_ok ? '✅' : '❌';
+                        const motionOk = data.motion_ok ? '✅' : '❌';
+                        const noObstacles = data.no_obstacles ? '✅' : '❌';
+                        
+                        log(`Frame ${data.frames_processed} processed - Blinks: ${data.blinks_detected}/${data.blinks_required} ${blinksOk} | Motion: ${data.motion_events}/${data.motion_required} ${motionOk} | No Obstacles: ${noObstacles}`, 'success');
+                        
+                        if (data.message) {
+                            log(`   💬 ${data.message}`, 'info');
+                        }
+                        
+                        updateStatus(data.message || 'Processing...', 'info');
+                    } else {
+                        log(`Frame processing failed: ${data.error}`, 'error');
+                        updateStatus(`Error: ${data.error}`, 'error');
+                    }
+                    break;
+
+                case 'enrollment_complete':
+                    log('🎉 ENROLLMENT COMPLETE!', 'success');
+                    log(`Enrollment ID: ${data.enrollment_id}`, 'info');
+                    log(`Frames processed: ${data.frames_processed}`, 'info');
+                    log(`Blinks detected: ${data.blinks_detected || 0}`, 'info');
+                    log(`Motion verified: ${data.motion_verified ? '✓' : '✗'}`, 'info');
+                    log(`Quality score: ${data.quality_score?.toFixed(2) || '0.00'}`, 'info');
+                    updateStatus('Enrollment completed successfully!', 'success');
+                    stopSendingFrames();
+                    
+                    // Decrypt response
+                    if (data.encrypted_data) {
+                        decryptAndShowResponse(data.encrypted_data);
+                    }
+                    break;
+
+                case 'authentication_complete':
+                    if (data.authenticated) {
+                        log('🎉 AUTHENTICATION SUCCESSFUL!', 'success');
+                        log(`User ID: ${data.user_id}`, 'info');
+                        log(`Confidence: ${(data.confidence * 100).toFixed(2)}%`, 'info');
+                        log(`Frames processed: ${data.frames_processed}`, 'info');
+                        if (data.blinks_detected !== undefined) {
+                            log(`Blinks detected: ${data.blinks_detected}`, 'info');
+                            log(`Motion verified: ${data.motion_verified ? '✓' : '✗'}`, 'info');
+                        }
+                        updateStatus('Authentication successful!', 'success');
+                    } else {
+                        log('❌ AUTHENTICATION FAILED', 'error');
+                        log(`Message: ${data.message || 'Face not recognized'}`, 'error');
+                        updateStatus('Authentication failed', 'error');
+                    }
+                    stopSendingFrames();
+                    
+                    // Decrypt response
+                    if (data.encrypted_data) {
+                        decryptAndShowResponse(data.encrypted_data);
+                    }
+                    break;
+
+                case 'error':
+                    log(`Error: ${data.error} (code: ${data.code})`, 'error');
+                    break;
+
+                case 'pong':
+                    log('Pong received', 'info');
+                    break;
+
+                default:
+                    log(`Unknown message type: ${type}`, 'warning');
+            }
+        }
+
+        function decryptAndShowResponse(encryptedData) {
+            const apiKey = document.getElementById('apiKey').value;
+            
+            if (!apiKey) {
+                log('⚠️  API key not provided, cannot decrypt response', 'warning');
+                return;
+            }
+
+            try {
+                log('🔓 Decrypting response...', 'info');
+                
+                const encrypted = encryptedData.encrypted_payload;
+                
+                // Decode base64
+                const encryptedBytes = CryptoJS.enc.Base64.parse(encrypted);
+                
+                // Extract IV (first 16 bytes)
+                const iv = CryptoJS.lib.WordArray.create(encryptedBytes.words.slice(0, 4));
+                
+                // Extract ciphertext (remaining bytes)
+                const ciphertext = CryptoJS.lib.WordArray.create(encryptedBytes.words.slice(4));
+                
+                // Derive key from API key (server uses api_key, not secret_key!)
+                const key = CryptoJS.SHA256(apiKey);
+                
+                // Decrypt
+                const decrypted = CryptoJS.AES.decrypt(
+                    { ciphertext: ciphertext },
+                    key,
+                    { 
+                        iv: iv,
+                        mode: CryptoJS.mode.CBC,
+                        padding: CryptoJS.pad.Pkcs7
+                    }
+                );
+                
+                // Convert to string and parse JSON
+                const decryptedText = decrypted.toString(CryptoJS.enc.Utf8);
+                const decryptedData = JSON.parse(decryptedText);
+                
+                log('✅ Decryption successful!', 'success');
+                log(`Decrypted data: ${JSON.stringify(decryptedData, null, 2)}`, 'success');
+                
+            } catch (error) {
+                log(`❌ Decryption failed: ${error.message}`, 'error');
+                console.error('Decryption error:', error);
+            }
+        }
+    </script>
+</body>
+</html>

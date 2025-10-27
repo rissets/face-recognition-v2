@@ -324,6 +324,7 @@ class EnrollmentCreateResponseSerializer(serializers.Serializer):
     target_samples = serializers.IntegerField(help_text="The number of successful frames required to complete the enrollment.")
     expires_at = serializers.DateTimeField(help_text="The timestamp when the session will expire.")
     message = serializers.CharField(help_text="A human-readable message providing guidance for the next steps.")
+    websocket_url = serializers.CharField(help_text="WebSocket URL for real-time image processing.", required=False)
 
 
 class AuthSessionCreateResponseSerializer(serializers.Serializer):
@@ -333,6 +334,7 @@ class AuthSessionCreateResponseSerializer(serializers.Serializer):
     expires_at = serializers.DateTimeField(help_text="The timestamp when the session will expire.")
     session_type = serializers.CharField(help_text="The type of session, either 'verification' or 'identification'.")
     message = serializers.CharField(help_text="A human-readable message providing guidance for the next steps.")
+    websocket_url = serializers.CharField(help_text="WebSocket URL for real-time image processing.", required=False)
 
 
 class EnrollmentResponseSerializer(serializers.Serializer):

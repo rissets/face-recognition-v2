@@ -45,25 +45,36 @@ class SessionManager:
         state = {
             'blink_count': int(liveness_detector.blink_count),
             'total_blinks': int(getattr(liveness_detector, 'total_blinks', 0)),
+            'valid_blinks': int(getattr(liveness_detector, 'valid_blinks', 0)),
+            'blink_counter': int(getattr(liveness_detector, 'blink_counter', 0)),
             'frame_counter': int(getattr(liveness_detector, 'frame_counter', 0)),
             'motion_events': int(getattr(liveness_detector, 'motion_events', 0)),
+            'motion_score': float(getattr(liveness_detector, 'motion_score', 0.0)),
             'motion_history': json_serializable(liveness_detector.motion_history[-10:]),  # Keep last 10 for memory
+            'last_bbox_center': json_serializable(getattr(liveness_detector, 'last_bbox_center', None)),
+            'last_bbox_size': float(getattr(liveness_detector, 'last_bbox_size', 0.0)) if getattr(liveness_detector, 'last_bbox_size', None) else None,
+            'last_motion_time': float(getattr(liveness_detector, 'last_motion_time', 0.0)),
             'previous_landmarks': json_serializable(liveness_detector.previous_landmarks),
             'blink_frames': int(liveness_detector.blink_frames),
+            'blink_start_frame': int(liveness_detector.blink_start_frame) if liveness_detector.blink_start_frame else None,
             'last_ear': float(liveness_detector.last_ear),
+            'last_blink_time': float(getattr(liveness_detector, 'last_blink_time', 0.0)),
             'frame_count': int(liveness_detector.frame_count),
             'baseline_ear': float(liveness_detector.baseline_ear) if liveness_detector.baseline_ear else None,
             'ear_history': json_serializable(getattr(liveness_detector, 'ear_history', [])),
+            'eye_visibility_score': float(getattr(liveness_detector, 'eye_visibility_score', 0.0)),
+            'blink_quality_scores': json_serializable(getattr(liveness_detector, 'blink_quality_scores', [])),
             'created_at': timezone.now().isoformat(),
         }
         
         serialized_state = json.dumps(json_serializable(state))
         self.cache.set(cache_key, serialized_state, timeout=self.session_timeout)
-        logger.debug(f"Stored liveness detector state for session {session_token}")
+        logger.debug(f"Stored liveness detector state for session {session_token} - blinks: {state['total_blinks']}, motion_events: {state['motion_events']}")
     
     def get_liveness_detector(self, session_token: str) -> Optional[LivenessDetector]:
         """Retrieve LivenessDetector from cache and restore state"""
         from .face_recognition_engine import LivenessDetector
+        import numpy as np
         
         cache_key = self._get_cache_key(session_token, 'liveness_detector')
         cached_state = self.cache.get(cache_key)
@@ -75,21 +86,39 @@ class SessionManager:
         try:
             state = json.loads(cached_state)
             
-            # Create new detector and restore state
-            detector = LivenessDetector()
+            # Create new detector WITHOUT initializing MediaPipe (skip_init=True)
+            detector = LivenessDetector(skip_init=True)
             detector.blink_count = state.get('blink_count', 0)
             detector.total_blinks = state.get('total_blinks', 0)
+            detector.valid_blinks = state.get('valid_blinks', 0)
+            detector.blink_counter = state.get('blink_counter', 0)
             detector.frame_counter = state.get('frame_counter', 0)
             detector.motion_events = state.get('motion_events', 0)
+            detector.motion_score = state.get('motion_score', 0.0)
             detector.motion_history = state.get('motion_history', [])
+            
+            # Restore bbox tracking for motion
+            last_bbox_center = state.get('last_bbox_center')
+            if last_bbox_center:
+                detector.last_bbox_center = np.array(last_bbox_center, dtype=np.float32)
+            else:
+                detector.last_bbox_center = None
+            
+            detector.last_bbox_size = state.get('last_bbox_size')
+            detector.last_motion_time = state.get('last_motion_time', 0.0)
+            
             detector.previous_landmarks = state.get('previous_landmarks')
             detector.blink_frames = state.get('blink_frames', 0)
+            detector.blink_start_frame = state.get('blink_start_frame')
             detector.last_ear = state.get('last_ear', 0.0)
+            detector.last_blink_time = state.get('last_blink_time', 0.0)
             detector.frame_count = state.get('frame_count', 0)
             detector.baseline_ear = state.get('baseline_ear')
             detector.ear_history = state.get('ear_history', [])
+            detector.eye_visibility_score = state.get('eye_visibility_score', 0.0)
+            detector.blink_quality_scores = state.get('blink_quality_scores', [])
             
-            logger.debug(f"Restored liveness detector for session {session_token} - total_blinks: {detector.total_blinks}, frame_counter: {detector.frame_counter}")
+            logger.debug(f"Restored liveness detector for session {session_token} - total_blinks: {detector.total_blinks}, motion_events: {detector.motion_events}, frame_counter: {detector.frame_counter}")
             return detector
             
         except (json.JSONDecodeError, KeyError) as e:
@@ -215,6 +244,8 @@ class SessionManager:
         
         if detector is None:
             detector = LivenessDetector()
+            # Immediately store the new detector in cache
+            self.store_liveness_detector(session_token, detector)
             logger.debug(f"Created new liveness detector for session {session_token}")
         
         return detector
