@@ -245,7 +245,7 @@ REST_FRAMEWORK = {
         "core.throttling.SafeAnonRateThrottle",
         "core.throttling.SafeUserRateThrottle",
     ] if not config("DISABLE_THROTTLING", default=False, cast=bool) else [],
-    "DEFAULT_THROTTLE_RATES": {"anon": "100/hour", "user": "1000/hour"},
+    "DEFAULT_THROTTLE_RATES": {"anon": "100000/hour", "user": "10000000/hour"},
     "DEFAULT_SCHEMA_CLASS": "core.schema.FaceRecognitionAutoSchema",
 }
 
@@ -527,7 +527,7 @@ FACE_STREAMING_LIMITS = {
     "MAX_ACTIVE_STREAMING_SESSIONS_PER_USER": 3,
     "MAX_CREATES_PER_MINUTE": 8,  # Burst control per user
     "AUTH_FRAME_BUDGET": 120,  # WS frame budget before fail
-    "MAX_WS_FPS": 11,  # Throttle WS ingestion
+    "MAX_WS_FPS": 30,  # Throttle WS ingestion
     "MAX_LOW_QUALITY_CONSECUTIVE": 25,  # Future use for abort on low quality
     "FAIL_LOW_QUALITY_THRESHOLD": 0.30,  # If implemented for early abort
 }
