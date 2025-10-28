@@ -524,10 +524,10 @@ class ObstacleDetector:
             
             if results.multi_face_landmarks:
                 for face_landmarks in results.multi_face_landmarks:
-                    # Glasses detection - STRICTER threshold: only if confidence > 0.5
+                    # Glasses detection - LESS STRICT: only detect obvious glasses
                     glasses_conf = self._detect_glasses_advanced(face_roi, face_landmarks)
                     logger.debug(f"Glasses confidence: {glasses_conf:.2f}")
-                    if glasses_conf > 0.50:  # INCREASED threshold - ignore if < 0.5
+                    if glasses_conf > 0.65:  # MUCH HIGHER threshold - only detect obvious glasses
                         obstacles.append('glasses')
                         confidence_scores['glasses'] = glasses_conf
                         logger.info(f"🕶️ GLASSES DETECTED: confidence={glasses_conf:.2f}")
@@ -583,14 +583,14 @@ class ObstacleDetector:
             blur = cv2.GaussianBlur(gray, (7, 7), 0)
             
             # 1. Reflection detection - glasses have bright reflections
-            bright_spots = cv2.threshold(blur, 220, 255, cv2.THRESH_BINARY)[1]  # LOWERED from 240 to 220
+            bright_spots = cv2.threshold(blur, 235, 255, cv2.THRESH_BINARY)[1]  # INCREASED from 220 to 235 - only very bright spots
             bright_area = np.sum(bright_spots > 0) / (h * w)
             
             logger.debug(f"Glasses detection - bright_area: {bright_area:.4f}")
             
-            # More sensitive to reflections
-            if bright_area > 0.08:  # LOWERED from 0.15 to 0.08
-                confidence += 0.4  # INCREASED from 0.3 to 0.4
+            # Less sensitive to reflections - need significant bright spots
+            if bright_area > 0.08:  # INCREASED from 0.01 to 0.03 - need more bright area
+                confidence += 0.65  # DECREASED from 0.3 to 0.25
                 logger.debug(f"  ✓ Bright reflections detected: {bright_area:.4f}")
             
             # 2. Edge detection around eyes - glasses frames create edges
@@ -612,16 +612,16 @@ class ObstacleDetector:
                 
                 cv2.fillPoly(eye_mask, [expanded_hull], 255)
                 
-                # Enhanced edge detection
-                edges = cv2.Canny(gray, 30, 100)  # LOWERED thresholds from 50,150 to 30,100
+                # Enhanced edge detection - less sensitive
+                edges = cv2.Canny(gray, 50, 120)  # INCREASED from 30,100 to 50,120 - less edges detected
                 eye_edges = cv2.bitwise_and(edges, eye_mask)
                 edge_ratio = np.sum(eye_edges > 0) / max(1, np.sum(eye_mask > 0))
                 
                 logger.debug(f"Glasses detection - edge_ratio: {edge_ratio:.4f}")
                 
-                # More sensitive to edges
-                if edge_ratio > 0.05:  # LOWERED from 0.1 to 0.05
-                    confidence += 0.5  # INCREASED from 0.4 to 0.5
+                # Less sensitive to edges - need strong edges
+                if edge_ratio > 0.08:  # INCREASED from 0.01 to 0.08 - need more edges
+                    confidence += 0.35  # DECREASED from 0.8 to 0.35
                     logger.debug(f"  ✓ Glasses frame edges detected: {edge_ratio:.4f}")
             
             # 3. Additional check: uniform brightness around eyes (glass lens effect)
@@ -635,9 +635,9 @@ class ObstacleDetector:
                     std_dev = np.std(eye_region)
                     logger.debug(f"Glasses detection - std_dev: {std_dev:.2f}")
                     
-                    # Lower std dev might indicate glass surface
-                    if std_dev < 35:  # Threshold for low texture variation
-                        confidence += 0.2
+                    # Lower std dev might indicate glass surface - STRICTER threshold
+                    if std_dev < 20:  # DECREASED from 35 to 20 - need very uniform surface
+                        confidence += 0.15  # DECREASED from 0.2 to 0.15
                         logger.debug(f"  ✓ Uniform brightness (glass surface): std={std_dev:.2f}")
             
             logger.debug(f"Glasses detection final confidence: {confidence:.2f}")
