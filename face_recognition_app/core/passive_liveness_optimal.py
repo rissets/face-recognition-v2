@@ -212,43 +212,43 @@ class SmartScreenDetector:
             mid_peak_density = mid_peaks / mid_area
             high_peak_density = high_peaks / high_area
             
-            # SCORING SYSTEM
+            # SCORING SYSTEM - RELAXED untuk reduce false positives
             score = 1.0  # Start with "real"
             
-            # 1. High energy in mid-high frequencies (screen artifacts)
-            if high_energy > 0.15:
+            # 1. High energy in mid-high frequencies (screen artifacts) - RELAXED
+            if high_energy > 0.20:  # Increased from 0.15
                 score -= 0.4
-            elif high_energy > 0.10:
+            elif high_energy > 0.15:  # Increased from 0.10
                 score -= 0.25
-            elif high_energy > 0.07:
+            elif high_energy > 0.10:  # Increased from 0.07
                 score -= 0.15
             
-            # 2. Mid frequency energy (moiré often appears here)
-            if mid_energy > 0.30:
+            # 2. Mid frequency energy (moiré often appears here) - RELAXED
+            if mid_energy > 0.40:  # Increased from 0.30
                 score -= 0.35
-            elif mid_energy > 0.22:
+            elif mid_energy > 0.32:  # Increased from 0.22
                 score -= 0.20
-            elif mid_energy > 0.18:
+            elif mid_energy > 0.25:  # Increased from 0.18
                 score -= 0.10
             
-            # 3. Peak density (periodic patterns)
-            if high_peak_density > 0.002:
+            # 3. Peak density (periodic patterns) - RELAXED
+            if high_peak_density > 0.004:  # Increased from 0.002
                 score -= 0.3
-            elif high_peak_density > 0.001:
+            elif high_peak_density > 0.002:  # Increased from 0.001
                 score -= 0.15
             
-            if mid_peak_density > 0.003:
+            if mid_peak_density > 0.006:  # Increased from 0.003
                 score -= 0.25
-            elif mid_peak_density > 0.0015:
+            elif mid_peak_density > 0.003:  # Increased from 0.0015
                 score -= 0.12
             
-            # 4. Total high+mid peaks
+            # 4. Total high+mid peaks - RELAXED
             total_peaks = mid_peaks + high_peaks
-            if total_peaks > 50:
+            if total_peaks > 80:  # Increased from 50
                 score -= 0.3
-            elif total_peaks > 30:
+            elif total_peaks > 50:  # Increased from 30
                 score -= 0.18
-            elif total_peaks > 15:
+            elif total_peaks > 30:  # Increased from 15
                 score -= 0.08
             
             return max(0.0, min(1.0, score))
@@ -543,47 +543,47 @@ class SmartScreenDetector:
         # Store for debugging
         self.last_subscores = scores.copy()
         
-        # SMART FUSION dengan weighted voting
+        # SMART FUSION dengan weighted voting - BALANCED
         # YOLO is king - if it detects device, heavily penalize
         if yolo_score < 0.2:
             # YOLO found device with high confidence
             final_score = yolo_score  # Trust YOLO completely
         else:
-            # Weighted combination of all methods
+            # Weighted combination - REDUCED moiré weight untuk avoid false positives
             weights = {
-                'yolo_device': 0.35,      # Highest weight
-                'screen_edges': 0.20,
-                'moire': 0.15,
-                'illumination': 0.15,
-                'reflection': 0.15        # New reflection detection
+                'yolo_device': 0.30,      # Highest weight
+                'screen_edges': 0.25,     # Increased
+                'moire': 0.10,            # REDUCED - moiré terlalu sensitif
+                'illumination': 0.20,     # Increased
+                'reflection': 0.15        # Reflection detection
             }
             
             final_score = sum(scores[k] * weights[k] for k in scores.keys())
             
-            # Additional penalty if multiple methods agree it's a screen
-            low_scores = sum(1 for s in scores.values() if s < 0.4)
-            if low_scores >= 4:  # 4+ methods say it's screen
-                final_score *= 0.5  # Heavy penalty
-            elif low_scores >= 3:  # 3 methods agree
-                final_score *= 0.7  # Moderate penalty
-            elif low_scores >= 2:  # 2 methods agree
-                final_score *= 0.85
+            # Additional penalty if multiple methods STRONGLY agree it's a screen
+            # Count only very low scores (< 0.3) as strong indicators
+            very_low_scores = sum(1 for s in scores.values() if s < 0.3)
+            if very_low_scores >= 4:  # 4+ methods STRONGLY say it's screen
+                final_score *= 0.6  # Moderate penalty (reduced from 0.5)
+            elif very_low_scores >= 3:  # 3 methods strongly agree
+                final_score *= 0.8  # Light penalty (reduced from 0.7)
+            # Remove 2-method penalty - too strict
         
         self.detection_history.append(final_score)
         
-        # Temporal consistency - use minimum of recent (more strict)
+        # Temporal consistency - use MEDIAN instead of MIN (less strict)
         if len(self.detection_history) >= 5:
             recent = list(self.detection_history)[-5:]
-            # Use minimum to be more conservative
-            final_score = min(recent)
+            # Use median for better robustness (not minimum which is too strict)
+            final_score = float(np.median(recent))
         
         return final_score, 0.90
 
 
 class ImprovedBlinkDetector:
-    """Blink detector yang lebih ringan dan optimal - max 5 detik"""
+    """Blink detector yang lebih ringan dan optimal - configurable timeout"""
     
-    def __init__(self):
+    def __init__(self, max_duration=5.0):
         self.EAR_THRESHOLD = 0.25  # Lebih ringan lagi
         self.EAR_CONSEC_FRAMES = 2  # Blink harus detected minimal 2 frame
         self.blink_counter = 0
@@ -592,7 +592,7 @@ class ImprovedBlinkDetector:
         self.blink_times = deque(maxlen=50)
         self.ear_history = deque(maxlen=15)
         self.start_time = time.time()
-        self.MAX_DURATION = 5.0  # Maksimal 5 detik
+        self.MAX_DURATION = max_duration  # Configurable timeout
         
     def eye_aspect_ratio(self, eye_landmarks):
         A = dist.euclidean(eye_landmarks[1], eye_landmarks[5])
@@ -620,12 +620,16 @@ class ImprovedBlinkDetector:
         
         elapsed = time.time() - self.start_time
         
-        # Scoring LEBIH STRICT - bobot lebih kecil, max 5 detik
+        # Scoring dengan dynamic threshold berdasarkan MAX_DURATION
+        # For 3-second timeout (auth): more relaxed, need 1 blink
+        # For 5-second timeout (enrollment): stricter, need 2 blinks
+        half_duration = self.MAX_DURATION / 2.0
+        
         if elapsed < 1.0:
             # Sangat awal - strict
             return 0.40, 0.3, self.blink_counter
-        elif elapsed < 2.5:
-            # Perlu 1 blink - STRICT scoring
+        elif elapsed < half_duration:
+            # Early phase - flexible scoring
             if self.blink_counter >= 2:
                 return 0.85, 0.85, self.blink_counter  # 2+ blinks = good
             elif self.blink_counter >= 1:
@@ -633,37 +637,63 @@ class ImprovedBlinkDetector:
             else:
                 return 0.15, 0.7, self.blink_counter  # No blink = bad
         elif elapsed < self.MAX_DURATION:
-            # 2.5 - 5 detik - STRICT requirements
-            if self.blink_counter >= 2:
-                # Check natural pattern
-                if len(self.blink_times) >= 2:
-                    intervals = np.diff(list(self.blink_times))
-                    if len(intervals) > 0:
-                        std_interval = np.std(intervals)
-                        # Natural blink: interval bervariasi
-                        if std_interval > 0.15:
-                            return 0.95, 0.95, self.blink_counter
-                        else:
-                            return 0.75, 0.85, self.blink_counter
-                return 0.85, 0.90, self.blink_counter
-            elif self.blink_counter >= 1:
-                return 0.60, 0.85, self.blink_counter  # Only 1 blink = low score
+            # Late phase - adjust threshold based on timeout duration
+            if self.MAX_DURATION <= 3.5:
+                # Shorter timeout (auth) - 1 blink is sufficient
+                if self.blink_counter >= 2:
+                    # Check natural pattern
+                    if len(self.blink_times) >= 2:
+                        intervals = np.diff(list(self.blink_times))
+                        if len(intervals) > 0:
+                            std_interval = np.std(intervals)
+                            if std_interval > 0.15:
+                                return 0.95, 0.95, self.blink_counter
+                            else:
+                                return 0.75, 0.85, self.blink_counter
+                    return 0.85, 0.90, self.blink_counter
+                elif self.blink_counter >= 1:
+                    return 0.75, 0.85, self.blink_counter  # 1 blink = acceptable for auth
+                else:
+                    return 0.0, 1.0, self.blink_counter  # No blink = definitely fake
             else:
-                return 0.0, 1.0, self.blink_counter  # No blink = definitely fake
+                # Longer timeout (enrollment) - need 2 blinks
+                if self.blink_counter >= 2:
+                    # Check natural pattern
+                    if len(self.blink_times) >= 2:
+                        intervals = np.diff(list(self.blink_times))
+                        if len(intervals) > 0:
+                            std_interval = np.std(intervals)
+                            if std_interval > 0.15:
+                                return 0.95, 0.95, self.blink_counter
+                            else:
+                                return 0.75, 0.85, self.blink_counter
+                    return 0.85, 0.90, self.blink_counter
+                elif self.blink_counter >= 1:
+                    return 0.60, 0.85, self.blink_counter  # Only 1 blink = low score
+                else:
+                    return 0.0, 1.0, self.blink_counter  # No blink = definitely fake
         else:
-            # Setelah 5 detik - FINAL DECISION dengan STRICT scoring
-            if self.blink_counter >= 2:
-                return 0.95, 1.0, self.blink_counter  # 2+ blinks = good
-            elif self.blink_counter >= 1:
-                return 0.55, 1.0, self.blink_counter  # Only 1 blink = borderline
+            # Timeout reached - FINAL DECISION with different thresholds
+            if self.MAX_DURATION <= 3.5:
+                # Shorter timeout (auth) - 1 blink acceptable
+                if self.blink_counter >= 2:
+                    return 0.95, 1.0, self.blink_counter
+                elif self.blink_counter >= 1:
+                    return 0.80, 1.0, self.blink_counter  # 1 blink = good enough for auth
+                else:
+                    return 0.0, 1.0, self.blink_counter  # No blink = fake
             else:
-                return 0.0, 1.0, self.blink_counter  # No blink = fake
-    
+                # Longer timeout (enrollment) - need 2 blinks
+                if self.blink_counter >= 2:
+                    return 0.95, 1.0, self.blink_counter  # 2+ blinks = good
+                elif self.blink_counter >= 1:
+                    return 0.55, 1.0, self.blink_counter  # Only 1 blink = borderline
+                else:
+                    return 0.0, 1.0, self.blink_counter  # No blink = fake
+            
     def is_timeout(self):
-        """Check apakah sudah timeout (5 detik)"""
+        """Check apakah sudah timeout"""
         return (time.time() - self.start_time) >= self.MAX_DURATION
-
-
 class ImprovedMovementAnalyzer:
     """Movement analyzer - fokus pada HEAD ROTATION dan FACIAL LANDMARKS, bukan translasi object"""
     
@@ -838,10 +868,12 @@ class OptimizedPassiveLivenessDetector:
     Detector yang optimal - fokus pada akurasi tanpa false positive
     """
     
-    def __init__(self, debug=False):
-        print("Initializing OPTIMIZED Passive Liveness Detector...")
+    def __init__(self, debug=False, max_duration=5.0):
+        if not debug:
+            print("Initializing OPTIMIZED Passive Liveness Detector...")
         
         self.debug = debug
+        self.max_duration = max_duration
         
         # MediaPipe
         self.mp_face_mesh = mp.solutions.face_mesh
@@ -852,8 +884,8 @@ class OptimizedPassiveLivenessDetector:
             min_tracking_confidence=0.5
         )
         
-        # Components
-        self.blink_detector = ImprovedBlinkDetector()
+        # Components with configurable timeout
+        self.blink_detector = ImprovedBlinkDetector(max_duration=max_duration)
         self.movement_analyzer = ImprovedMovementAnalyzer()
         
         # YOLO
@@ -861,24 +893,30 @@ class OptimizedPassiveLivenessDetector:
         if YOLO_AVAILABLE:
             try:
                 self.yolo_model = YOLO('yolov8n.pt')
-                print("✓ YOLO loaded for device detection")
+                if not debug:
+                    print("✓ YOLO loaded for device detection")
             except:
-                print("⚠ YOLO not available (optional)")
+                if not debug:
+                    print("⚠ YOLO not available (optional)")
         
         # Initialize screen detector with YOLO
         self.screen_detector = SmartScreenDetector(yolo_model=self.yolo_model)
         
         self.final_scores = deque(maxlen=30)
         
-        print("✓ Detector ready!")
-        print("\nDETECTION STRATEGY (v2.2 - STRICT):")
-        print("  1. YOLO device detection (if available)")
-        print("  2. Blink detection [40% weight] - NEED 2+ blinks for good score")
-        print("  3. Head rotation/nod [35% weight] - HEAD movement only")
-        print("  4. Screen detection [25% weight] - Moiré + Reflection + Illumination")
-        print("  5. Threshold: 0.60 (STRICT - harder to pass)")
-        print("  6. Auto-timeout: 5 seconds MAX")
-        print("  7. Final decision: Otomatis setelah timeout\n")
+        if not debug:
+            print("✓ Detector ready!")
+            print(f"\nDETECTION STRATEGY (v2.2 - STRICT, Timeout: {max_duration}s):")
+            print("  1. YOLO device detection (if available)")
+            if max_duration <= 3.5:
+                print("  2. Blink detection [40% weight] - NEED 1+ blinks (auth mode)")
+            else:
+                print("  2. Blink detection [40% weight] - NEED 2+ blinks (enrollment mode)")
+            print("  3. Head rotation/nod [35% weight] - HEAD movement only")
+            print("  4. Screen detection [25% weight] - Moiré + Reflection + Illumination")
+            print("  5. Threshold: 0.50 (STRICT - harder to pass)")
+            print(f"  6. Auto-timeout: {max_duration} seconds MAX")
+            print("  7. Final decision: Otomatis setelah timeout\n")
     
     def extract_eye_landmarks(self, face_landmarks, image_shape):
         h, w = image_shape[:2]
@@ -937,24 +975,49 @@ class OptimizedPassiveLivenessDetector:
         if frame is None or frame.size == 0:
             return False, 0.0, {}
         
-        # Check timeout - AUTO CLOSE setelah 5 detik
+        # Check timeout - AUTO CLOSE based on max_duration
         if self.blink_detector.is_timeout():
             elapsed = time.time() - self.blink_detector.start_time
             blink_count = self.blink_detector.blink_counter
             
-            # Final decision berdasarkan blink count
-            if blink_count >= 2:
-                final_score = 0.95
-                is_live = True
-                reason = f"TIMEOUT ({elapsed:.1f}s): REAL - {blink_count} blinks detected"
-            elif blink_count >= 1:
-                final_score = 0.50
-                is_live = False
-                reason = f"TIMEOUT ({elapsed:.1f}s): SPOOF - Only {blink_count} blink (need 2+)"
+            # Use average of collected scores if available, otherwise use blink-based scoring
+            if len(self.final_scores) > 0:
+                # Use median of collected scores for final decision
+                final_score = float(np.median(list(self.final_scores)))
+                
+                # Adjust based on blink count - MORE CONSERVATIVE
+                required_blinks = 1 if self.max_duration <= 3.5 else 2
+                
+                if blink_count >= required_blinks:
+                    # Has enough blinks - small boost only if score already decent
+                    if final_score >= 0.55:  # Only boost if already passing
+                        final_score = min(0.85, final_score + 0.05)  # Smaller boost
+                    blink_status = "sufficient"
+                elif blink_count >= 1 and self.max_duration <= 3.5:
+                    # Auth mode with 1 blink - acceptable but no boost
+                    blink_status = "acceptable"
+                else:
+                    # Not enough blinks - penalize score
+                    final_score = max(0.0, final_score - 0.15)  # Smaller penalty
+                    blink_status = "insufficient"
+                
+                # Final decision based on HIGHER threshold for better security
+                THRESHOLD = 0.60  # Increased from 0.50
+                is_live = final_score > THRESHOLD
+                
+                reason = f"TIMEOUT ({elapsed:.1f}s): {'REAL' if is_live else 'SPOOF'} - Score: {final_score:.2f}, Blinks: {blink_count} ({blink_status})"
             else:
-                final_score = 0.0
-                is_live = False
-                reason = f"TIMEOUT ({elapsed:.1f}s): SPOOF - No blinks detected"
+                # No scores collected - fall back to blink-only decision
+                required_blinks = 1 if self.max_duration <= 3.5 else 2
+                
+                if blink_count >= required_blinks:
+                    final_score = 0.80
+                    is_live = True
+                    reason = f"TIMEOUT ({elapsed:.1f}s): REAL - {blink_count} blink(s) detected (no face data)"
+                else:
+                    final_score = 0.0
+                    is_live = False
+                    reason = f"TIMEOUT ({elapsed:.1f}s): SPOOF - {blink_count} blink(s), need {required_blinks}+"
             
             return is_live, final_score, {
                 'final_score': final_score,
@@ -1002,7 +1065,7 @@ class OptimizedPassiveLivenessDetector:
         # Debug output
         if self.debug:
             elapsed = time.time() - self.blink_detector.start_time
-            print(f"\n[SCORES - Time: {elapsed:.1f}s / 5.0s]")
+            print(f"\n[SCORES - Time: {elapsed:.1f}s / {self.max_duration}s]")
             print(f"  Blink: {blink_score:.3f} (count: {blink_count})")
             print(f"  Movement: {movement_score:.3f} (head rotation/nod)")
             print(f"  Screen: {screen_score:.3f}")
@@ -1019,20 +1082,18 @@ class OptimizedPassiveLivenessDetector:
         # Blink sekarang hanya 40%, Movement 35%, Screen 25%
         
         # Primary indicators - Blink bobot DIKURANGI untuk strict scoring
-        primary_score = (blink_score * 0.20 + movement_score * 0.40)
+        primary_score = (blink_score * 0.20 + movement_score * 0.25 + screen_score * 0.5)
         
         # Secondary indicator - Screen detection weight NAIK
         secondary_score = screen_score
-        print("Primary screen score:", primary_score)
-        print("Secondary screen score:", secondary_score)
         
         # Final score: Balanced approach dengan strict blink
-        if screen_score < 0.3 and primary_score < 0.5:
+        if screen_score < 0.5 and primary_score < 0.6:
             # Both indicate spoof
             final_score = min(primary_score, screen_score)
-        elif screen_score < 0.3:
+        elif screen_score < 0.6:
             # Screen suspicious but primary OK
-            final_score = primary_score * 0.50+ screen_score * 0.50
+            final_score = primary_score * 0.50 + screen_score * 0.50
         else:
             # Normal case - screen weight lebih besar
             final_score = primary_score * 0.30 + secondary_score * 0.70
@@ -1044,7 +1105,7 @@ class OptimizedPassiveLivenessDetector:
             final_score = np.median(list(self.final_scores)[-7:])
         
         # Decision - STRICT THRESHOLD (lebih tinggi)
-        THRESHOLD = 0.50  # Strict threshold - lebih sulit dianggap real
+        THRESHOLD = 0.70  # Strict threshold - lebih sulit dianggap real
         is_live = final_score > THRESHOLD
         
         details = {
@@ -1060,6 +1121,8 @@ class OptimizedPassiveLivenessDetector:
             'blink_count': blink_count,
             'primary_score': primary_score
         }
+        
+        print(f"details: {details}")
         
         return is_live, final_score, details
     
@@ -1093,7 +1156,7 @@ class OptimizedPassiveLivenessDetector:
         
         # Main label with elapsed time
         elapsed = time.time() - self.blink_detector.start_time
-        timeout_indicator = f" [{elapsed:.1f}s/5.0s]"
+        timeout_indicator = f" [{elapsed:.1f}s/{self.max_duration}s]"
         status = "✓ REAL PERSON" if details['is_live'] else "✗ SPOOF DETECTED"
         label = f"{status}: {details['final_score']:.2f}{timeout_indicator}"
         
@@ -1125,23 +1188,37 @@ class OptimizedPassiveLivenessDetector:
 
 
 def main():
+    import sys
     print("=" * 70)
     print("OPTIMIZED PASSIVE LIVENESS DETECTION v2.2")
     print("=" * 70)
     print("\nMAJOR CHANGES v2.2 (STRICT MODE):")
-    print("  ✓ Blink: STRICT scoring - need 2+ blinks (weight: 40%)")
+    print("  ✓ Configurable timeout: --auth (3s) or --enrollment (5s)")
+    print("  ✓ Blink: STRICT scoring - auth needs 1+, enrollment needs 2+ (weight: 40%)")
     print("  ✓ Movement: Head rotation/nod only (weight: 35%)")
     print("  ✓ Screen: Enhanced detection (weight: 25%)")
-    print("  ✓ Threshold: 0.60 (lebih sulit pass)")
-    print("  ✓ Timeout: AUTO-CLOSE setelah 5 detik")
+    print("  ✓ Threshold: 0.50 (strict - harder to pass)")
+    print("  ✓ Auto-timeout: Closes automatically after timeout")
     print("  ✓ Reflection: HIGH reflection = SPOOF")
     print("=" * 70)
     
-    # Initialize with debug mode
-    import sys
+    # Parse mode argument
+    mode = 'enrollment'  # default
+    max_duration = 5.0
+    
+    if '--auth' in sys.argv:
+        mode = 'authentication'
+        max_duration = 3.0
+        print(f"\n🔐 MODE: AUTHENTICATION (timeout: {max_duration}s, need: 1+ blinks)")
+    elif '--enrollment' in sys.argv or len(sys.argv) == 1:
+        mode = 'enrollment'
+        max_duration = 5.0
+        print(f"\n📝 MODE: ENROLLMENT (timeout: {max_duration}s, need: 2+ blinks)")
+    
+    # Initialize with appropriate timeout
     debug_mode = '--debug' in sys.argv
     
-    detector = OptimizedPassiveLivenessDetector(debug=debug_mode)
+    detector = OptimizedPassiveLivenessDetector(debug=debug_mode, max_duration=max_duration)
     cap = cv2.VideoCapture(0)
     
     if not cap.isOpened():
@@ -1150,14 +1227,22 @@ def main():
     
     print("\n📸 TESTING INSTRUCTIONS:")
     print("  1. Look at camera naturally")
-    print("  2. Blink 2-3 times within 5 seconds (REQUIRED for good score)")
+    if mode == 'authentication':
+        print(f"  2. Blink at least 1 time within {max_duration} seconds")
+    else:
+        print(f"  2. Blink 2-3 times within {max_duration} seconds (REQUIRED for good score)")
     print("  3. Add slight head movement (nod/rotate)")
     print("  4. Try showing photo/video from phone")
-    print("  5. ⚠️ AUTO-CLOSE after 5 seconds with final decision")
-    print("\nSCORING (STRICT MODE):")
-    print("  • 2+ blinks in 5s = High score (0.85-0.95)")
-    print("  • 1 blink in 5s = Medium score (0.55-0.70)")
-    print("  • 0 blinks in 5s = FAIL (0.0)")
+    print(f"  5. ⚠️ AUTO-CLOSE after {max_duration} seconds with final decision")
+    print(f"\nSCORING ({mode.upper()} MODE):")
+    if mode == 'authentication':
+        print(f"  • 2+ blinks in {max_duration}s = Excellent (0.90-0.95)")
+        print(f"  • 1 blink in {max_duration}s = Good (0.75-0.85)")
+        print(f"  • 0 blinks in {max_duration}s = FAIL (0.0)")
+    else:
+        print(f"  • 2+ blinks in {max_duration}s = High score (0.85-0.95)")
+        print(f"  • 1 blink in {max_duration}s = Medium score (0.55-0.70)")
+        print(f"  • 0 blinks in {max_duration}s = FAIL (0.0)")
     print("\nControls:")
     print("  'q' - Quit")
     print("  'd' - Toggle debug mode")

@@ -25,8 +25,42 @@ import hashlib
 from .models import AuthenticationSession, FaceEnrollment
 from clients.models import Client, ClientUser
 from core.face_recognition_engine import FaceRecognitionEngine
+from core.passive_liveness_optimal import OptimizedPassiveLivenessDetector
 
 logger = logging.getLogger("auth_service")
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """Custom JSON encoder for NumPy types"""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        return super(NumpyEncoder, self).default(obj)
+
+
+def convert_numpy_types(data):
+    """
+    Recursively convert NumPy types to native Python types for JSON serialization
+    """
+    if isinstance(data, dict):
+        return {key: convert_numpy_types(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [convert_numpy_types(item) for item in data]
+    elif isinstance(data, np.integer):
+        return int(data)
+    elif isinstance(data, np.floating):
+        return float(data)
+    elif isinstance(data, np.bool_):
+        return bool(data)
+    elif isinstance(data, np.ndarray):
+        return data.tolist()
+    return data
 
 
 class AuthProcessConsumer(AsyncWebsocketConsumer):
@@ -46,6 +80,11 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         self._last_frame_ts = 0.0
         self._throttle_interval = 0.1  # 10 fps max
         self._max_frames = getattr(settings, 'FACE_MAX_FRAMES_PER_SESSION', 120)
+        
+        # Authentication-specific: optimal passive liveness with 3-second timeout
+        self._auth_liveness_detector = None
+        self._auth_start_time = None
+        self._auth_timeout = 5.0  # 3 seconds for authentication
 
     async def connect(self):
         """Accept WebSocket connection and validate session"""
@@ -90,12 +129,22 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
 
         await self.accept()
         
+        # Initialize optimal passive liveness detector for authentication sessions
+        if self.session.session_type in ["verification", "identification", "recognition"]:
+            self._auth_liveness_detector = OptimizedPassiveLivenessDetector(
+                debug=False, 
+                max_duration=self._auth_timeout
+            )
+            self._auth_start_time = time.time()
+            logger.info(f"Initialized optimal passive liveness detector for authentication (timeout: {self._auth_timeout}s)")
+        
         # Send connection confirmation
         await self.send(text_data=json.dumps({
             "type": "connection_established",
             "session_token": self.session_token,
             "session_type": self.session.session_type,
             "status": self.session.status,
+            "timeout": self._auth_timeout if self.session.session_type in ["verification", "identification", "recognition"] else None,
             "message": f"{self.session.session_type.capitalize()} session ready"
         }))
 
@@ -246,10 +295,11 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             required_motion = metadata.get("required_motion_events", 1)
             
             # STRICT Liveness verification: need blinks AND motion AND no obstacles
-            blinks_ok = liveness_data.get("blinks_detected", 0) >= required_blinks
-            motion_ok = liveness_data.get("motion_events", 0) >= required_motion
-            no_obstacles = len(detected_obstacles) == 0
-            liveness_verified = blinks_ok and motion_ok and no_obstacles
+            # Explicitly convert to Python bool to avoid numpy.bool_ JSON serialization issues
+            blinks_ok = bool(liveness_data.get("blinks_detected", 0) >= required_blinks)
+            motion_ok = bool(liveness_data.get("motion_events", 0) >= required_motion)
+            no_obstacles = bool(len(detected_obstacles) == 0)
+            liveness_verified = bool(blinks_ok and motion_ok and no_obstacles)
             
             # Check if enrollment is complete
             is_complete = (
@@ -304,52 +354,173 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 if face_data.get("quality", 0.0) < self.face_engine.capture_quality_threshold:
                     progress_message.append("Improve lighting or position")
                 
-                await self.send(text_data=json.dumps({
+                # Prepare response with explicit type conversion for all numeric values
+                response_data = {
                     "type": "frame_processed",
                     "success": True,
-                    "frames_processed": self._frames_processed,
-                    "target_samples": target_samples,
-                    "liveness_verified": liveness_verified,
-                    "liveness_score": liveness_data.get("liveness_score", 0.0),
-                    "blinks_detected": liveness_data.get("blinks_detected", 0),
-                    "blinks_required": required_blinks,
-                    "blinks_ok": blinks_ok,
-                    "motion_score": liveness_data.get("motion_score", 0.0),
-                    "motion_events": liveness_data.get("motion_events", 0),
-                    "motion_required": required_motion,
-                    "motion_ok": motion_ok,
-                    "no_obstacles": no_obstacles,
-                    "quality_score": face_data.get("quality", 0.0),
-                    "quality_threshold": self.face_engine.capture_quality_threshold,
+                    "frames_processed": int(self._frames_processed),
+                    "target_samples": int(target_samples),
+                    "liveness_verified": bool(liveness_verified),
+                    "liveness_score": float(liveness_data.get("liveness_score", 0.0)),
+                    "blinks_detected": int(liveness_data.get("blinks_detected", 0)),
+                    "blinks_required": int(required_blinks),
+                    "blinks_ok": bool(blinks_ok),
+                    "motion_score": float(liveness_data.get("motion_score", 0.0)),
+                    "motion_events": int(liveness_data.get("motion_events", 0)),
+                    "motion_required": int(required_motion),
+                    "motion_ok": bool(motion_ok),
+                    "no_obstacles": bool(no_obstacles),
+                    "quality_score": float(face_data.get("quality", 0.0)),
+                    "quality_threshold": float(self.face_engine.capture_quality_threshold),
                     "obstacles": obstacle_data.get("detected", []),
                     "visual_data": visual_data,
                     "message": " | ".join(progress_message) if progress_message else "Blink AND move head to complete"
-                }))
+                }
+                
+                await self.send(text_data=json.dumps(response_data))
 
         except Exception as e:
             logger.error(f"Error processing enrollment frame: {e}", exc_info=True)
             await self.send_error(f"Enrollment processing error: {str(e)}")
 
     async def process_authentication_frame(self, frame: np.ndarray, data: Dict[str, Any]):
-        """Process authentication frame"""
+        """Process authentication frame with optimal passive liveness"""
         try:
-            # Process frame with face engine
-            result = await self.run_face_detection(frame)
-            
-            if not result.get("success"):
-                await self.send(text_data=json.dumps({
-                    "type": "frame_processed",
-                    "success": False,
-                    "error": result.get("error", "Face detection failed"),
-                    "frames_processed": self._frames_processed
-                }))
+            # Check timeout first - auto-close after 3 seconds
+            if self._auth_start_time and (time.time() - self._auth_start_time) >= self._auth_timeout:
+                logger.warning(f"⏱️ Authentication timeout reached ({self._auth_timeout}s)")
+                
+                # Get final liveness result
+                if self._auth_liveness_detector:
+                    is_live, liveness_score, liveness_details = await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        self._auth_liveness_detector.detect,
+                        frame
+                    )
+                    
+                    timeout_reached = liveness_details.get('timeout', False)
+                    blink_count = liveness_details.get('blink_count', 0)
+                    
+                    # Send timeout result
+                    await self.send(text_data=json.dumps({
+                        "type": "authentication_timeout",
+                        "success": False,
+                        "timeout": True,
+                        "elapsed_time": self._auth_timeout,
+                        "is_live": is_live,
+                        "liveness_score": liveness_score,
+                        "blink_count": blink_count,
+                        "reason": liveness_details.get('reason', 'Authentication timeout'),
+                        "message": f"Authentication timeout: {liveness_details.get('reason', 'Time limit exceeded')}"
+                    }))
+                else:
+                    await self.send(text_data=json.dumps({
+                        "type": "authentication_timeout",
+                        "success": False,
+                        "timeout": True,
+                        "elapsed_time": self._auth_timeout,
+                        "message": "Authentication timeout - no response"
+                    }))
+                
+                await self.update_session_status("timeout")
+                await asyncio.sleep(0.5)
+                await self.close(code=1000)
                 return
-
-            # Extract face data
-            face_data = result.get("face_data", {})
-            liveness_data = result.get("liveness_data", {})
-            obstacle_data = result.get("obstacle_data", {})
-            visual_data = result.get("visual_data", {})
+            
+            # Use optimal passive liveness detector for authentication
+            if self._auth_liveness_detector:
+                # Run optimal liveness detection
+                is_live, liveness_score, liveness_details = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    self._auth_liveness_detector.detect,
+                    frame
+                )
+                
+                # Check if timeout occurred during detection
+                if liveness_details.get('timeout', False):
+                    blink_count = liveness_details.get('blink_count', 0)
+                    await self.send(text_data=json.dumps({
+                        "type": "authentication_timeout",
+                        "success": is_live,
+                        "authenticated": is_live,
+                        "timeout": True,
+                        "elapsed_time": liveness_details.get('elapsed_time', self._auth_timeout),
+                        "is_live": is_live,
+                        "liveness_score": liveness_score,
+                        "blink_count": blink_count,
+                        "reason": liveness_details.get('reason', 'Authentication complete'),
+                        "message": liveness_details.get('reason', 'Authentication timeout')
+                    }))
+                    
+                    await self.update_session_status("timeout")
+                    await asyncio.sleep(0.5)
+                    await self.close(code=1000)
+                    return
+                
+                # Extract scores from optimal detector
+                scores = liveness_details.get('scores', {})
+                blink_count = liveness_details.get('blink_count', 0)
+                
+                # Check if device detected (immediate rejection)
+                if 'device_detected' in liveness_details:
+                    device_name = liveness_details.get('device_detected')
+                    await self.send(text_data=json.dumps({
+                        "type": "frame_rejected",
+                        "success": False,
+                        "error": f"Device detected: {device_name}",
+                        "reason": f"📱 Spoofing attempt detected - device: {device_name}",
+                        "device_detected": device_name,
+                        "frame_accepted": False
+                    }))
+                    logger.warning(f"⛔ AUTHENTICATION FRAME REJECTED - Device detected: {device_name}")
+                    return
+                
+                # Also get face detection for embedding and obstacles
+                result = await self.run_face_detection(frame)
+                
+                if not result.get("success"):
+                    await self.send(text_data=json.dumps({
+                        "type": "frame_processed",
+                        "success": False,
+                        "error": result.get("error", "Face detection failed"),
+                        "frames_processed": self._frames_processed
+                    }))
+                    return
+                
+                # Merge optimal liveness data with face detection result
+                face_data = result.get("face_data", {})
+                obstacle_data = result.get("obstacle_data", {})
+                visual_data = result.get("visual_data", {})
+                
+                # Construct liveness_data from optimal detector
+                liveness_data = {
+                    'is_live': is_live,
+                    'liveness_score': liveness_score,
+                    'blinks_detected': blink_count,
+                    'motion_events': 0,  # Optimal detector uses different motion tracking
+                    'motion_score': scores.get('movement', 0.0),
+                    'motion_verified': scores.get('movement', 0.0) > 0.5,
+                    'blink_score': scores.get('blink', 0.0),
+                    'screen_score': scores.get('screen', 0.0),
+                    'final_score': liveness_score
+                }
+            else:
+                # Fallback to original face engine detection
+                result = await self.run_face_detection(frame)
+                
+                if not result.get("success"):
+                    await self.send(text_data=json.dumps({
+                        "type": "frame_processed",
+                        "success": False,
+                        "error": result.get("error", "Face detection failed"),
+                        "frames_processed": self._frames_processed
+                    }))
+                    return
+                
+                face_data = result.get("face_data", {})
+                liveness_data = result.get("liveness_data", {})
+                obstacle_data = result.get("obstacle_data", {})
+                visual_data = result.get("visual_data", {})
             
             # STRICT: Reject frame if ANY obstacle is detected (blocking or non-blocking)
             detected_obstacles = obstacle_data.get("detected", [])
@@ -379,22 +550,21 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             # Update session metadata
             metadata = self.session.metadata or {}
             metadata["frames_processed"] = self._frames_processed
-            metadata["liveness_blinks"] = liveness_data.get("blinks_detected", 0)
-            metadata["motion_events"] = liveness_data.get("motion_events", 0)
-            metadata["liveness_verified"] = liveness_data.get("is_live", False)
+            metadata["liveness_score"] = float(liveness_data.get("liveness_score", 0.0))
+            metadata["is_live"] = bool(liveness_data.get("is_live", False))
+            metadata["blinks_detected"] = int(liveness_data.get("blinks_detected", 0))
             
             await self.update_session_metadata(metadata)
 
             # Check if we have enough frames for authentication
             min_frames = metadata.get("min_frames_required", 3)
-            required_blinks = metadata.get("required_blinks", 1)
-            required_motion = metadata.get("required_motion_events", 1)
             
-            # FLEXIBLE Liveness for authentication: need (blink OR motion) AND no obstacles
-            blinks_ok = liveness_data.get("blinks_detected", 0) >= required_blinks
-            motion_ok = liveness_data.get("motion_events", 0) >= required_motion
-            no_obstacles = len(detected_obstacles) == 0
-            liveness_verified = (blinks_ok or motion_ok) and no_obstacles
+            # For authentication: OptimizedPassiveLivenessDetector handles liveness (blink/motion)
+            # We only need to check for obstacles here
+            no_obstacles = bool(len(detected_obstacles) == 0)
+            
+            # Use is_live from OptimizedPassiveLivenessDetector
+            liveness_verified = bool(liveness_data.get("is_live", False) and no_obstacles)
             
             is_ready = (
                 self._frames_processed >= min_frames and 
@@ -451,41 +621,51 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             else:
                 # Send progress update with detailed feedback
                 progress_message = []
+                
+                # Add elapsed time info
+                if self._auth_start_time:
+                    elapsed = time.time() - self._auth_start_time
+                    remaining = max(0, self._auth_timeout - elapsed)
+                    progress_message.append(f"⏱️ {remaining:.1f}s remaining")
+                
                 if self._frames_processed < min_frames:
                     progress_message.append(f"Capturing frames ({self._frames_processed}/{min_frames})")
                 
-                # For authentication: Show OR requirement (only need one)
-                if not (blinks_ok or motion_ok):
-                    blink_status = "✅" if blinks_ok else f"{liveness_data.get('blinks_detected', 0)}/{required_blinks}"
-                    motion_status = "✅" if motion_ok else f"{liveness_data.get('motion_events', 0)}/{required_motion}"
-                    progress_message.append(f"Need: Blink ({blink_status}) OR Motion ({motion_status})")
+                # For authentication: Only check obstacles (liveness handled by OptimizedPassiveLivenessDetector)
+                if not liveness_verified:
+                    if not no_obstacles:
+                        progress_message.append("⛔ Remove obstacles first!")
+                    elif not liveness_data.get("is_live", False):
+                        progress_message.append("👁️ Looking for liveness indicators...")
                 
-                if not no_obstacles:
-                    progress_message.append("⛔ Remove obstacles first!")
                 if face_data.get("quality", 0.0) < self.face_engine.auth_quality_threshold:
                     progress_message.append("Improve lighting or position")
                 
-                await self.send(text_data=json.dumps({
+                # Add elapsed time to response
+                elapsed_time = time.time() - self._auth_start_time if self._auth_start_time else 0
+                
+                # Prepare response with explicit type conversion for all numeric values
+                response_data = {
                     "type": "frame_processed",
                     "success": True,
-                    "frames_processed": self._frames_processed,
-                    "min_frames_required": min_frames,
-                    "liveness_verified": liveness_verified,
-                    "liveness_score": liveness_data.get("liveness_score", 0.0),
-                    "blinks_detected": liveness_data.get("blinks_detected", 0),
-                    "blinks_required": required_blinks,
-                    "blinks_ok": blinks_ok,
-                    "motion_score": liveness_data.get("motion_score", 0.0),
-                    "motion_events": liveness_data.get("motion_events", 0),
-                    "motion_required": required_motion,
-                    "motion_ok": motion_ok,
-                    "no_obstacles": no_obstacles,
-                    "quality_score": face_data.get("quality", 0.0),
-                    "quality_threshold": self.face_engine.auth_quality_threshold,
+                    "frames_processed": int(self._frames_processed),
+                    "min_frames_required": int(min_frames),
+                    "liveness_verified": bool(liveness_verified),
+                    "liveness_score": float(liveness_data.get("liveness_score", 0.0)),
+                    "is_live": bool(liveness_data.get("is_live", False)),
+                    "blinks_detected": int(liveness_data.get("blinks_detected", 0)),
+                    "motion_score": float(liveness_data.get("motion_score", 0.0)),
+                    "no_obstacles": bool(no_obstacles),
+                    "quality_score": float(face_data.get("quality", 0.0)),
+                    "quality_threshold": float(self.face_engine.auth_quality_threshold),
                     "obstacles": obstacle_data.get("detected", []),
                     "visual_data": visual_data,
-                    "message": " | ".join(progress_message) if progress_message else "Blink AND move head to authenticate"
-                }))
+                    "elapsed_time": float(elapsed_time),
+                    "timeout": float(self._auth_timeout),
+                    "message": " | ".join(progress_message) if progress_message else f"Authenticating... ({elapsed_time:.1f}s/{self._auth_timeout}s)"
+                }
+                
+                await self.send(text_data=json.dumps(response_data))
 
         except Exception as e:
             logger.error(f"Error processing authentication frame: {e}", exc_info=True)
@@ -972,3 +1152,11 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             "error": message,
             "code": code
         }))
+    
+    async def send_json_safe(self, data: Dict[str, Any]):
+        """
+        Safely send JSON data with automatic NumPy type conversion
+        """
+        # Convert any NumPy types to native Python types
+        safe_data = convert_numpy_types(data)
+        await self.send(text_data=json.dumps(safe_data))
