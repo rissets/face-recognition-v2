@@ -1,0 +1,38 @@
+{
+    "face_recognition": {
+        "model_name": "buffalo_l",
+        "det_size": [640, 640],
+        "verification_threshold": 0.4,
+        "ctx_id": 0
+    },
+    "liveness_detection": {
+        "ear_threshold": 0.25,
+        "consecutive_frames": 3,
+        "min_blinks": 2,
+        "max_detection_confidence": 0.5,
+        "min_tracking_confidence": 0.5
+    },
+    "obstacle_detection": {
+        "glasses_min_area": 100,
+        "hat_dark_pixel_ratio": 0.6,
+        "mask_texture_threshold": 20
+    },
+    "camera": {
+        "width": 640,
+        "height": 480,
+        "fps": 30,
+        "device_id": 0
+    },
+    "enrollment": {
+        "required_samples": 5,
+        "sample_delay": 1.0
+    },
+    "authentication": {
+        "timeout": 30,
+        "show_result_duration": 2.0
+    },
+    "database": {
+        "embeddings_file": "face_database.pkl",
+        "faiss_file": "face_database.faiss"
+    }
+}

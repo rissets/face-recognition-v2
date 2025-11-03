@@ -1,0 +1,33 @@
+2025-11-03 14:47:24,639 - INFO - Inisialisasi Ultra Anti-Spoofing Detector...
+2025-11-03 14:47:26,009 - INFO - Camera resolution: 1280.0x720.0 @ 30.0fps
+2025-11-03 14:47:26,009 - INFO - Memuat InsightFace models...
+2025-11-03 14:47:26,009 - INFO - CoreML tersedia, menggunakan Metal acceleration
+2025-11-03 14:47:32,273 - INFO - ✓ InsightFace berhasil dimuat dengan optimal settings
+2025-11-03 14:47:32,273 - INFO - Checking dan downloading models...
+2025-11-03 14:47:32,273 - INFO - ✓ Models initialized (menggunakan heuristic analysis)
+2025-11-03 14:47:32,273 - INFO - Ultra Detector berhasil diinisialisasi!
+2025-11-03 14:47:32,273 - INFO - Memulai Ultra Anti-Spoofing Detection...
+2025-11-03 14:47:34,606 - ERROR - Critical error: Python integer 32979 out of bounds for uint8
+2025-11-03 14:47:34,607 - INFO - === ULTRA SESSION STATISTICS ===
+2025-11-03 14:47:34,608 - INFO - Total frames processed: 1
+2025-11-03 14:47:34,608 - INFO - Total face detections: 1
+2025-11-03 14:47:34,608 - INFO - Real faces detected: 0
+2025-11-03 14:47:34,608 - INFO - Fake faces detected: 0
+2025-11-03 14:47:34,608 - INFO - Real detection rate: 0.0%
+2025-11-03 14:47:34,608 - INFO - Fake detection rate: 0.0%
+2025-11-03 14:47:34,608 - INFO - Estimated accuracy: 0.0%
+2025-11-03 14:55:12,053 - INFO - Inisialisasi Ultra Anti-Spoofing Detector...
+2025-11-03 14:55:13,469 - INFO - Camera resolution: 640.0x480.0 @ 30.0fps
+2025-11-03 14:55:13,469 - INFO - Memuat InsightFace models...
+2025-11-03 14:55:13,469 - INFO - CoreML tersedia, menggunakan Metal acceleration
+2025-11-03 14:55:19,832 - INFO - ✓ InsightFace berhasil dimuat dengan optimal settings
+2025-11-03 14:55:19,832 - INFO - Checking dan downloading models...
+2025-11-03 14:55:19,832 - INFO - ✓ Models initialized (menggunakan heuristic analysis)
+2025-11-03 14:55:19,832 - INFO - Ultra Detector berhasil diinisialisasi!
+2025-11-03 14:55:19,832 - INFO - Memulai Ultra Anti-Spoofing Detection...
+2025-11-03 14:55:19,914 - ERROR - Critical error: 'UltraAntiSpoofingDetector' object has no attribute 'face_cascade'
+2025-11-03 14:55:19,918 - INFO - === ULTRA SESSION STATISTICS ===
+2025-11-03 14:55:19,918 - INFO - Total frames processed: 1
+2025-11-03 14:55:19,918 - INFO - Total face detections: 0
+2025-11-03 14:55:19,918 - INFO - Real faces detected: 0
+2025-11-03 14:55:19,919 - INFO - Fake faces detected: 0

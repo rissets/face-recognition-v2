@@ -1,0 +1,23 @@
+{
+  "timestamp": 1759391541.435353,
+  "user": "demo_user",
+  "mode": "enrollment",
+  "quality": {
+    "brightness": 0.85,
+    "contrast": 0.92,
+    "sharpness": 0.78,
+    "face_size_score": 0.88,
+    "face_position_score": 0.91,
+    "eye_visibility_score": 0.87,
+    "overall_score": 0.87
+  },
+  "obstacles": [],
+  "blinks": {
+    "total_blinks": 15,
+    "valid_blinks": 12,
+    "detection_accuracy": 0.95,
+    "adaptive_threshold": 0.82,
+    "baseline_ear": 1.25
+  },
+  "status": "success"
+}

@@ -1,0 +1,28 @@
+2025-11-03 14:54:03,391 - INFO - Inisialisasi Realtime Anti-Spoofing Detector...
+2025-11-03 14:54:04,760 - INFO - Camera initialized untuk realtime processing
+2025-11-03 14:54:04,760 - INFO - Memuat InsightFace untuk realtime...
+2025-11-03 14:54:05,360 - INFO - ✓ InsightFace berhasil dimuat untuk realtime
+2025-11-03 14:54:05,360 - INFO - Realtime Detector berhasil diinisialisasi!
+2025-11-03 14:54:05,360 - INFO - Memulai Realtime Anti-Spoofing Detection...
+2025-11-03 14:54:39,519 - INFO - Aplikasi dihentikan oleh user
+2025-11-03 14:54:39,520 - INFO - === REALTIME SESSION SUMMARY ===
+2025-11-03 14:54:39,520 - INFO - Total frames: 664
+2025-11-03 14:54:39,520 - INFO - Total detections: 332
+2025-11-03 14:54:39,520 - INFO - Real faces: 442
+2025-11-03 14:54:39,520 - INFO - Fake faces: 28
+2025-11-03 14:54:39,520 - INFO - Real percentage: 133.1%
+2025-11-03 14:54:39,520 - INFO - Fake percentage: 8.4%
+2025-11-03 15:13:17,118 - INFO - Inisialisasi Realtime Anti-Spoofing Detector...
+2025-11-03 15:13:18,628 - INFO - Camera initialized untuk realtime processing
+2025-11-03 15:13:18,629 - INFO - Memuat InsightFace untuk realtime...
+2025-11-03 15:13:19,115 - INFO - ✓ InsightFace berhasil dimuat untuk realtime
+2025-11-03 15:13:19,116 - INFO - Realtime Detector berhasil diinisialisasi!
+2025-11-03 15:13:19,116 - INFO - Memulai Realtime Anti-Spoofing Detection...
+2025-11-03 15:13:23,839 - INFO - Aplikasi dihentikan oleh user
+2025-11-03 15:13:23,839 - INFO - === REALTIME SESSION SUMMARY ===
+2025-11-03 15:13:23,839 - INFO - Total frames: 85
+2025-11-03 15:13:23,839 - INFO - Total detections: 43
+2025-11-03 15:13:23,839 - INFO - Real faces: 0
+2025-11-03 15:13:23,839 - INFO - Fake faces: 42
+2025-11-03 15:13:23,839 - INFO - Real percentage: 0.0%
+2025-11-03 15:13:23,839 - INFO - Fake percentage: 97.7%

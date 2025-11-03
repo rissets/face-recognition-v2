@@ -1,0 +1,11 @@
+insightface
+opencv-python
+numpy
+faiss-cpu
+mediapipe
+scikit-learn
+Pillow
+dlib
+cmake
+onnxruntime
+tqdm
