@@ -1105,7 +1105,7 @@ class OptimizedPassiveLivenessDetector:
             final_score = np.median(list(self.final_scores)[-7:])
         
         # Decision - STRICT THRESHOLD (lebih tinggi)
-        THRESHOLD = 0.70  # Strict threshold - lebih sulit dianggap real
+        THRESHOLD = 0.85  # Strict threshold - lebih sulit dianggap real
         is_live = final_score > THRESHOLD
         
         details = {

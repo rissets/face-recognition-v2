@@ -887,6 +887,11 @@ class ChromaEmbeddingStore:
             
             embedding_id = f"{user_id}_{uuid.uuid4().hex[:8]}"
             
+            # Ensure user_id is in metadata for duplicate checking
+            if metadata is None:
+                metadata = {}
+            metadata['user_id'] = user_id  # CRITICAL: Add user_id to metadata
+            
             # Clean metadata for ChromaDB compatibility
             clean_metadata = self._clean_metadata_for_chroma(metadata)
             
@@ -998,6 +1003,69 @@ class FaceRecognitionEngine:
         self.allowed_obstacles = set(self.config.get('NON_BLOCKING_OBSTACLES', ['glasses', 'hat']))
         
         logger.info("Face recognition engine initialized")
+    
+    def check_face_duplicate(self, embedding: np.ndarray, current_user_id: str, similarity_threshold: float = 0.6) -> Dict[str, Any]:
+        """Check if face embedding already exists for a different user
+        
+        Args:
+            embedding: Face embedding to check
+            current_user_id: User ID attempting enrollment (format: client_id:external_user_id)
+            similarity_threshold: Minimum similarity to consider as duplicate (default 0.6)
+            
+        Returns:
+            Dict with keys:
+                - is_duplicate: bool
+                - conflicting_user_id: str (if duplicate found)
+                - similarity_score: float (if duplicate found)
+                - metadata: dict (if duplicate found)
+        """
+        try:
+            # Search for similar embeddings with high threshold using embedding_store
+            matches = self.embedding_store.search_similar(
+                embedding=embedding,
+                top_k=5,
+                threshold=similarity_threshold
+            )
+            
+            # Check if any match belongs to a different user
+            for match in matches:
+                # Extract user_id from embedding_id (format: user_id_timestamp)
+                embedding_id = match.get('embedding_id', '')
+                # Get user_id from metadata
+                metadata = match.get('metadata', {})
+                existing_user_id = metadata.get('user_id', '')
+                
+                # If match is from different user, it's a duplicate
+                if existing_user_id and existing_user_id != current_user_id:
+                    logger.warning(
+                        f"⚠️ Duplicate face detected! Face already enrolled for user '{existing_user_id}' "
+                        f"with similarity {match['similarity']:.3f}"
+                    )
+                    return {
+                        'is_duplicate': True,
+                        'conflicting_user_id': existing_user_id,
+                        'similarity_score': match['similarity'],
+                        'metadata': metadata
+                    }
+            
+            # No duplicates found
+            return {
+                'is_duplicate': False,
+                'conflicting_user_id': None,
+                'similarity_score': 0.0,
+                'metadata': {}
+            }
+            
+        except Exception as e:
+            logger.error(f"Error checking face duplicate: {e}", exc_info=True)
+            # On error, allow enrollment (fail-open to not block legitimate users)
+            return {
+                'is_duplicate': False,
+                'conflicting_user_id': None,
+                'similarity_score': 0.0,
+                'metadata': {},
+                'error': str(e)
+            }
     
     def detect_faces(self, frame):
         """Detect faces in frame and return face data"""
@@ -1344,6 +1412,40 @@ class FaceRecognitionEngine:
             final_embedding, avg_metadata = self.embedding_averager.average_embeddings(
                 embeddings_np, weights
             )
+            
+            # VALIDASI: Check if face already exists for another user
+            duplicate_check = self.check_face_duplicate(
+                embedding=final_embedding,
+                current_user_id=user_id,
+                similarity_threshold=0.6  # 60% similarity threshold
+            )
+            
+            if duplicate_check.get('is_duplicate', False):
+                conflicting_user = duplicate_check.get('conflicting_user_id', 'Unknown')
+                similarity = duplicate_check.get('similarity_score', 0.0)
+                
+                # Clear session data
+                self.session_manager.clear_session(session_token)
+                
+                logger.error(
+                    f"❌ ENROLLMENT REJECTED: Face already enrolled for user '{conflicting_user}' "
+                    f"(similarity: {similarity:.1%}). Current user: {user_id}"
+                )
+                
+                return {
+                    'success': False,
+                    'error': 'duplicate_face',
+                    'error_code': 'DUPLICATE_FACE_DETECTED',
+                    'message': 'This face has already been enrolled by another user',
+                    'details': {
+                        'conflicting_user_id': conflicting_user,
+                        'similarity_score': similarity,
+                        'frames_used': len(embeddings),
+                        'quality_score': avg_metadata['quality_score']
+                    }
+                }
+            
+            logger.info(f"✅ Face validation passed - No duplicate found for user {user_id}")
             
             # Save averaged embedding to ChromaDB
             save_metadata = {

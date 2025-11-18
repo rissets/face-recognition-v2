@@ -831,8 +831,33 @@ def _handle_enrollment_frame(
         if completion_result.get("success", False):
             logger.info(f"Session-based enrollment completed successfully: {completion_result}")
         else:
+            # Check if failure is due to duplicate face
+            if completion_result.get("error") == "duplicate_face":
+                logger.error(f"Duplicate face detected during enrollment: {completion_result}")
+                
+                # Update session to failed
+                session.status = "failed"
+                session.is_successful = False
+                session.failure_reason = "duplicate_face"
+                session.completed_at = timezone.now()
+                metadata["failure_reason"] = "duplicate_face"
+                metadata["conflicting_user"] = completion_result.get("details", {}).get("conflicting_user_id", "unknown")
+                metadata["similarity_score"] = completion_result.get("details", {}).get("similarity_score", 0.0)
+                session.metadata = _ensure_json_serializable_metadata(metadata)
+                session.save(update_fields=["status", "is_successful", "failure_reason", "completed_at", "metadata"])
+                
+                # Return error response to client
+                return JsonResponse({
+                    "success": False,
+                    "error": "duplicate_face",
+                    "error_code": "DUPLICATE_FACE_DETECTED",
+                    "message": "❌ This face has already been enrolled by another user",
+                    "details": completion_result.get("details", {}),
+                    "session_status": "failed"
+                }, status=status.HTTP_409_CONFLICT)
+            
             logger.error(f"Failed to complete session-based enrollment: {completion_result}")
-            # Don't fail the whole process, just continue with regular flow
+            # Don't fail the whole process for other errors, just continue with regular flow
     
     # More flexible completion logic - allow completion if enrollment ready even if liveness not fully satisfied
     should_complete_enrollment = (enrollment_complete and min_frames_met) or (frames_processed >= 20 and can_complete)

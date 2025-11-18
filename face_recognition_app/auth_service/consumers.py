@@ -339,7 +339,33 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     await asyncio.sleep(1)
                     await self.close(code=1000)
                 else:
-                    await self.send_error("Failed to complete enrollment")
+                    # Check if failure is due to duplicate face
+                    enrollment_refresh = await self.get_enrollment(self.session.id)
+                    failure_reason = enrollment_refresh.metadata.get('failure_reason') if enrollment_refresh else None
+                    
+                    if failure_reason == 'duplicate_face':
+                        conflicting_user = enrollment_refresh.metadata.get('conflicting_user_id', 'another user')
+                        similarity = enrollment_refresh.metadata.get('similarity_score', 0.0)
+                        
+                        await self.send(text_data=json.dumps({
+                            "type": "enrollment_failed",
+                            "success": False,
+                            "error": "duplicate_face",
+                            "error_code": "DUPLICATE_FACE_DETECTED",
+                            "message": f"❌ This face has already been enrolled by another user",
+                            "details": {
+                                "reason": "Face already exists in system",
+                                "similarity_score": float(similarity),
+                                "conflicting_user": str(conflicting_user)
+                            },
+                            "visual_data": visual_data
+                        }))
+                        
+                        await self.update_session_status("failed")
+                        await asyncio.sleep(1)
+                        await self.close(code=4001)  # Custom close code for duplicate
+                    else:
+                        await self.send_error("Failed to complete enrollment")
             else:
                 # Send progress update with detailed feedback
                 progress_message = []
@@ -957,6 +983,38 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             if embedding is None:
                 return False
             
+            # Convert to numpy array if needed
+            if not isinstance(embedding, np.ndarray):
+                embedding = np.array(embedding)
+            
+            # VALIDASI: Check if face already exists for another user
+            engine_user_id = f"{self.client.client_id}:{self.session.client_user.external_user_id}"
+            duplicate_check = self.face_engine.check_face_duplicate(
+                embedding=embedding,
+                current_user_id=engine_user_id,
+                similarity_threshold=0.6  # 60% similarity threshold
+            )
+            
+            if duplicate_check.get('is_duplicate', False):
+                conflicting_user = duplicate_check.get('conflicting_user_id', 'Unknown')
+                similarity = duplicate_check.get('similarity_score', 0.0)
+                
+                # Update enrollment status to failed
+                enrollment.status = "failed"
+                enrollment.metadata = enrollment.metadata or {}
+                enrollment.metadata['failure_reason'] = 'duplicate_face'
+                enrollment.metadata['conflicting_user_id'] = conflicting_user
+                enrollment.metadata['similarity_score'] = similarity
+                enrollment.save()
+                
+                logger.error(
+                    f"❌ ENROLLMENT REJECTED: Face already enrolled for user '{conflicting_user}' "
+                    f"(similarity: {similarity:.1%}). Current user: {engine_user_id}"
+                )
+                return False
+            
+            logger.info(f"✅ Face validation passed - No duplicate found for user {engine_user_id}")
+            
             # Get face bbox and landmarks
             bbox = face_data.get("bbox")
             landmarks = face_data.get("landmarks")
@@ -986,7 +1044,6 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             enrollment.save()
             
             # Save embedding to face engine database using save_embedding method
-            engine_user_id = f"{self.client.client_id}:{self.session.client_user.external_user_id}"
             
             # Convert to numpy array if needed
             if not isinstance(embedding, np.ndarray):
