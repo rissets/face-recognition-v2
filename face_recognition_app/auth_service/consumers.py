@@ -992,7 +992,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             duplicate_check = self.face_engine.check_face_duplicate(
                 embedding=embedding,
                 current_user_id=engine_user_id,
-                similarity_threshold=0.85  # 85% similarity threshold
+                similarity_threshold=0.55  # 85% similarity threshold
             )
             
             if duplicate_check.get('is_duplicate', False):
