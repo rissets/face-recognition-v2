@@ -51,7 +51,7 @@ DEBUG = config("DEBUG", default=True, cast=bool)
 
 ALLOWED_HOSTS = config(
     "ALLOWED_HOSTS",
-    default="localhost,127.0.0.1",
+    default="localhost,127.0.0.1,192.168.83.16",
     cast=lambda v: [s.strip() for s in v.split(",")],
 )
 
@@ -217,7 +217,7 @@ if USE_MINIO:
 
     # Proper URL configuration for MinIO
     if config("ENVIRONMENT", default="development") == "production":
-        MEDIA_URL = f"https://{config('DOMAIN')}/media/"
+        MEDIA_URL = f"https://{config('DOMAIN', default="localhost:9000")}/media/"
     else:
         MEDIA_URL = f"{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/{AWS_LOCATION}/"
 else:
