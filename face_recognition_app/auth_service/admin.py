@@ -1,10 +1,13 @@
 """
 Auth service admin configuration
 """
+import logging
 from django.contrib import admin
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 from .models import AuthenticationSession, FaceEnrollment, LivenessDetectionResult, FaceRecognitionAttempt
+
+logger = logging.getLogger(__name__)
 
 
 @admin.register(AuthenticationSession)
@@ -163,3 +166,77 @@ class FaceEnrollmentAdmin(ModelAdmin):
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('client', 'client_user', 'enrollment_session')
+    
+    def _delete_chroma_embeddings(self, enrollment):
+        """Delete embeddings from ChromaDB for the given enrollment"""
+        try:
+            from core.face_recognition_engine import ChromaEmbeddingStore
+            
+            if not enrollment.client_user or not enrollment.client:
+                logger.warning(f"Cannot delete ChromaDB embeddings: missing client_user or client for enrollment {enrollment.id}")
+                return False
+            
+            # Build the user_id in the same format used during enrollment
+            user_id = f"{enrollment.client.client_id}:{enrollment.client_user.external_user_id}"
+            
+            # Initialize ChromaDB store and delete embeddings
+            chroma_store = ChromaEmbeddingStore()
+            result = chroma_store.delete_user_embeddings(user_id)
+            
+            if result:
+                logger.info(f"Successfully deleted ChromaDB embeddings for user: {user_id}")
+            else:
+                logger.warning(f"Failed to delete ChromaDB embeddings for user: {user_id}")
+            
+            return result
+        except Exception as e:
+            logger.error(f"Error deleting ChromaDB embeddings for enrollment {enrollment.id}: {e}")
+            return False
+    
+    def delete_model(self, request, obj):
+        """Override delete_model to also delete from ChromaDB"""
+        # Delete from ChromaDB first
+        self._delete_chroma_embeddings(obj)
+        
+        # Update client_user enrollment status
+        if obj.client_user:
+            remaining = FaceEnrollment.objects.filter(
+                client_user=obj.client_user, 
+                status='active'
+            ).exclude(id=obj.id).exists()
+            
+            if not remaining:
+                obj.client_user.is_enrolled = False
+                obj.client_user.enrollment_completed_at = None
+                obj.client_user.save(update_fields=['is_enrolled', 'enrollment_completed_at'])
+                logger.info(f"Updated client_user {obj.client_user.external_user_id} enrollment status to False")
+        
+        # Call parent delete
+        super().delete_model(request, obj)
+    
+    def delete_queryset(self, request, queryset):
+        """Override delete_queryset to also delete from ChromaDB for bulk deletes"""
+        # Collect unique client_users to update after deletion
+        client_users_to_check = set()
+        
+        for obj in queryset:
+            # Delete from ChromaDB
+            self._delete_chroma_embeddings(obj)
+            if obj.client_user:
+                client_users_to_check.add(obj.client_user)
+        
+        # Call parent delete
+        super().delete_queryset(request, queryset)
+        
+        # Update client_user enrollment status for affected users
+        for client_user in client_users_to_check:
+            remaining = FaceEnrollment.objects.filter(
+                client_user=client_user, 
+                status='active'
+            ).exists()
+            
+            if not remaining:
+                client_user.is_enrolled = False
+                client_user.enrollment_completed_at = None
+                client_user.save(update_fields=['is_enrolled', 'enrollment_completed_at'])
+                logger.info(f"Updated client_user {client_user.external_user_id} enrollment status to False")

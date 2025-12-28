@@ -180,7 +180,7 @@ class ClientViewSet(viewsets.ModelViewSet):
     retrieve=extend_schema(
         tags=["Client Management"],
         summary="Retrieve a Client User",
-        description="Get detailed information about a specific user by their ID.",
+        description="Get detailed information about a specific user by their external_user_id.",
         responses=ClientUserSerializer,
     ),
     create=extend_schema(
@@ -193,14 +193,14 @@ class ClientViewSet(viewsets.ModelViewSet):
     update=extend_schema(
         tags=["Client Management"],
         summary="Update a Client User",
-        description="Update the details of an existing client user.",
+        description="Update the details of an existing client user by their external_user_id.",
         request=ClientUserWriteSerializer,
         responses=ClientUserSerializer,
     ),
     partial_update=extend_schema(
         tags=["Client Management"],
         summary="Partially Update a Client User",
-        description="Partially update the details of an existing client user.",
+        description="Partially update the details of an existing client user by their external_user_id.",
         request=ClientUserWriteSerializer,
         responses=ClientUserSerializer,
     ),
@@ -217,6 +217,8 @@ class ClientUserViewSet(viewsets.ModelViewSet):
     serializer_class = ClientUserSerializer
     authentication_classes = [APIKeyAuthentication, JWTClientAuthentication]
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = 'external_user_id'
+    lookup_url_kwarg = 'external_user_id'
 
     def get_queryset(self):
         if hasattr(self.request, "client"):
@@ -233,7 +235,7 @@ class ClientUserViewSet(viewsets.ModelViewSet):
         responses=ClientUserToggleResponseSerializer,
     )
     @action(detail=True, methods=["post"])
-    def activate(self, request, pk=None):
+    def activate(self, request, external_user_id=None):
         user = self.get_object()
         user.face_auth_enabled = True
         user.save(update_fields=["face_auth_enabled"])
@@ -252,7 +254,7 @@ class ClientUserViewSet(viewsets.ModelViewSet):
         responses=ClientUserToggleResponseSerializer,
     )
     @action(detail=True, methods=["post"])
-    def deactivate(self, request, pk=None):
+    def deactivate(self, request, external_user_id=None):
         user = self.get_object()
         user.face_auth_enabled = False
         user.save(update_fields=["face_auth_enabled"])
@@ -271,7 +273,7 @@ class ClientUserViewSet(viewsets.ModelViewSet):
         responses=ClientUserEnrollmentListSerializer,
     )
     @action(detail=True, methods=["get"])
-    def enrollments(self, request, pk=None):
+    def enrollments(self, request, external_user_id=None):
         user = self.get_object()
         enrollments = user.enrollments.all()
         payload = {
