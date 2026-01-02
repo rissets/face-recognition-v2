@@ -49,6 +49,12 @@ FIELD_ENCRYPTION_KEY = config(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", default=True, cast=bool)
 
+# Telegram Error Monitoring Configuration
+TELEGRAM_ERROR_LOGGING_ENABLED = config("TELEGRAM_ERROR_LOGGING_ENABLED", default=False, cast=bool)
+TELEGRAM_BOT_TOKEN = config("TELEGRAM_BOT_TOKEN", default="")
+TELEGRAM_CHAT_ID = config("TELEGRAM_CHAT_ID", default="")
+ENVIRONMENT = config("ENVIRONMENT", default="development")
+
 ALLOWED_HOSTS = config(
     "ALLOWED_HOSTS",
     default="localhost,127.0.0.1,192.168.83.16,face.ahu.go.id",
@@ -109,6 +115,10 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "clients.middleware.ClientUsageLoggingMiddleware",
+    # Telegram Error Monitoring
+    "core.middleware.TelegramErrorMonitoringMiddleware",
+    "core.middleware.TelegramRequestMonitoringMiddleware",
+    "core.middleware.TelegramResponseMonitoringMiddleware",
 ]
 
 ROOT_URLCONF = "face_app.urls"

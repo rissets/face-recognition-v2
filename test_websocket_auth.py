@@ -86,7 +86,7 @@ class FaceAuthWebSocketClient:
             "session_type": "webcam",
             "require_liveness": require_liveness,
             "metadata": {
-                "min_frames_required": 3,
+                "min_frames_required": 10,
                 "required_blinks": 1,
                 "device_info": {"platform": "test_script"},
             },

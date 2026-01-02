@@ -15,6 +15,12 @@ app.config_from_object('django.conf:settings', namespace='CELERY')
 # Auto-discover tasks from all registered Django apps
 app.autodiscover_tasks()
 
+# Import Celery signal handlers for Telegram monitoring
+try:
+    import core.celery_signals
+except ImportError:
+    pass
+
 @app.task(bind=True)
 def debug_task(self):
     print(f'Request: {self.request!r}')

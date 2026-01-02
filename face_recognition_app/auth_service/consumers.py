@@ -80,6 +80,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         self._last_frame_ts = 0.0
         self._throttle_interval = 0.1  # 10 fps max
         self._max_frames = getattr(settings, 'FACE_MAX_FRAMES_PER_SESSION', 120)
+        self._is_connected = False  # Track connection state
         
         # Authentication-specific: optimal passive liveness with 3-second timeout
         self._auth_liveness_detector = None
@@ -128,6 +129,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             return
 
         await self.accept()
+        self._is_connected = True  # Mark as connected
         
         # Initialize optimal passive liveness detector for authentication sessions
         if self.session.session_type in ["verification", "identification", "recognition"]:
@@ -139,7 +141,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             logger.info(f"Initialized optimal passive liveness detector for authentication (timeout: {self._auth_timeout}s)")
         
         # Send connection confirmation
-        await self.send(text_data=json.dumps({
+        await self.safe_send(text_data=json.dumps({
             "type": "connection_established",
             "session_token": self.session_token,
             "session_type": self.session.session_type,
@@ -152,6 +154,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
 
     async def disconnect(self, close_code):
         """Handle WebSocket disconnect"""
+        self._is_connected = False  # Mark as disconnected
         if self.session and self.session.status == "active":
             await self.update_session_status("disconnected")
         
@@ -181,7 +184,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 if message_type == "frame":
                     await self.handle_frame(data)
                 elif message_type == "ping":
-                    await self.send(text_data=json.dumps({"type": "pong"}))
+                    await self.safe_send(text_data=json.dumps({"type": "pong"}))
                 else:
                     await self.send_error(f"Unknown message type: {message_type}")
                     
@@ -241,7 +244,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             result = await self.run_face_detection(frame)
             
             if not result.get("success"):
-                await self.send(text_data=json.dumps({
+                await self.safe_send(text_data=json.dumps({
                     "type": "frame_processed",
                     "success": False,
                     "error": result.get("error", "Face detection failed"),
@@ -267,7 +270,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 }
                 emoji_list = ' '.join([obstacle_emoji.get(obs, '⚠️') for obs in detected_obstacles])
                 
-                await self.send(text_data=json.dumps({
+                await self.safe_send(text_data=json.dumps({
                     "type": "frame_rejected",
                     "success": False,
                     "error": f"Obstacles detected: {obstacle_names}",
@@ -319,7 +322,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                         session_type="enrollment"
                     )
                     
-                    await self.send(text_data=json.dumps({
+                    await self.safe_send(text_data=json.dumps({
                         "type": "enrollment_complete",
                         "success": True,
                         "enrollment_id": str(enrollment.id),
@@ -347,7 +350,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                         conflicting_user = enrollment_refresh.metadata.get('conflicting_user_id', 'another user')
                         similarity = enrollment_refresh.metadata.get('similarity_score', 0.0)
                         
-                        await self.send(text_data=json.dumps({
+                        await self.safe_send(text_data=json.dumps({
                             "type": "enrollment_failed",
                             "success": False,
                             "error": "duplicate_face",
@@ -403,7 +406,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     "message": " | ".join(progress_message) if progress_message else "Blink AND move head to complete"
                 }
                 
-                await self.send(text_data=json.dumps(response_data))
+                await self.safe_send(text_data=json.dumps(response_data))
 
         except Exception as e:
             logger.error(f"Error processing enrollment frame: {e}", exc_info=True)
@@ -428,7 +431,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     blink_count = liveness_details.get('blink_count', 0)
                     
                     # Send timeout result
-                    await self.send(text_data=json.dumps({
+                    await self.safe_send(text_data=json.dumps({
                         "type": "authentication_timeout",
                         "success": False,
                         "timeout": True,
@@ -440,7 +443,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                         "message": f"Authentication timeout: {liveness_details.get('reason', 'Time limit exceeded')}"
                     }))
                 else:
-                    await self.send(text_data=json.dumps({
+                    await self.safe_send(text_data=json.dumps({
                         "type": "authentication_timeout",
                         "success": False,
                         "timeout": True,
@@ -465,7 +468,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 # Check if timeout occurred during detection
                 if liveness_details.get('timeout', False):
                     blink_count = liveness_details.get('blink_count', 0)
-                    await self.send(text_data=json.dumps({
+                    await self.safe_send(text_data=json.dumps({
                         "type": "authentication_timeout",
                         "success": is_live,
                         "authenticated": is_live,
@@ -490,7 +493,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 # Check if device detected (immediate rejection)
                 if 'device_detected' in liveness_details:
                     device_name = liveness_details.get('device_detected')
-                    await self.send(text_data=json.dumps({
+                    await self.safe_send(text_data=json.dumps({
                         "type": "frame_rejected",
                         "success": False,
                         "error": f"Device detected: {device_name}",
@@ -505,7 +508,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 result = await self.run_face_detection(frame)
                 
                 if not result.get("success"):
-                    await self.send(text_data=json.dumps({
+                    await self.safe_send(text_data=json.dumps({
                         "type": "frame_processed",
                         "success": False,
                         "error": result.get("error", "Face detection failed"),
@@ -535,7 +538,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 result = await self.run_face_detection(frame)
                 
                 if not result.get("success"):
-                    await self.send(text_data=json.dumps({
+                    await self.safe_send(text_data=json.dumps({
                         "type": "frame_processed",
                         "success": False,
                         "error": result.get("error", "Face detection failed"),
@@ -560,7 +563,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 }
                 emoji_list = ' '.join([obstacle_emoji.get(obs, '⚠️') for obs in detected_obstacles])
                 
-                await self.send(text_data=json.dumps({
+                await self.safe_send(text_data=json.dumps({
                     "type": "frame_rejected",
                     "success": False,
                     "error": f"Obstacles detected: {obstacle_names}",
@@ -610,7 +613,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                         confidence=auth_result.get("confidence", 0.0)
                     )
                     
-                    await self.send(text_data=json.dumps({
+                    await self.safe_send(text_data=json.dumps({
                         "type": "authentication_complete",
                         "success": True,
                         "authenticated": True,
@@ -630,7 +633,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     await asyncio.sleep(1)
                     await self.close(code=1000)
                 else:
-                    await self.send(text_data=json.dumps({
+                    await self.safe_send(text_data=json.dumps({
                         "type": "authentication_complete",
                         "success": False,
                         "authenticated": False,
@@ -691,7 +694,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     "message": " | ".join(progress_message) if progress_message else f"Authenticating... ({elapsed_time:.1f}s/{self._auth_timeout}s)"
                 }
                 
-                await self.send(text_data=json.dumps(response_data))
+                await self.safe_send(text_data=json.dumps(response_data))
 
         except Exception as e:
             logger.error(f"Error processing authentication frame: {e}", exc_info=True)
@@ -1202,9 +1205,25 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             self.session.metadata = metadata
             self.session.save(update_fields=["metadata"])
 
+    async def safe_send(self, text_data=None, bytes_data=None):
+        """Send data only if connection is still open"""
+        if not self._is_connected:
+            logger.debug(f"Skipping send on closed connection for session {self.session_token}")
+            return False
+        try:
+            await super().send(text_data=text_data, bytes_data=bytes_data)
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to send data: {e}")
+            self._is_connected = False
+            return False
+
     async def send_error(self, message: str, code: int = 4000):
         """Send error message to client"""
-        await self.send(text_data=json.dumps({
+        if not self._is_connected:
+            logger.debug(f"Skipping error send on closed connection: {message}")
+            return
+        await self.safe_send(text_data=json.dumps({
             "type": "error",
             "error": message,
             "code": code
@@ -1216,4 +1235,4 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         """
         # Convert any NumPy types to native Python types
         safe_data = convert_numpy_types(data)
-        await self.send(text_data=json.dumps(safe_data))
+        await self.safe_send(text_data=json.dumps(safe_data))
