@@ -85,7 +85,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         # Authentication-specific: optimal passive liveness with 3-second timeout
         self._auth_liveness_detector = None
         self._auth_start_time = None
-        self._auth_timeout = 5.0  # 3 seconds for authentication
+        self._auth_timeout = 10.0  # 3 seconds for authentication
 
     async def connect(self):
         """Accept WebSocket connection and validate session"""
