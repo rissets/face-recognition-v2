@@ -82,6 +82,7 @@ class ClientUserSerializer(serializers.ModelSerializer):
 
     display_name = serializers.CharField(read_only=True)
     profile_image_url = serializers.SerializerMethodField()
+    old_profile_photo_url = serializers.SerializerMethodField()
 
     class Meta:
         model = ClientUser
@@ -100,6 +101,8 @@ class ClientUserSerializer(serializers.ModelSerializer):
             'updated_at',
             'display_name',
             'profile_image_url',
+            'old_profile_photo_url',
+            'similarity_with_old_photo',
         ]
         read_only_fields = [
             'id',
@@ -110,6 +113,8 @@ class ClientUserSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'profile_image_url',
+            'old_profile_photo_url',
+            'similarity_with_old_photo',
         ]
 
     def get_profile_image_url(self, obj):
@@ -119,6 +124,15 @@ class ClientUserSerializer(serializers.ModelSerializer):
             if request:
                 return request.build_absolute_uri(obj.profile_image.url)
             return obj.profile_image.url
+        return None
+
+    def get_old_profile_photo_url(self, obj):
+        """Get the old profile photo URL if it exists"""
+        if obj.old_profile_photo:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.old_profile_photo.url)
+            return obj.old_profile_photo.url
         return None
 
 
@@ -208,6 +222,8 @@ class ClientUserWriteSerializer(serializers.ModelSerializer):
 
     profile = serializers.JSONField(required=False, default=dict)
     metadata = serializers.JSONField(required=False, default=dict)
+    old_profile_photo = serializers.ImageField(required=False, allow_null=True)
+    profile_image = serializers.ImageField(required=False, allow_null=True)
 
     class Meta:
         model = ClientUser
@@ -217,6 +233,8 @@ class ClientUserWriteSerializer(serializers.ModelSerializer):
             'profile',
             'metadata',
             'face_auth_enabled',
+            'old_profile_photo',
+            'profile_image',
         ]
         extra_kwargs = {
             'external_user_id': {'required': True},

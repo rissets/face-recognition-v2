@@ -65,10 +65,10 @@ class ClientAdmin(ModelAdmin):
 
 @admin.register(ClientUser)
 class ClientUserAdmin(ModelAdmin):
-    list_display = ('external_user_id', 'client', 'user_profile_name', 'is_enrolled', 'face_auth_enabled', 'created_at')
+    list_display = ('external_user_id', 'client', 'user_profile_name', 'profile_image_preview', 'old_profile_preview', 'similarity_display', 'is_enrolled', 'face_auth_enabled', 'created_at')
     list_filter = ('is_enrolled', 'face_auth_enabled', 'created_at', 'client__tier')
     search_fields = ('external_user_id', 'client__name', 'client__client_id')
-    readonly_fields = ('id', 'created_at', 'updated_at', 'last_recognition_at', 'enrollment_completed_at')
+    readonly_fields = ('id', 'profile_image_display', 'old_profile_photo_display', 'similarity_with_old_photo', 'created_at', 'updated_at', 'last_recognition_at', 'enrollment_completed_at')
     date_hierarchy = 'created_at'
     
     fieldsets = (
@@ -77,6 +77,9 @@ class ClientUserAdmin(ModelAdmin):
         }),
         ('Face Recognition Status', {
             'fields': ('is_enrolled', 'enrollment_completed_at', 'face_auth_enabled', 'last_recognition_at')
+        }),
+        ('Profile Images', {
+            'fields': ('profile_image', 'profile_image_display', 'old_profile_photo', 'old_profile_photo_display', 'similarity_with_old_photo')
         }),
         ('User Profile Data', {
             'fields': ('profile',),
@@ -98,6 +101,74 @@ class ClientUserAdmin(ModelAdmin):
             return obj.profile.get('name') or obj.external_user_id
         return "-"
     user_profile_name.short_description = "Profile Name"
+    
+    def profile_image_preview(self, obj):
+        """Display profile image thumbnail in list view"""
+        if obj.profile_image:
+            return format_html(
+                '<img src="{}" width="40" height="40" style="border-radius: 50%; object-fit: cover;" />',
+                obj.profile_image.url
+            )
+        return "-"
+    profile_image_preview.short_description = "Profile Image"
+    
+    def old_profile_preview(self, obj):
+        """Display old profile photo thumbnail in list view"""
+        if obj.old_profile_photo:
+            return format_html(
+                '<img src="{}" width="40" height="40" style="border-radius: 50%; object-fit: cover;" />',
+                obj.old_profile_photo.url
+            )
+        return "-"
+    old_profile_preview.short_description = "Old Photo"
+    
+    def similarity_display(self, obj):
+        """Display similarity score with color coding"""
+        if obj.similarity_with_old_photo is not None:
+            score = obj.similarity_with_old_photo
+            if score >= 0.85:
+                color = 'green'
+                label = 'Very High'
+            elif score >= 0.70:
+                color = 'blue'
+                label = 'High'
+            elif score >= 0.50:
+                color = 'orange'
+                label = 'Moderate'
+            else:
+                color = 'red'
+                label = 'Low'
+            
+            return format_html(
+                '<span style="color: {}; font-weight: bold;">{:.1%}</span> <small>({})</small>',
+                color, score, label
+            )
+        return "-"
+    similarity_display.short_description = "Similarity"
+    
+    def profile_image_display(self, obj):
+        """Display profile image in detail view"""
+        if obj.profile_image:
+            return format_html(
+                '<a href="{}" target="_blank"><img src="{}" width="200" style="border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" /></a><br><small>{}</small>',
+                obj.profile_image.url,
+                obj.profile_image.url,
+                obj.profile_image.name
+            )
+        return "-"
+    profile_image_display.short_description = "Profile Image Preview"
+    
+    def old_profile_photo_display(self, obj):
+        """Display old profile photo in detail view"""
+        if obj.old_profile_photo:
+            return format_html(
+                '<a href="{}" target="_blank"><img src="{}" width="200" style="border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" /></a><br><small>{}</small>',
+                obj.old_profile_photo.url,
+                obj.old_profile_photo.url,
+                obj.old_profile_photo.name
+            )
+        return "-"
+    old_profile_photo_display.short_description = "Old Profile Photo Preview"
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('client')

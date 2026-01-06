@@ -312,8 +312,8 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             )
 
             if is_complete:
-                # Complete enrollment
-                success = await self.complete_enrollment(enrollment, face_data, liveness_data)
+                # Complete enrollment with frame data
+                success, similarity_score = await self.complete_enrollment(enrollment, face_data, liveness_data, frame)
                 
                 if success:
                     # Generate encrypted response
@@ -331,6 +331,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                         "blinks_detected": liveness_data.get("blinks_detected", 0),
                         "motion_verified": liveness_data.get("motion_verified", False),
                         "quality_score": face_data.get("quality", 0.0),
+                        "similarity_with_old_photo": float(similarity_score) if similarity_score is not None else None,
                         "encrypted_data": encrypted_response,
                         "visual_data": visual_data,
                         "message": "Enrollment completed successfully"
@@ -962,29 +963,37 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         self, 
         enrollment: FaceEnrollment, 
         face_data: Dict[str, Any],
-        liveness_data: Dict[str, Any]
-    ) -> bool:
-        """Complete enrollment with final face data"""
+        liveness_data: Dict[str, Any],
+        frame: np.ndarray = None
+    ) -> tuple[bool, Optional[float]]:
+        """Complete enrollment with final face data and return (success, similarity_score)"""
         return await asyncio.get_event_loop().run_in_executor(
             None,
             self._sync_complete_enrollment,
             enrollment,
             face_data,
-            liveness_data
+            liveness_data,
+            frame
         )
 
     def _sync_complete_enrollment(
         self,
         enrollment: FaceEnrollment,
         face_data: Dict[str, Any],
-        liveness_data: Dict[str, Any]
-    ) -> bool:
-        """Synchronous enrollment completion"""
+        liveness_data: Dict[str, Any],
+        frame: np.ndarray = None
+    ) -> tuple[bool, Optional[float]]:
+        """Synchronous enrollment completion with similarity checking and profile image saving"""
         try:
+            import cv2
+            from io import BytesIO
+            from PIL import Image
+            from django.core.files.base import ContentFile
+            
             # Get embedding
             embedding = face_data.get("embedding")
             if embedding is None:
-                return False
+                return False, None
             
             # Convert to numpy array if needed
             if not isinstance(embedding, np.ndarray):
@@ -1014,7 +1023,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     f"❌ ENROLLMENT REJECTED: Face already enrolled for user '{conflicting_user}' "
                     f"(similarity: {similarity:.1%}). Current user: {engine_user_id}"
                 )
-                return False
+                return False, None
             
             logger.info(f"✅ Face validation passed - No duplicate found for user {engine_user_id}")
             
@@ -1066,22 +1075,101 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             
             if not embedding_id:
                 logger.error(f"Failed to save embedding for user {engine_user_id}")
-                return False
+                return False, None
+            
+            # Calculate similarity with old_profile_photo and save profile_image
+            similarity_score = None
+            client_user = self.session.client_user
+            
+            # Save the current frame as profile_image if frame is provided
+            if frame is not None:
+                try:
+                    # Convert frame to JPEG
+                    success, buffer = cv2.imencode('.jpg', frame)
+                    if success:
+                        image_file = ContentFile(buffer.tobytes())
+                        # Save with timestamp to avoid collisions
+                        filename = f"enrollment_{client_user.external_user_id}_{timezone.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+                        client_user.profile_image.save(filename, image_file, save=False)
+                        logger.info(f"✅ Saved profile_image for user {client_user.external_user_id}")
+                except Exception as img_error:
+                    logger.error(f"Failed to save profile_image: {img_error}")
+            
+            # Calculate similarity with old_profile_photo if it exists
+            if client_user.old_profile_photo:
+                try:
+                    # Load old profile photo from storage (MinIO or local)
+                    from PIL import Image
+                    import io
+                    
+                    # Read file from storage (works with MinIO and local)
+                    old_photo_file = client_user.old_profile_photo.open('rb')
+                    old_photo_bytes = old_photo_file.read()
+                    old_photo_file.close()
+                    
+                    # Convert bytes to numpy array
+                    nparr = np.frombuffer(old_photo_bytes, np.uint8)
+                    old_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    
+                    if old_image is not None:
+                        logger.info(f"📸 Loaded old profile photo from storage, size: {old_image.shape}")
+                        
+                        # Detect face and get embedding from old photo
+                        old_face_result = self.face_engine.detect_faces(old_image)
+                        
+                        if old_face_result and len(old_face_result) > 0:
+                            # Get first face
+                            old_face_data = old_face_result[0]
+                            old_embedding = old_face_data.get('embedding')
+                            
+                            if old_embedding is not None:
+                                # Convert to numpy if needed
+                                if not isinstance(old_embedding, np.ndarray):
+                                    old_embedding = np.array(old_embedding)
+                                
+                                # Calculate cosine similarity
+                                similarity_score = float(np.dot(embedding, old_embedding) / 
+                                                       (np.linalg.norm(embedding) * np.linalg.norm(old_embedding)))
+                                
+                                # Save similarity score to ClientUser
+                                client_user.similarity_with_old_photo = similarity_score
+                                logger.info(f"✅ Calculated similarity with old photo: {similarity_score:.3f} ({similarity_score:.1%})")
+                            else:
+                                logger.warning("No embedding found in old profile photo")
+                        else:
+                            logger.warning("No face detected in old profile photo")
+                    else:
+                        logger.warning(f"Failed to decode old profile photo from storage")
+                        
+                except Exception as sim_error:
+                    logger.error(f"Error calculating similarity with old photo: {sim_error}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    # Continue enrollment even if similarity calculation fails
             
             # Update ClientUser status
-            client_user = self.session.client_user
             client_user.is_enrolled = True
             client_user.enrollment_completed_at = timezone.now()
-            client_user.save(update_fields=['is_enrolled', 'enrollment_completed_at'])
+            
+            # Save with updated fields
+            update_fields = ['is_enrolled', 'enrollment_completed_at']
+            if frame is not None:
+                update_fields.append('profile_image')
+            if similarity_score is not None:
+                update_fields.append('similarity_with_old_photo')
+            
+            client_user.save(update_fields=update_fields)
             
             logger.info(f"✅ Enrollment completed for user {engine_user_id} - Embedding ID: {embedding_id}")
             logger.info(f"✅ Updated ClientUser {client_user.external_user_id} - is_enrolled: True")
             logger.info(f"✅ Updated FaceEnrollment - Quality: {enrollment.face_quality_score:.3f}, Liveness: {enrollment.liveness_score:.3f}")
-            return True
+            if similarity_score is not None:
+                logger.info(f"✅ Similarity with old photo: {similarity_score:.3f}")
+            return True, similarity_score
             
         except Exception as e:
             logger.error(f"Error completing enrollment: {e}", exc_info=True)
-            return False
+            return False, None
 
     async def perform_authentication(
         self,

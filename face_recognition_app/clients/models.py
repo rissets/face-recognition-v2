@@ -7,7 +7,16 @@ from django.db import models
 from django.core.validators import URLValidator
 from django.contrib.postgres.fields import ArrayField
 from encrypted_model_fields.fields import EncryptedTextField, EncryptedCharField
+from django.conf import settings
 import json
+
+
+def get_media_storage():
+    """Get the appropriate storage backend for media files"""
+    if settings.USE_MINIO:
+        from core.storage import MinIOMediaStorage
+        return MinIOMediaStorage()
+    return None  # Use default storage
 
 
 class Client(models.Model):
@@ -243,9 +252,26 @@ class ClientUser(models.Model):
     # Profile image (stored in MinIO/S3)
     profile_image = models.ImageField(
         upload_to='client_users/profiles/%Y/%m/%d/',
+        storage=get_media_storage,
         null=True,
         blank=True,
         help_text="User profile image from enrollment"
+    )
+    
+    # Old profile photo for comparison
+    old_profile_photo = models.ImageField(
+        upload_to='client_users/old_profiles/%Y/%m/%d/',
+        storage=get_media_storage,
+        null=True,
+        blank=True,
+        help_text="Previous profile photo for similarity comparison"
+    )
+    
+    # Similarity score with old photo
+    similarity_with_old_photo = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Similarity score between current and old profile photo (0.0 - 1.0)"
     )
     
     # Metadata

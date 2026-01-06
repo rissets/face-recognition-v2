@@ -42,8 +42,8 @@ services:
     volumes:
       - minio_dev_data:/data
     ports:
-      - "9002:9000"
-      - "9003:9001"
+      - "9000:9000"
+      - "9001:9001"
     networks:
       - face_recognition_dev_network
 

@@ -225,6 +225,12 @@ class ClientUserViewSet(viewsets.ModelViewSet):
             return self.queryset.filter(client=self.request.client)
         return self.queryset.none()
 
+    def get_serializer_class(self):
+        """Use different serializers for read and write operations."""
+        if self.action in ['create', 'update', 'partial_update']:
+            return ClientUserWriteSerializer
+        return ClientUserSerializer
+
     def perform_create(self, serializer):
         serializer.save(client=self.request.client)
 
