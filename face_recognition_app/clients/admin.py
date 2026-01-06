@@ -139,9 +139,12 @@ class ClientUserAdmin(ModelAdmin):
                 color = 'red'
                 label = 'Low'
             
+            # Format percentage manually to avoid format_html issues
+            percentage = f"{score:.1%}"
+            
             return format_html(
-                '<span style="color: {}; font-weight: bold;">{:.1%}</span> <small>({})</small>',
-                color, score, label
+                '<span style="color: {}; font-weight: bold;">{}</span> <small>({})</small>',
+                color, percentage, label
             )
         return "-"
     similarity_display.short_description = "Similarity"
