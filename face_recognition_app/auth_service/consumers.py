@@ -333,13 +333,18 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                         if abs(similarity_score - db_similarity_score) > 0.0001:
                             logger.warning(f"⚠️ Similarity mismatch! Calculated: {similarity_score}, DB: {db_similarity_score}")
                     
+                    # Use DB value for response to ensure consistency
+                    final_similarity = db_similarity_score if db_similarity_score is not None else None
+                    logger.info(f"📤 Final similarity value for response: {final_similarity}")
+                    
                     # Generate encrypted response
                     encrypted_response = await self.generate_encrypted_response(
                         enrollment_id=str(enrollment.id),
                         session_type="enrollment"
                     )
                     
-                    await self.safe_send(text_data=json.dumps({
+                    # Prepare response with DB value
+                    response_data = {
                         "type": "enrollment_complete",
                         "success": True,
                         "enrollment_id": str(enrollment.id),
@@ -348,11 +353,15 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                         "blinks_detected": liveness_data.get("blinks_detected", 0),
                         "motion_verified": liveness_data.get("motion_verified", False),
                         "quality_score": face_data.get("quality", 0.0),
-                        "similarity_with_old_photo": float(db_similarity_score) if db_similarity_score is not None else None,
+                        "similarity_with_old_photo": final_similarity,
                         "encrypted_data": encrypted_response,
                         "visual_data": visual_data,
                         "message": "Enrollment completed successfully"
-                    }))
+                    }
+                    
+                    logger.info(f"📤📤 Response similarity_with_old_photo field value: {response_data['similarity_with_old_photo']}")
+                    
+                    await self.safe_send(text_data=json.dumps(response_data))
                     
                     await self.update_session_status("completed")
                     
