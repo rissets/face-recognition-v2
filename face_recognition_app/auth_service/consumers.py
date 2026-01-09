@@ -317,7 +317,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 
                 if success:
                     # Force save similarity in async context FIRST to ensure proper DB commit
-                    await self._save_client_user_similarity(similarity)
+                    await self._save_client_user_similarity(similarity_score)
                     
                     # Wait a tiny bit to ensure DB commit is complete
                     await asyncio.sleep(0.05)
@@ -326,12 +326,12 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     await database_sync_to_async(self.session.client_user.refresh_from_db)()
                     db_similarity_score = self.session.client_user.similarity_with_old_photo
                     
-                    logger.info(f"📤 Sending enrollment_complete - similarity calculated: {similarity}, from DB after async save: {db_similarity_score}")
+                    logger.info(f"📤 Sending enrollment_complete - similarity calculated: {similarity_score}, from DB after async save: {db_similarity_score}")
                     
                     # Verify they match
-                    if similarity is not None and db_similarity_score is not None:
-                        if abs(similarity - db_similarity_score) > 0.0001:
-                            logger.warning(f"⚠️ Similarity mismatch! Calculated: {similarity}, DB: {db_similarity_score}")
+                    if similarity_score is not None and db_similarity_score is not None:
+                        if abs(similarity_score - db_similarity_score) > 0.0001:
+                            logger.warning(f"⚠️ Similarity mismatch! Calculated: {similarity_score}, DB: {db_similarity_score}")
                     
                     # Generate encrypted response
                     encrypted_response = await self.generate_encrypted_response(
@@ -984,7 +984,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         frame: np.ndarray = None
     ) -> tuple[bool, Optional[float]]:
         """Complete enrollment with final face data and return (success, similarity_score)"""
-        success, similarity = await asyncio.get_event_loop().run_in_executor(
+        success, similarity_score = await asyncio.get_event_loop().run_in_executor(
             None,
             self._sync_complete_enrollment,
             enrollment,
@@ -995,10 +995,10 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         
         # If successful and we need to save similarity, do it in async context
         if success:
-            # Force save similarity in async context to ensure proper DB commit
-            await self._save_client_user_similarity(similarity)
+            # Don't save here - will be saved after complete_enrollment returns
+            pass
         
-        return success, similarity
+        return success, similarity_score
     
     @database_sync_to_async
     def _save_client_user_similarity(self, similarity_score: Optional[float]):
