@@ -1144,64 +1144,45 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     if old_image is not None:
                         logger.info(f"📸 Loaded old profile photo from storage, size: {old_image.shape}")
                         
-                        # Resize if image is too large (helps with face detection)
-                        max_dimension = 1280
-                        height, width = old_image.shape[:2]
-                        if max(height, width) > max_dimension:
-                            scale = max_dimension / max(height, width)
-                            new_width = int(width * scale)
-                            new_height = int(height * scale)
-                            old_image_resized = cv2.resize(old_image, (new_width, new_height), interpolation=cv2.INTER_AREA)
-                            logger.info(f"📏 Resized old photo from {old_image.shape} to {old_image_resized.shape}")
-                        else:
-                            old_image_resized = old_image
-                        
-                        # Try multiple detection strategies
-                        old_face_result = None
-                        
-                        # Strategy 1: Normal detection
-                        old_face_result = self.face_engine.detect_faces(old_image_resized)
-                        
-                        # Strategy 2: If failed, try with original size
-                        if not old_face_result or len(old_face_result) == 0:
-                            logger.info("🔄 Retrying face detection with original image size...")
-                            old_face_result = self.face_engine.detect_faces(old_image)
-                        
-                        # Strategy 3: If still failed, try with different preprocessing
-                        if not old_face_result or len(old_face_result) == 0:
-                            logger.info("🔄 Retrying with enhanced contrast...")
-                            # Enhance contrast
-                            old_image_enhanced = cv2.convertScaleAbs(old_image, alpha=1.2, beta=10)
-                            old_face_result = self.face_engine.detect_faces(old_image_enhanced)
-                        
-                        if old_face_result and len(old_face_result) > 0:
-                            # Get first face
-                            old_face_data = old_face_result[0]
-                            old_embedding = old_face_data.get('embedding')
+                        # Use InsightFace directly with more lenient detection for old photo
+                        try:
+                            # Get faces using the app directly with lower threshold
+                            faces = self.face_engine.app.get(old_image)
                             
-                            if old_embedding is not None:
-                                # Convert to numpy if needed
-                                if not isinstance(old_embedding, np.ndarray):
-                                    old_embedding = np.array(old_embedding)
+                            if faces and len(faces) > 0:
+                                logger.info(f"✅ Found {len(faces)} face(s) in old profile photo")
+                                # Get the largest face (most likely the main subject)
+                                largest_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+                                old_embedding = largest_face.embedding
                                 
-                                # Normalize embeddings for accurate cosine similarity
-                                embedding_norm = embedding / np.linalg.norm(embedding)
-                                old_embedding_norm = old_embedding / np.linalg.norm(old_embedding)
-                                
-                                # Calculate cosine similarity
-                                similarity_score = float(np.dot(embedding_norm, old_embedding_norm))
-                                
-                                # Ensure similarity_score is in valid range [0, 1]
-                                similarity_score = max(0.0, min(1.0, similarity_score))
-                                
-                                # Save similarity score to ClientUser immediately
-                                client_user.similarity_with_old_photo = similarity_score
-                                logger.info(f"✅ Calculated similarity with old photo: {similarity_score:.3f} ({similarity_score*100:.1f}%)")
+                                if old_embedding is not None:
+                                    # Convert to numpy if needed
+                                    if not isinstance(old_embedding, np.ndarray):
+                                        old_embedding = np.array(old_embedding)
+                                    
+                                    # Normalize embeddings for accurate cosine similarity
+                                    embedding_norm = embedding / np.linalg.norm(embedding)
+                                    old_embedding_norm = old_embedding / np.linalg.norm(old_embedding)
+                                    
+                                    # Calculate cosine similarity
+                                    similarity_score = float(np.dot(embedding_norm, old_embedding_norm))
+                                    
+                                    # Ensure similarity_score is in valid range [0, 1]
+                                    similarity_score = max(0.0, min(1.0, similarity_score))
+                                    
+                                    # Save similarity score to ClientUser immediately
+                                    client_user.similarity_with_old_photo = similarity_score
+                                    logger.info(f"✅ Calculated similarity with old photo: {similarity_score:.3f} ({similarity_score*100:.1f}%)")
+                                else:
+                                    logger.warning("No embedding found in old profile photo")
+                                    client_user.similarity_with_old_photo = None
                             else:
-                                logger.warning("No embedding found in old profile photo")
+                                logger.warning("No face detected in old profile photo using InsightFace")
                                 client_user.similarity_with_old_photo = None
-                        else:
-                            logger.warning("No face detected in old profile photo")
+                        except Exception as detection_error:
+                            logger.error(f"Error detecting face in old photo: {detection_error}")
+                            import traceback
+                            logger.error(traceback.format_exc())
                             client_user.similarity_with_old_photo = None
                     else:
                         logger.warning(f"Failed to decode old profile photo from storage")
