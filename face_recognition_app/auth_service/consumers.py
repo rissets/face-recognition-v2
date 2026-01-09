@@ -1151,44 +1151,103 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                         # Strategy 1: Try with original image
                         try:
                             faces = self.face_engine.app.get(old_image)
-                            logger.info(f"Strategy 1 (original): Found {len(faces) if faces else 0} faces")
+                            if faces:
+                                logger.info(f"✅ Strategy 1 (original): Found {len(faces)} face(s)")
+                            else:
+                                logger.info(f"❌ Strategy 1 (original): No faces detected")
                         except Exception as e:
                             logger.warning(f"Strategy 1 failed: {e}")
                         
-                        # Strategy 2: Try with contrast enhancement
+                        # Strategy 2: Denoise + Sharpen
                         if not faces or len(faces) == 0:
                             try:
-                                enhanced = cv2.convertScaleAbs(old_image, alpha=1.3, beta=20)
-                                faces = self.face_engine.app.get(enhanced)
-                                logger.info(f"Strategy 2 (enhanced): Found {len(faces) if faces else 0} faces")
+                                # Denoise with bilateral filter
+                                denoised = cv2.bilateralFilter(old_image, 9, 75, 75)
+                                # Sharpen
+                                kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
+                                sharpened = cv2.filter2D(denoised, -1, kernel)
+                                faces = self.face_engine.app.get(sharpened)
+                                if faces:
+                                    logger.info(f"✅ Strategy 2 (denoise+sharpen): Found {len(faces)} face(s)")
+                                else:
+                                    logger.info(f"❌ Strategy 2: No faces detected")
                             except Exception as e:
                                 logger.warning(f"Strategy 2 failed: {e}")
                         
-                        # Strategy 3: Try with resize to larger size
+                        # Strategy 3: Gamma correction for better lighting
                         if not faces or len(faces) == 0:
                             try:
-                                height, width = old_image.shape[:2]
-                                if max(height, width) < 1024:
-                                    scale = 1024.0 / max(height, width)
-                                    new_size = (int(width * scale), int(height * scale))
-                                    resized = cv2.resize(old_image, new_size, interpolation=cv2.INTER_CUBIC)
-                                    faces = self.face_engine.app.get(resized)
-                                    logger.info(f"Strategy 3 (upscaled to {new_size}): Found {len(faces) if faces else 0} faces")
+                                # Auto gamma correction
+                                gamma = 1.2
+                                inv_gamma = 1.0 / gamma
+                                table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+                                gamma_corrected = cv2.LUT(old_image, table)
+                                faces = self.face_engine.app.get(gamma_corrected)
+                                if faces:
+                                    logger.info(f"✅ Strategy 3 (gamma correction): Found {len(faces)} face(s)")
+                                else:
+                                    logger.info(f"❌ Strategy 3: No faces detected")
                             except Exception as e:
                                 logger.warning(f"Strategy 3 failed: {e}")
                         
-                        # Strategy 4: Try with histogram equalization
+                        # Strategy 4: CLAHE (better contrast)
                         if not faces or len(faces) == 0:
                             try:
                                 lab = cv2.cvtColor(old_image, cv2.COLOR_BGR2LAB)
                                 l, a, b = cv2.split(lab)
-                                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+                                clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
                                 l = clahe.apply(l)
                                 equalized = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
                                 faces = self.face_engine.app.get(equalized)
-                                logger.info(f"Strategy 4 (CLAHE): Found {len(faces) if faces else 0} faces")
+                                if faces:
+                                    logger.info(f"✅ Strategy 4 (CLAHE): Found {len(faces)} face(s)")
+                                else:
+                                    logger.info(f"❌ Strategy 4: No faces detected")
                             except Exception as e:
                                 logger.warning(f"Strategy 4 failed: {e}")
+                        
+                        # Strategy 5: Upscale if small
+                        if not faces or len(faces) == 0:
+                            try:
+                                height, width = old_image.shape[:2]
+                                if max(height, width) < 1024:
+                                    scale = 1280.0 / max(height, width)
+                                    new_size = (int(width * scale), int(height * scale))
+                                    resized = cv2.resize(old_image, new_size, interpolation=cv2.INTER_CUBIC)
+                                    faces = self.face_engine.app.get(resized)
+                                    if faces:
+                                        logger.info(f"✅ Strategy 5 (upscaled to {new_size}): Found {len(faces)} face(s)")
+                                    else:
+                                        logger.info(f"❌ Strategy 5: No faces detected")
+                            except Exception as e:
+                                logger.warning(f"Strategy 5 failed: {e}")
+                        
+                        # Strategy 6: Combination - CLAHE + Denoise + Upscale
+                        if not faces or len(faces) == 0:
+                            try:
+                                # Apply CLAHE
+                                lab = cv2.cvtColor(old_image, cv2.COLOR_BGR2LAB)
+                                l, a, b = cv2.split(lab)
+                                clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+                                l = clahe.apply(l)
+                                enhanced = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
+                                # Denoise
+                                denoised = cv2.bilateralFilter(enhanced, 9, 75, 75)
+                                # Upscale
+                                height, width = denoised.shape[:2]
+                                if max(height, width) < 1024:
+                                    scale = 1280.0 / max(height, width)
+                                    new_size = (int(width * scale), int(height * scale))
+                                    final = cv2.resize(denoised, new_size, interpolation=cv2.INTER_CUBIC)
+                                else:
+                                    final = denoised
+                                faces = self.face_engine.app.get(final)
+                                if faces:
+                                    logger.info(f"✅ Strategy 6 (CLAHE+Denoise+Upscale): Found {len(faces)} face(s)")
+                                else:
+                                    logger.info(f"❌ Strategy 6: No faces detected")
+                            except Exception as e:
+                                logger.warning(f"Strategy 6 failed: {e}")
                         
                         if faces and len(faces) > 0:
                             logger.info(f"✅ Successfully detected {len(faces)} face(s) in old profile photo")
