@@ -973,7 +973,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         frame: np.ndarray = None
     ) -> tuple[bool, Optional[float]]:
         """Complete enrollment with final face data and return (success, similarity_score)"""
-        return await asyncio.get_event_loop().run_in_executor(
+        success, similarity = await asyncio.get_event_loop().run_in_executor(
             None,
             self._sync_complete_enrollment,
             enrollment,
@@ -981,6 +981,28 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             liveness_data,
             frame
         )
+        
+        # If successful and we need to save similarity, do it in async context
+        if success:
+            # Force save similarity in async context to ensure proper DB commit
+            await self._save_client_user_similarity(similarity)
+        
+        return success, similarity
+    
+    @database_sync_to_async
+    def _save_client_user_similarity(self, similarity_score: Optional[float]):
+        """Ensure similarity is saved in proper async database context"""
+        try:
+            from django.db import transaction
+            with transaction.atomic():
+                client_user = ClientUser.objects.select_for_update().get(
+                    id=self.session.client_user.id
+                )
+                client_user.similarity_with_old_photo = similarity_score
+                client_user.save(update_fields=['similarity_with_old_photo'])
+                logger.info(f"✅ [ASYNC] Saved similarity to DB: {similarity_score}")
+        except Exception as e:
+            logger.error(f"❌ Failed to save similarity in async context: {e}")
 
     def _sync_complete_enrollment(
         self,
@@ -1171,6 +1193,9 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 client_user.similarity_with_old_photo = None
                 similarity_score = None
             
+            logger.info(f"📊 Before save - client_user.similarity_with_old_photo = {client_user.similarity_with_old_photo}")
+            logger.info(f"📊 Before save - similarity_score variable = {similarity_score}")
+            
             # Update ClientUser status
             client_user.is_enrolled = True
             client_user.enrollment_completed_at = timezone.now()
@@ -1180,8 +1205,12 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             if frame is not None:
                 update_fields.append('profile_image')
             
-            client_user.save(update_fields=update_fields)
-            logger.info(f"💾 Saved ClientUser with fields: {update_fields}")
+            # Use transaction to ensure data is committed
+            from django.db import transaction
+            with transaction.atomic():
+                client_user.save(update_fields=update_fields)
+                logger.info(f"💾 Saved ClientUser with fields: {update_fields}")
+                logger.info(f"💾 Similarity value being saved: {client_user.similarity_with_old_photo}")
             
             # Refresh from database to ensure we have the latest saved values
             client_user.refresh_from_db()
