@@ -1144,110 +1144,100 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     if old_image is not None:
                         logger.info(f"📸 Loaded old profile photo from storage, size: {old_image.shape}")
                         
-                        # Use InsightFace directly with multiple strategies for old photo
+                        # Use InsightFace directly with LOWER detection threshold for old photo
+                        from insightface.app import FaceAnalysis
                         old_embedding = None
                         faces = None
                         
-                        # Strategy 1: Try with original image
+                        # Strategy 1: Try with original image using LOWER threshold (0.3 instead of default 0.5)
                         try:
-                            faces = self.face_engine.app.get(old_image)
+                            # Create lenient detector for old photos
+                            lenient_app = FaceAnalysis(allowed_modules=['detection', 'recognition'])
+                            lenient_app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.3)
+                            
+                            faces = lenient_app.get(old_image)
                             if faces:
-                                logger.info(f"✅ Strategy 1 (original): Found {len(faces)} face(s)")
+                                logger.info(f"✅ Strategy 1 (original, thresh=0.3): Found {len(faces)} face(s)")
                             else:
-                                logger.info(f"❌ Strategy 1 (original): No faces detected")
+                                logger.info(f"❌ Strategy 1: No faces detected")
                         except Exception as e:
                             logger.warning(f"Strategy 1 failed: {e}")
                         
-                        # Strategy 2: Denoise + Sharpen
+                        # Strategy 2: CLAHE + Lower threshold
                         if not faces or len(faces) == 0:
                             try:
-                                # Denoise with bilateral filter
-                                denoised = cv2.bilateralFilter(old_image, 9, 75, 75)
-                                # Sharpen
-                                kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-                                sharpened = cv2.filter2D(denoised, -1, kernel)
-                                faces = self.face_engine.app.get(sharpened)
-                                if faces:
-                                    logger.info(f"✅ Strategy 2 (denoise+sharpen): Found {len(faces)} face(s)")
-                                else:
-                                    logger.info(f"❌ Strategy 2: No faces detected")
-                            except Exception as e:
-                                logger.warning(f"Strategy 2 failed: {e}")
-                        
-                        # Strategy 3: Gamma correction for better lighting
-                        if not faces or len(faces) == 0:
-                            try:
-                                # Auto gamma correction
-                                gamma = 1.2
-                                inv_gamma = 1.0 / gamma
-                                table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
-                                gamma_corrected = cv2.LUT(old_image, table)
-                                faces = self.face_engine.app.get(gamma_corrected)
-                                if faces:
-                                    logger.info(f"✅ Strategy 3 (gamma correction): Found {len(faces)} face(s)")
-                                else:
-                                    logger.info(f"❌ Strategy 3: No faces detected")
-                            except Exception as e:
-                                logger.warning(f"Strategy 3 failed: {e}")
-                        
-                        # Strategy 4: CLAHE (better contrast)
-                        if not faces or len(faces) == 0:
-                            try:
-                                lab = cv2.cvtColor(old_image, cv2.COLOR_BGR2LAB)
-                                l, a, b = cv2.split(lab)
-                                clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-                                l = clahe.apply(l)
-                                equalized = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
-                                faces = self.face_engine.app.get(equalized)
-                                if faces:
-                                    logger.info(f"✅ Strategy 4 (CLAHE): Found {len(faces)} face(s)")
-                                else:
-                                    logger.info(f"❌ Strategy 4: No faces detected")
-                            except Exception as e:
-                                logger.warning(f"Strategy 4 failed: {e}")
-                        
-                        # Strategy 5: Upscale if small
-                        if not faces or len(faces) == 0:
-                            try:
-                                height, width = old_image.shape[:2]
-                                if max(height, width) < 1024:
-                                    scale = 1280.0 / max(height, width)
-                                    new_size = (int(width * scale), int(height * scale))
-                                    resized = cv2.resize(old_image, new_size, interpolation=cv2.INTER_CUBIC)
-                                    faces = self.face_engine.app.get(resized)
-                                    if faces:
-                                        logger.info(f"✅ Strategy 5 (upscaled to {new_size}): Found {len(faces)} face(s)")
-                                    else:
-                                        logger.info(f"❌ Strategy 5: No faces detected")
-                            except Exception as e:
-                                logger.warning(f"Strategy 5 failed: {e}")
-                        
-                        # Strategy 6: Combination - CLAHE + Denoise + Upscale
-                        if not faces or len(faces) == 0:
-                            try:
-                                # Apply CLAHE
                                 lab = cv2.cvtColor(old_image, cv2.COLOR_BGR2LAB)
                                 l, a, b = cv2.split(lab)
                                 clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
                                 l = clahe.apply(l)
                                 enhanced = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
-                                # Denoise
-                                denoised = cv2.bilateralFilter(enhanced, 9, 75, 75)
-                                # Upscale
-                                height, width = denoised.shape[:2]
+                                
+                                faces = lenient_app.get(enhanced)
+                                if faces:
+                                    logger.info(f"✅ Strategy 2 (CLAHE, thresh=0.3): Found {len(faces)} face(s)")
+                                else:
+                                    logger.info(f"❌ Strategy 2: No faces detected")
+                            except Exception as e:
+                                logger.warning(f"Strategy 2 failed: {e}")
+                        
+                        # Strategy 3: Even LOWER threshold (0.2) + CLAHE
+                        if not faces or len(faces) == 0:
+                            try:
+                                very_lenient_app = FaceAnalysis(allowed_modules=['detection', 'recognition'])
+                                very_lenient_app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.2)
+                                
+                                lab = cv2.cvtColor(old_image, cv2.COLOR_BGR2LAB)
+                                l, a, b = cv2.split(lab)
+                                clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+                                l = clahe.apply(l)
+                                enhanced = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
+                                
+                                faces = very_lenient_app.get(enhanced)
+                                if faces:
+                                    logger.info(f"✅ Strategy 3 (CLAHE, thresh=0.2): Found {len(faces)} face(s)")
+                                else:
+                                    logger.info(f"❌ Strategy 3: No faces detected")
+                            except Exception as e:
+                                logger.warning(f"Strategy 3 failed: {e}")
+                        
+                        # Strategy 4: Gamma correction + Lower threshold
+                        if not faces or len(faces) == 0:
+                            try:
+                                gamma = 1.5
+                                inv_gamma = 1.0 / gamma
+                                table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+                                gamma_corrected = cv2.LUT(old_image, table)
+                                
+                                faces = lenient_app.get(gamma_corrected)
+                                if faces:
+                                    logger.info(f"✅ Strategy 4 (gamma, thresh=0.3): Found {len(faces)} face(s)")
+                                else:
+                                    logger.info(f"❌ Strategy 4: No faces detected")
+                            except Exception as e:
+                                logger.warning(f"Strategy 4 failed: {e}")
+                        
+                        # Strategy 5: Resize to larger det_size + very low threshold
+                        if not faces or len(faces) == 0:
+                            try:
+                                large_detector = FaceAnalysis(allowed_modules=['detection', 'recognition'])
+                                large_detector.prepare(ctx_id=0, det_size=(1024, 1024), det_thresh=0.2)
+                                
+                                # Upscale image
+                                height, width = old_image.shape[:2]
                                 if max(height, width) < 1024:
                                     scale = 1280.0 / max(height, width)
                                     new_size = (int(width * scale), int(height * scale))
-                                    final = cv2.resize(denoised, new_size, interpolation=cv2.INTER_CUBIC)
+                                    resized = cv2.resize(old_image, new_size, interpolation=cv2.INTER_CUBIC)
                                 else:
-                                    final = denoised
-                                faces = self.face_engine.app.get(final)
+                                    resized = old_image
+                                
+                                faces = large_detector.get(resized)
                                 if faces:
-                                    logger.info(f"✅ Strategy 6 (CLAHE+Denoise+Upscale): Found {len(faces)} face(s)")
+                                    logger.info(f"✅ Strategy 5 (upscale+det_size=1024, thresh=0.2): Found {len(faces)} face(s)")
                                 else:
-                                    logger.info(f"❌ Strategy 6: No faces detected")
+                                    logger.info(f"❌ Strategy 5: No faces detected")
                             except Exception as e:
-                                logger.warning(f"Strategy 6 failed: {e}")
+                                logger.warning(f"Strategy 5 failed: {e}")
                         
                         if faces and len(faces) > 0:
                             logger.info(f"✅ Successfully detected {len(faces)} face(s) in old profile photo")
