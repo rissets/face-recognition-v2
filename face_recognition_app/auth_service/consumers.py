@@ -316,6 +316,12 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 success, similarity_score = await self.complete_enrollment(enrollment, face_data, liveness_data, frame)
                 
                 if success:
+                    # Refresh client_user from database to get latest similarity_with_old_photo
+                    await sync_to_async(self.session.client_user.refresh_from_db)()
+                    db_similarity_score = self.session.client_user.similarity_with_old_photo
+                    
+                    logger.info(f"📤 Sending enrollment_complete - similarity from return: {similarity_score}, from DB: {db_similarity_score}")
+                    
                     # Generate encrypted response
                     encrypted_response = await self.generate_encrypted_response(
                         enrollment_id=str(enrollment.id),
@@ -331,7 +337,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                         "blinks_detected": liveness_data.get("blinks_detected", 0),
                         "motion_verified": liveness_data.get("motion_verified", False),
                         "quality_score": face_data.get("quality", 0.0),
-                        "similarity_with_old_photo": float(similarity_score) if similarity_score is not None else None,
+                        "similarity_with_old_photo": float(db_similarity_score) if db_similarity_score is not None else None,
                         "encrypted_data": encrypted_response,
                         "visual_data": visual_data,
                         "message": "Enrollment completed successfully"
@@ -1081,6 +1087,8 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             similarity_score = None
             client_user = self.session.client_user
             
+            logger.info(f"🔍 Checking for old_profile_photo - exists: {bool(client_user.old_profile_photo)}")
+            
             # Save the current frame as profile_image if frame is provided
             if frame is not None:
                 try:
@@ -1127,45 +1135,64 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                                 if not isinstance(old_embedding, np.ndarray):
                                     old_embedding = np.array(old_embedding)
                                 
-                                # Calculate cosine similarity
-                                similarity_score = float(np.dot(embedding, old_embedding) / 
-                                                       (np.linalg.norm(embedding) * np.linalg.norm(old_embedding)))
+                                # Normalize embeddings for accurate cosine similarity
+                                embedding_norm = embedding / np.linalg.norm(embedding)
+                                old_embedding_norm = old_embedding / np.linalg.norm(old_embedding)
                                 
-                                # Save similarity score to ClientUser
+                                # Calculate cosine similarity
+                                similarity_score = float(np.dot(embedding_norm, old_embedding_norm))
+                                
+                                # Ensure similarity_score is in valid range [0, 1]
+                                similarity_score = max(0.0, min(1.0, similarity_score))
+                                
+                                # Save similarity score to ClientUser immediately
                                 client_user.similarity_with_old_photo = similarity_score
-                                logger.info(f"✅ Calculated similarity with old photo: {similarity_score:.3f} ({similarity_score:.1%})")
+                                logger.info(f"✅ Calculated similarity with old photo: {similarity_score:.3f} ({similarity_score*100:.1f}%)")
                             else:
                                 logger.warning("No embedding found in old profile photo")
+                                client_user.similarity_with_old_photo = None
                         else:
                             logger.warning("No face detected in old profile photo")
+                            client_user.similarity_with_old_photo = None
                     else:
                         logger.warning(f"Failed to decode old profile photo from storage")
+                        client_user.similarity_with_old_photo = None
                         
                 except Exception as sim_error:
                     logger.error(f"Error calculating similarity with old photo: {sim_error}")
                     import traceback
                     logger.error(traceback.format_exc())
-                    # Continue enrollment even if similarity calculation fails
+                    # Set to None on error, but continue enrollment
+                    client_user.similarity_with_old_photo = None
+                    similarity_score = None
+            else:
+                # No old_profile_photo, explicitly set similarity to None
+                logger.info(f"ℹ️ No old_profile_photo found for user {client_user.external_user_id}, setting similarity to None")
+                client_user.similarity_with_old_photo = None
+                similarity_score = None
             
             # Update ClientUser status
             client_user.is_enrolled = True
             client_user.enrollment_completed_at = timezone.now()
             
-            # Save with updated fields
-            update_fields = ['is_enrolled', 'enrollment_completed_at']
+            # Save with updated fields - ALWAYS include similarity_with_old_photo
+            update_fields = ['is_enrolled', 'enrollment_completed_at', 'similarity_with_old_photo']
             if frame is not None:
                 update_fields.append('profile_image')
-            if similarity_score is not None:
-                update_fields.append('similarity_with_old_photo')
             
             client_user.save(update_fields=update_fields)
+            logger.info(f"💾 Saved ClientUser with fields: {update_fields}")
+            
+            # Refresh from database to ensure we have the latest saved values
+            client_user.refresh_from_db()
+            logger.info(f"🔄 Refreshed ClientUser from DB - similarity_with_old_photo: {client_user.similarity_with_old_photo}")
             
             logger.info(f"✅ Enrollment completed for user {engine_user_id} - Embedding ID: {embedding_id}")
             logger.info(f"✅ Updated ClientUser {client_user.external_user_id} - is_enrolled: True")
             logger.info(f"✅ Updated FaceEnrollment - Quality: {enrollment.face_quality_score:.3f}, Liveness: {enrollment.liveness_score:.3f}")
-            if similarity_score is not None:
-                logger.info(f"✅ Similarity with old photo: {similarity_score:.3f}")
-            return True, similarity_score
+            if client_user.similarity_with_old_photo is not None:
+                logger.info(f"✅ Similarity with old photo saved to DB: {client_user.similarity_with_old_photo:.3f}")
+            return True, client_user.similarity_with_old_photo
             
         except Exception as e:
             logger.error(f"Error completing enrollment: {e}", exc_info=True)
