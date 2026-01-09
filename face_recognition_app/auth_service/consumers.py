@@ -317,7 +317,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 
                 if success:
                     # Refresh client_user from database to get latest similarity_with_old_photo
-                    await sync_to_async(self.session.client_user.refresh_from_db)()
+                    await database_sync_to_async(self.session.client_user.refresh_from_db)()
                     db_similarity_score = self.session.client_user.similarity_with_old_photo
                     
                     logger.info(f"📤 Sending enrollment_complete - similarity from return: {similarity_score}, from DB: {db_similarity_score}")
