@@ -1144,8 +1144,35 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     if old_image is not None:
                         logger.info(f"📸 Loaded old profile photo from storage, size: {old_image.shape}")
                         
-                        # Detect face and get embedding from old photo
-                        old_face_result = self.face_engine.detect_faces(old_image)
+                        # Resize if image is too large (helps with face detection)
+                        max_dimension = 1280
+                        height, width = old_image.shape[:2]
+                        if max(height, width) > max_dimension:
+                            scale = max_dimension / max(height, width)
+                            new_width = int(width * scale)
+                            new_height = int(height * scale)
+                            old_image_resized = cv2.resize(old_image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+                            logger.info(f"📏 Resized old photo from {old_image.shape} to {old_image_resized.shape}")
+                        else:
+                            old_image_resized = old_image
+                        
+                        # Try multiple detection strategies
+                        old_face_result = None
+                        
+                        # Strategy 1: Normal detection
+                        old_face_result = self.face_engine.detect_faces(old_image_resized)
+                        
+                        # Strategy 2: If failed, try with original size
+                        if not old_face_result or len(old_face_result) == 0:
+                            logger.info("🔄 Retrying face detection with original image size...")
+                            old_face_result = self.face_engine.detect_faces(old_image)
+                        
+                        # Strategy 3: If still failed, try with different preprocessing
+                        if not old_face_result or len(old_face_result) == 0:
+                            logger.info("🔄 Retrying with enhanced contrast...")
+                            # Enhance contrast
+                            old_image_enhanced = cv2.convertScaleAbs(old_image, alpha=1.2, beta=10)
+                            old_face_result = self.face_engine.detect_faces(old_image_enhanced)
                         
                         if old_face_result and len(old_face_result) > 0:
                             # Get first face
