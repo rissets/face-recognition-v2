@@ -86,6 +86,173 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         self._auth_liveness_detector = None
         self._auth_start_time = None
         self._auth_timeout = 10.0  # 3 seconds for authentication
+        
+        # Enrollment similarity tracking - for calculating average similarity across all frames
+        self._similarity_scores = []  # List to collect similarity scores from all frames
+        self._embeddings_collected = []  # List to collect embeddings from all frames
+        self._old_photo_embedding = None  # Cached embedding from old_profile_photo (extracted once)
+        self._old_photo_embedding_extracted = False  # Flag to track if extraction was attempted
+        self._enrollment_completing = False  # Flag to prevent multiple enrollment completions
+
+    def _extract_old_photo_embedding(self, client_user) -> Optional[np.ndarray]:
+        """
+        Extract embedding from old_profile_photo. This is called ONCE and cached.
+        Returns the embedding or None if extraction fails.
+        """
+        if not client_user.old_profile_photo:
+            logger.info(f"ℹ️ No old_profile_photo found for user {client_user.external_user_id}")
+            return None
+            
+        try:
+            import cv2
+            from insightface.app import FaceAnalysis
+            
+            # Read file from storage (works with MinIO and local)
+            old_photo_file = client_user.old_profile_photo.open('rb')
+            old_photo_bytes = old_photo_file.read()
+            old_photo_file.close()
+            
+            # Convert bytes to numpy array
+            nparr = np.frombuffer(old_photo_bytes, np.uint8)
+            old_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            if old_image is None:
+                logger.warning(f"Failed to decode old profile photo for user {client_user.external_user_id}")
+                return None
+                
+            logger.info(f"📸 Loaded old profile photo from storage, size: {old_image.shape}")
+            
+            faces = None
+            
+            # Strategy 1: Try with original image using LOWER threshold (0.3)
+            try:
+                lenient_app = FaceAnalysis(allowed_modules=['detection', 'recognition'])
+                lenient_app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.3)
+                
+                faces = lenient_app.get(old_image)
+                if faces:
+                    logger.info(f"✅ Strategy 1 (original, thresh=0.3): Found {len(faces)} face(s)")
+            except Exception as e:
+                logger.warning(f"Strategy 1 failed: {e}")
+            
+            # Strategy 2: CLAHE + Lower threshold
+            if not faces or len(faces) == 0:
+                try:
+                    lab = cv2.cvtColor(old_image, cv2.COLOR_BGR2LAB)
+                    l, a, b = cv2.split(lab)
+                    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+                    l = clahe.apply(l)
+                    enhanced = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
+                    
+                    faces = lenient_app.get(enhanced)
+                    if faces:
+                        logger.info(f"✅ Strategy 2 (CLAHE, thresh=0.3): Found {len(faces)} face(s)")
+                except Exception as e:
+                    logger.warning(f"Strategy 2 failed: {e}")
+            
+            # Strategy 3: Even LOWER threshold (0.2) + CLAHE
+            if not faces or len(faces) == 0:
+                try:
+                    very_lenient_app = FaceAnalysis(allowed_modules=['detection', 'recognition'])
+                    very_lenient_app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.2)
+                    
+                    lab = cv2.cvtColor(old_image, cv2.COLOR_BGR2LAB)
+                    l, a, b = cv2.split(lab)
+                    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+                    l = clahe.apply(l)
+                    enhanced = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
+                    
+                    faces = very_lenient_app.get(enhanced)
+                    if faces:
+                        logger.info(f"✅ Strategy 3 (CLAHE, thresh=0.2): Found {len(faces)} face(s)")
+                except Exception as e:
+                    logger.warning(f"Strategy 3 failed: {e}")
+            
+            # Strategy 4: Gamma correction + Lower threshold
+            if not faces or len(faces) == 0:
+                try:
+                    gamma = 1.5
+                    inv_gamma = 1.0 / gamma
+                    table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+                    gamma_corrected = cv2.LUT(old_image, table)
+                    
+                    faces = lenient_app.get(gamma_corrected)
+                    if faces:
+                        logger.info(f"✅ Strategy 4 (gamma, thresh=0.3): Found {len(faces)} face(s)")
+                except Exception as e:
+                    logger.warning(f"Strategy 4 failed: {e}")
+            
+            # Strategy 5: Resize to larger det_size + very low threshold
+            if not faces or len(faces) == 0:
+                try:
+                    large_detector = FaceAnalysis(allowed_modules=['detection', 'recognition'])
+                    large_detector.prepare(ctx_id=0, det_size=(1024, 1024), det_thresh=0.2)
+                    
+                    # Upscale image
+                    height, width = old_image.shape[:2]
+                    if max(height, width) < 1024:
+                        scale = 1280.0 / max(height, width)
+                        new_size = (int(width * scale), int(height * scale))
+                        resized = cv2.resize(old_image, new_size, interpolation=cv2.INTER_CUBIC)
+                    else:
+                        resized = old_image
+                    
+                    faces = large_detector.get(resized)
+                    if faces:
+                        logger.info(f"✅ Strategy 5 (upscale+det_size=1024, thresh=0.2): Found {len(faces)} face(s)")
+                except Exception as e:
+                    logger.warning(f"Strategy 5 failed: {e}")
+            
+            if faces and len(faces) > 0:
+                logger.info(f"✅ Successfully detected {len(faces)} face(s) in old profile photo")
+                # Get the largest face (most likely the main subject)
+                largest_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+                old_embedding = largest_face.embedding
+                
+                if old_embedding is not None:
+                    if not isinstance(old_embedding, np.ndarray):
+                        old_embedding = np.array(old_embedding)
+                    # Normalize for cosine similarity
+                    old_embedding_norm = old_embedding / np.linalg.norm(old_embedding)
+                    logger.info(f"✅ Successfully extracted and normalized embedding from old_profile_photo")
+                    return old_embedding_norm
+                else:
+                    logger.warning("No embedding extracted from detected face in old photo")
+                    return None
+            else:
+                logger.warning(f"⚠️ No face detected in old profile photo after trying all strategies")
+                return None
+                    
+        except Exception as e:
+            logger.error(f"Error extracting old photo embedding: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return None
+
+    def _calculate_frame_similarity(self, frame_embedding: np.ndarray) -> Optional[float]:
+        """
+        Calculate similarity between current frame embedding and cached old_profile_photo embedding.
+        Returns similarity score (0-1) or None if old photo embedding not available.
+        """
+        if self._old_photo_embedding is None:
+            return None
+            
+        try:
+            # Normalize frame embedding
+            if not isinstance(frame_embedding, np.ndarray):
+                frame_embedding = np.array(frame_embedding)
+            embedding_norm = frame_embedding / np.linalg.norm(frame_embedding)
+            
+            # Calculate cosine similarity
+            similarity = float(np.dot(embedding_norm, self._old_photo_embedding))
+            
+            # Clamp to valid range [0, 1]
+            similarity = max(0.0, min(1.0, similarity))
+            
+            return similarity
+        except Exception as e:
+            logger.error(f"Error calculating frame similarity: {e}")
+            return None
 
     async def connect(self):
         """Accept WebSocket connection and validate session"""
@@ -240,6 +407,20 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 await self.send_error("Enrollment not found")
                 return
 
+            # Extract old_profile_photo embedding ONCE (on first frame with client_user)
+            if not self._old_photo_embedding_extracted and self.session.client_user:
+                self._old_photo_embedding_extracted = True
+                # Run extraction in thread to avoid blocking
+                self._old_photo_embedding = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    self._extract_old_photo_embedding,
+                    self.session.client_user
+                )
+                if self._old_photo_embedding is not None:
+                    logger.info(f"✅ Old photo embedding extracted and cached for similarity calculation")
+                else:
+                    logger.info(f"ℹ️ No old photo embedding available - similarity will not be calculated")
+
             # Process frame with face engine
             result = await self.run_face_detection(frame)
             
@@ -283,6 +464,21 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 logger.warning(f"⛔ ENROLLMENT FRAME REJECTED due to obstacles: {detected_obstacles}")
                 return
             
+            # Collect embedding and calculate per-frame similarity with old_profile_photo
+            frame_embedding = face_data.get("embedding")
+            frame_similarity = None
+            if frame_embedding is not None:
+                # Store embedding for this frame
+                if not isinstance(frame_embedding, np.ndarray):
+                    frame_embedding = np.array(frame_embedding)
+                self._embeddings_collected.append(frame_embedding)
+                
+                # Calculate similarity with old_profile_photo if available
+                frame_similarity = self._calculate_frame_similarity(frame_embedding)
+                if frame_similarity is not None:
+                    self._similarity_scores.append(frame_similarity)
+                    logger.info(f"📊 Frame {self._frames_processed} similarity: {frame_similarity:.3f} ({frame_similarity*100:.1f}%)")
+            
             # Update session metadata
             metadata = self.session.metadata or {}
             metadata["frames_processed"] = self._frames_processed
@@ -304,18 +500,35 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             no_obstacles = bool(len(detected_obstacles) == 0)
             liveness_verified = bool(blinks_ok and motion_ok and no_obstacles)
             
-            # Check if enrollment is complete
+            # Check if enrollment is complete (and not already completing)
             is_complete = (
+                not self._enrollment_completing and  # Prevent multiple completions
                 self._frames_processed >= target_samples and 
                 liveness_verified and
                 face_data.get("quality", 0.0) >= self.face_engine.capture_quality_threshold
             )
 
             if is_complete:
-                # Complete enrollment with frame data
-                success, similarity_score = await self.complete_enrollment(enrollment, face_data, liveness_data, frame)
+                # Set flag to prevent multiple completions
+                self._enrollment_completing = True
+                logger.info(f"🔒 Enrollment completion started - blocking further completions")
+                
+                # Calculate AVERAGE similarity from all collected frames
+                average_similarity = None
+                if self._similarity_scores:
+                    average_similarity = sum(self._similarity_scores) / len(self._similarity_scores)
+                    logger.info(f"📊 FINAL Average similarity from {len(self._similarity_scores)} frames: {average_similarity:.3f} ({average_similarity*100:.1f}%)")
+                    logger.info(f"📊 Individual frame similarities: {[f'{s:.3f}' for s in self._similarity_scores]}")
+                else:
+                    logger.info(f"ℹ️ No similarity scores collected (no old_profile_photo or no embeddings)")
+                
+                # Complete enrollment with frame data (pass average_similarity instead of calculating in sync method)
+                success, _ = await self.complete_enrollment(enrollment, face_data, liveness_data, frame)
                 
                 if success:
+                    # Use the AVERAGE similarity we calculated from all frames
+                    similarity_score = average_similarity
+                    
                     # Force save similarity in async context FIRST to ensure proper DB commit
                     await self._save_client_user_similarity(similarity_score)
                     
@@ -354,6 +567,9 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                         "motion_verified": liveness_data.get("motion_verified", False),
                         "quality_score": face_data.get("quality", 0.0),
                         "similarity_with_old_photo": final_similarity,
+                        # Add detailed similarity info
+                        "similarity_samples": len(self._similarity_scores),
+                        "similarity_method": "average" if self._similarity_scores else None,
                         "encrypted_data": encrypted_response,
                         "visual_data": visual_data,
                         "message": "Enrollment completed successfully"
@@ -411,6 +627,11 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     progress_message.append("Improve lighting or position")
                 
                 # Prepare response with explicit type conversion for all numeric values
+                # Calculate current average similarity for progress display
+                current_avg_similarity = None
+                if self._similarity_scores:
+                    current_avg_similarity = sum(self._similarity_scores) / len(self._similarity_scores)
+                
                 response_data = {
                     "type": "frame_processed",
                     "success": True,
@@ -430,6 +651,10 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     "quality_threshold": float(self.face_engine.capture_quality_threshold),
                     "obstacles": obstacle_data.get("detected", []),
                     "visual_data": visual_data,
+                    # Add similarity progress info
+                    "frame_similarity": float(frame_similarity) if frame_similarity is not None else None,
+                    "current_avg_similarity": float(current_avg_similarity) if current_avg_similarity is not None else None,
+                    "similarity_samples": int(len(self._similarity_scores)),
                     "message": " | ".join(progress_message) if progress_message else "Blink AND move head to complete"
                 }
                 
@@ -1145,169 +1370,13 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 except Exception as img_error:
                     logger.error(f"Failed to save profile_image: {img_error}")
             
-            # Calculate similarity with old_profile_photo if it exists
-            if client_user.old_profile_photo:
-                try:
-                    # Load old profile photo from storage (MinIO or local)
-                    from PIL import Image
-                    import io
-                    
-                    # Read file from storage (works with MinIO and local)
-                    old_photo_file = client_user.old_profile_photo.open('rb')
-                    old_photo_bytes = old_photo_file.read()
-                    old_photo_file.close()
-                    
-                    # Convert bytes to numpy array
-                    nparr = np.frombuffer(old_photo_bytes, np.uint8)
-                    old_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    
-                    if old_image is not None:
-                        logger.info(f"📸 Loaded old profile photo from storage, size: {old_image.shape}")
-                        
-                        # Use InsightFace directly with LOWER detection threshold for old photo
-                        from insightface.app import FaceAnalysis
-                        old_embedding = None
-                        faces = None
-                        
-                        # Strategy 1: Try with original image using LOWER threshold (0.3 instead of default 0.5)
-                        try:
-                            # Create lenient detector for old photos
-                            lenient_app = FaceAnalysis(allowed_modules=['detection', 'recognition'])
-                            lenient_app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.3)
-                            
-                            faces = lenient_app.get(old_image)
-                            if faces:
-                                logger.info(f"✅ Strategy 1 (original, thresh=0.3): Found {len(faces)} face(s)")
-                            else:
-                                logger.info(f"❌ Strategy 1: No faces detected")
-                        except Exception as e:
-                            logger.warning(f"Strategy 1 failed: {e}")
-                        
-                        # Strategy 2: CLAHE + Lower threshold
-                        if not faces or len(faces) == 0:
-                            try:
-                                lab = cv2.cvtColor(old_image, cv2.COLOR_BGR2LAB)
-                                l, a, b = cv2.split(lab)
-                                clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-                                l = clahe.apply(l)
-                                enhanced = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
-                                
-                                faces = lenient_app.get(enhanced)
-                                if faces:
-                                    logger.info(f"✅ Strategy 2 (CLAHE, thresh=0.3): Found {len(faces)} face(s)")
-                                else:
-                                    logger.info(f"❌ Strategy 2: No faces detected")
-                            except Exception as e:
-                                logger.warning(f"Strategy 2 failed: {e}")
-                        
-                        # Strategy 3: Even LOWER threshold (0.2) + CLAHE
-                        if not faces or len(faces) == 0:
-                            try:
-                                very_lenient_app = FaceAnalysis(allowed_modules=['detection', 'recognition'])
-                                very_lenient_app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.2)
-                                
-                                lab = cv2.cvtColor(old_image, cv2.COLOR_BGR2LAB)
-                                l, a, b = cv2.split(lab)
-                                clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-                                l = clahe.apply(l)
-                                enhanced = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
-                                
-                                faces = very_lenient_app.get(enhanced)
-                                if faces:
-                                    logger.info(f"✅ Strategy 3 (CLAHE, thresh=0.2): Found {len(faces)} face(s)")
-                                else:
-                                    logger.info(f"❌ Strategy 3: No faces detected")
-                            except Exception as e:
-                                logger.warning(f"Strategy 3 failed: {e}")
-                        
-                        # Strategy 4: Gamma correction + Lower threshold
-                        if not faces or len(faces) == 0:
-                            try:
-                                gamma = 1.5
-                                inv_gamma = 1.0 / gamma
-                                table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
-                                gamma_corrected = cv2.LUT(old_image, table)
-                                
-                                faces = lenient_app.get(gamma_corrected)
-                                if faces:
-                                    logger.info(f"✅ Strategy 4 (gamma, thresh=0.3): Found {len(faces)} face(s)")
-                                else:
-                                    logger.info(f"❌ Strategy 4: No faces detected")
-                            except Exception as e:
-                                logger.warning(f"Strategy 4 failed: {e}")
-                        
-                        # Strategy 5: Resize to larger det_size + very low threshold
-                        if not faces or len(faces) == 0:
-                            try:
-                                large_detector = FaceAnalysis(allowed_modules=['detection', 'recognition'])
-                                large_detector.prepare(ctx_id=0, det_size=(1024, 1024), det_thresh=0.2)
-                                
-                                # Upscale image
-                                height, width = old_image.shape[:2]
-                                if max(height, width) < 1024:
-                                    scale = 1280.0 / max(height, width)
-                                    new_size = (int(width * scale), int(height * scale))
-                                    resized = cv2.resize(old_image, new_size, interpolation=cv2.INTER_CUBIC)
-                                else:
-                                    resized = old_image
-                                
-                                faces = large_detector.get(resized)
-                                if faces:
-                                    logger.info(f"✅ Strategy 5 (upscale+det_size=1024, thresh=0.2): Found {len(faces)} face(s)")
-                                else:
-                                    logger.info(f"❌ Strategy 5: No faces detected")
-                            except Exception as e:
-                                logger.warning(f"Strategy 5 failed: {e}")
-                        
-                        if faces and len(faces) > 0:
-                            logger.info(f"✅ Successfully detected {len(faces)} face(s) in old profile photo")
-                            # Get the largest face (most likely the main subject)
-                            largest_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-                            old_embedding = largest_face.embedding
-                            
-                            if old_embedding is not None:
-                                # Convert to numpy if needed
-                                if not isinstance(old_embedding, np.ndarray):
-                                    old_embedding = np.array(old_embedding)
-                                
-                                # Normalize embeddings for accurate cosine similarity
-                                embedding_norm = embedding / np.linalg.norm(embedding)
-                                old_embedding_norm = old_embedding / np.linalg.norm(old_embedding)
-                                
-                                # Calculate cosine similarity
-                                similarity_score = float(np.dot(embedding_norm, old_embedding_norm))
-                                
-                                # Ensure similarity_score is in valid range [0, 1]
-                                similarity_score = max(0.0, min(1.0, similarity_score))
-                                
-                                # Save similarity score to ClientUser immediately
-                                client_user.similarity_with_old_photo = similarity_score
-                                logger.info(f"✅ Calculated similarity with old photo: {similarity_score:.3f} ({similarity_score*100:.1f}%)")
-                            else:
-                                logger.warning("No embedding extracted from detected face")
-                                client_user.similarity_with_old_photo = None
-                        else:
-                            logger.warning(f"⚠️ No face detected in old profile photo after trying all strategies")
-                            client_user.similarity_with_old_photo = None
-                    else:
-                        logger.warning(f"Failed to decode old profile photo from storage")
-                        client_user.similarity_with_old_photo = None
-                        
-                except Exception as sim_error:
-                    logger.error(f"Error calculating similarity with old photo: {sim_error}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                    # Set to None on error, but continue enrollment
-                    client_user.similarity_with_old_photo = None
-                    similarity_score = None
-            else:
-                # No old_profile_photo, explicitly set similarity to None
-                logger.info(f"ℹ️ No old_profile_photo found for user {client_user.external_user_id}, setting similarity to None")
-                client_user.similarity_with_old_photo = None
-                similarity_score = None
+            # NOTE: Similarity calculation has been moved to process_enrollment_frame
+            # where it is calculated per-frame and averaged at the end.
+            # The average similarity will be saved via _save_client_user_similarity() 
+            # in the async context after this method returns.
             
-            logger.info(f"📊 Before save - client_user.similarity_with_old_photo = {client_user.similarity_with_old_photo}")
-            logger.info(f"📊 Before save - similarity_score variable = {similarity_score}")
+            # For now, don't set similarity here - it will be set from the averaged value
+            logger.info(f"ℹ️ Similarity will be calculated as average of all frames and saved in async context")
             
             # Update ClientUser status (enrollment fields only, similarity will be saved in async context)
             client_user.is_enrolled = True
@@ -1324,15 +1393,12 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 client_user.save(update_fields=update_fields)
                 logger.info(f"💾 [SYNC] Saved ClientUser with fields: {update_fields}")
             
-            # Don't save similarity here - it will be saved in async context to ensure proper DB commit
-            logger.info(f"⏩ Similarity will be saved in async context: {similarity_score}")
-            
             logger.info(f"✅ Enrollment completed for user {engine_user_id} - Embedding ID: {embedding_id}")
             logger.info(f"✅ Updated ClientUser {client_user.external_user_id} - is_enrolled: True")
             logger.info(f"✅ Updated FaceEnrollment - Quality: {enrollment.face_quality_score:.3f}, Liveness: {enrollment.liveness_score:.3f}")
-            if client_user.similarity_with_old_photo is not None:
-                logger.info(f"✅ Similarity with old photo saved to DB: {client_user.similarity_with_old_photo:.3f}")
-            return True, client_user.similarity_with_old_photo
+            
+            # Return True and None - similarity will be set from averaged value in async context
+            return True, None
             
         except Exception as e:
             logger.error(f"Error completing enrollment: {e}", exc_info=True)
