@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Recognition OIDC Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-6">
+        <div class="container mx-auto px-4">
+            <h1 class="text-3xl font-bold">Face Recognition OIDC Demo</h1>
+            <p class="text-indigo-200 mt-2">Test OAuth 2.0 / OpenID Connect integration with Face Authentication</p>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 py-8">
+        <!-- Configuration Panel -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">OIDC Configuration</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Base URL</label>
+                    <input type="text" id="baseUrl" value="https://face.ahu.go.id" 
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Redirect URI</label>
+                    <input type="text" id="redirectUri" value="http://localhost:8080/callback.html" 
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Client ID</label>
+                    <input type="text" id="clientId" placeholder="oidc_xxx" 
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Client Secret</label>
+                    <input type="password" id="clientSecret" placeholder="secret_xxx" 
+                           class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                </div>
+            </div>
+            
+            <div class="mt-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Scopes</label>
+                <div class="flex flex-wrap gap-2">
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" value="openid" checked class="scope-checkbox rounded text-indigo-600">
+                        <span class="ml-2 text-sm">openid</span>
+                    </label>
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" value="profile" checked class="scope-checkbox rounded text-indigo-600">
+                        <span class="ml-2 text-sm">profile</span>
+                    </label>
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" value="email" checked class="scope-checkbox rounded text-indigo-600">
+                        <span class="ml-2 text-sm">email</span>
+                    </label>
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" value="face_auth" checked class="scope-checkbox rounded text-indigo-600">
+                        <span class="ml-2 text-sm">face_auth</span>
+                    </label>
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" value="offline_access" class="scope-checkbox rounded text-indigo-600">
+                        <span class="ml-2 text-sm">offline_access</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <button onclick="testDiscovery()" 
+                    class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-3 rounded-lg font-medium transition">
+                1. Test Discovery
+            </button>
+            <button onclick="testJWKS()" 
+                    class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-3 rounded-lg font-medium transition">
+                2. Test JWKS
+            </button>
+            <button onclick="startAuthorization()" 
+                    class="bg-green-500 hover:bg-green-600 text-white px-4 py-3 rounded-lg font-medium transition">
+                3. Start Login (Face Auth)
+            </button>
+            <button onclick="openAuthInNewTab()" 
+                    class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-3 rounded-lg font-medium transition">
+                3b. Open in New Tab
+            </button>
+        </div>
+
+        <!-- Authorization Code Input -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">Token Exchange</h2>
+            <p class="text-gray-600 mb-4">After face authentication, paste the authorization code here:</p>
+            
+            <div class="flex gap-4">
+                <input type="text" id="authCode" placeholder="Authorization code from redirect URL" 
+                       class="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500">
+                <button onclick="exchangeToken()" 
+                        class="bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium transition">
+                    Exchange Token
+                </button>
+            </div>
+        </div>
+
+        <!-- Token Actions -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <button onclick="getUserInfo()" 
+                    class="bg-teal-500 hover:bg-teal-600 text-white px-4 py-3 rounded-lg font-medium transition">
+                Get UserInfo
+            </button>
+            <button onclick="refreshToken()" 
+                    class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-3 rounded-lg font-medium transition">
+                Refresh Token
+            </button>
+            <button onclick="introspectToken()" 
+                    class="bg-cyan-500 hover:bg-cyan-600 text-white px-4 py-3 rounded-lg font-medium transition">
+                Introspect Token
+            </button>
+            <button onclick="revokeToken()" 
+                    class="bg-red-500 hover:bg-red-600 text-white px-4 py-3 rounded-lg font-medium transition">
+                Revoke Token
+            </button>
+        </div>
+
+        <!-- Results -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-gray-800">Results</h2>
+                <button onclick="clearResults()" class="text-sm text-gray-500 hover:text-gray-700">
+                    Clear
+                </button>
+            </div>
+            <pre id="results" class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto max-h-96 text-sm font-mono"></pre>
+        </div>
+
+        <!-- Token Storage -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mt-8">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">Current Tokens</h2>
+            <div class="grid grid-cols-1 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Access Token</label>
+                    <textarea id="accessToken" rows="2" readonly
+                              class="w-full px-3 py-2 bg-gray-50 border rounded-lg text-sm font-mono"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Refresh Token</label>
+                    <input type="text" id="refreshTokenField" readonly
+                           class="w-full px-3 py-2 bg-gray-50 border rounded-lg text-sm font-mono">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">ID Token</label>
+                    <textarea id="idToken" rows="2" readonly
+                              class="w-full px-3 py-2 bg-gray-50 border rounded-lg text-sm font-mono"></textarea>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // PKCE helpers
+        function generateCodeVerifier() {
+            const array = new Uint8Array(64);
+            crypto.getRandomValues(array);
+            return base64URLEncode(array).substring(0, 128);
+        }
+
+        async function generateCodeChallenge(verifier) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(verifier);
+            const digest = await crypto.subtle.digest('SHA-256', data);
+            return base64URLEncode(new Uint8Array(digest));
+        }
+
+        function base64URLEncode(array) {
+            return btoa(String.fromCharCode.apply(null, array))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=/g, '');
+        }
+
+        function generateState() {
+            const array = new Uint8Array(16);
+            crypto.getRandomValues(array);
+            return base64URLEncode(array);
+        }
+
+        // Store PKCE values
+        let codeVerifier = null;
+        let state = null;
+
+        function log(message, data = null) {
+            const results = document.getElementById('results');
+            const timestamp = new Date().toISOString();
+            let output = `[${timestamp}] ${message}`;
+            if (data) {
+                output += '\n' + JSON.stringify(data, null, 2);
+            }
+            results.textContent += output + '\n\n';
+            results.scrollTop = results.scrollHeight;
+        }
+
+        function clearResults() {
+            document.getElementById('results').textContent = '';
+        }
+
+        function getConfig() {
+            const scopes = Array.from(document.querySelectorAll('.scope-checkbox:checked'))
+                .map(cb => cb.value)
+                .join(' ');
+            
+            return {
+                baseUrl: document.getElementById('baseUrl').value.replace(/\/$/, ''),
+                redirectUri: document.getElementById('redirectUri').value,
+                clientId: document.getElementById('clientId').value,
+                clientSecret: document.getElementById('clientSecret').value,
+                scopes: scopes
+            };
+        }
+
+        async function testDiscovery() {
+            const config = getConfig();
+            const url = `${config.baseUrl}/.well-known/openid-configuration`;
+            
+            log(`Testing Discovery: ${url}`);
+            
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                log('✅ Discovery successful:', data);
+            } catch (error) {
+                log(`❌ Discovery failed: ${error.message}`);
+            }
+        }
+
+        async function testJWKS() {
+            const config = getConfig();
+            const url = `${config.baseUrl}/.well-known/jwks.json`;
+            
+            log(`Testing JWKS: ${url}`);
+            
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                log('✅ JWKS successful:', data);
+            } catch (error) {
+                log(`❌ JWKS failed: ${error.message}`);
+            }
+        }
+
+        async function startAuthorization() {
+            const config = getConfig();
+            
+            if (!config.clientId) {
+                alert('Please enter Client ID');
+                return;
+            }
+            
+            // Generate PKCE
+            codeVerifier = generateCodeVerifier();
+            const codeChallenge = await generateCodeChallenge(codeVerifier);
+            state = generateState();
+            
+            // Store in sessionStorage for callback
+            sessionStorage.setItem('oidc_code_verifier', codeVerifier);
+            sessionStorage.setItem('oidc_state', state);
+            sessionStorage.setItem('oidc_config', JSON.stringify(config));
+            
+            const params = new URLSearchParams({
+                client_id: config.clientId,
+                redirect_uri: config.redirectUri,
+                response_type: 'code',
+                scope: config.scopes,
+                state: state,
+                nonce: generateState(),
+                code_challenge: codeChallenge,
+                code_challenge_method: 'S256'
+            });
+            
+            const authUrl = `${config.baseUrl}/oauth/authorize?${params.toString()}`;
+            
+            log('Authorization URL generated:', {
+                url: authUrl,
+                state: state,
+                code_verifier: codeVerifier.substring(0, 32) + '...'
+            });
+            
+            // Redirect to authorization
+            window.location.href = authUrl;
+        }
+
+        async function openAuthInNewTab() {
+            const config = getConfig();
+            
+            if (!config.clientId) {
+                alert('Please enter Client ID');
+                return;
+            }
+            
+            // Generate PKCE
+            codeVerifier = generateCodeVerifier();
+            const codeChallenge = await generateCodeChallenge(codeVerifier);
+            state = generateState();
+            
+            // Store for later use
+            sessionStorage.setItem('oidc_code_verifier', codeVerifier);
+            sessionStorage.setItem('oidc_state', state);
+            
+            const params = new URLSearchParams({
+                client_id: config.clientId,
+                redirect_uri: config.redirectUri,
+                response_type: 'code',
+                scope: config.scopes,
+                state: state,
+                nonce: generateState(),
+                code_challenge: codeChallenge,
+                code_challenge_method: 'S256'
+            });
+            
+            const authUrl = `${config.baseUrl}/oauth/authorize?${params.toString()}`;
+            
+            log('Opening authorization in new tab:', {
+                url: authUrl,
+                state: state,
+                code_verifier: `${codeVerifier.substring(0, 32)}... (saved for token exchange)`
+            });
+            
+            window.open(authUrl, '_blank');
+        }
+
+        async function exchangeToken() {
+            const config = getConfig();
+            const authCode = document.getElementById('authCode').value;
+            
+            if (!authCode) {
+                alert('Please enter authorization code');
+                return;
+            }
+            
+            // Get stored code verifier
+            const storedVerifier = sessionStorage.getItem('oidc_code_verifier') || codeVerifier;
+            
+            if (!storedVerifier) {
+                alert('No code verifier found. Please start authorization again.');
+                return;
+            }
+            
+            const url = `${config.baseUrl}/oauth/token`;
+            
+            log(`Exchanging token at: ${url}`);
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        grant_type: 'authorization_code',
+                        code: authCode,
+                        redirect_uri: config.redirectUri,
+                        client_id: config.clientId,
+                        client_secret: config.clientSecret,
+                        code_verifier: storedVerifier
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    log('✅ Token exchange successful:', data);
+                    
+                    // Store tokens
+                    document.getElementById('accessToken').value = data.access_token || '';
+                    document.getElementById('refreshTokenField').value = data.refresh_token || '';
+                    document.getElementById('idToken').value = data.id_token || '';
+                    
+                    // Decode ID token
+                    if (data.id_token) {
+                        try {
+                            const parts = data.id_token.split('.');
+                            const payload = JSON.parse(atob(parts[1]));
+                            log('ID Token claims:', payload);
+                        } catch (e) {
+                            log('Could not decode ID token');
+                        }
+                    }
+                } else {
+                    log('❌ Token exchange failed:', data);
+                }
+            } catch (error) {
+                log(`❌ Token exchange error: ${error.message}`);
+            }
+        }
+
+        async function getUserInfo() {
+            const config = getConfig();
+            const accessToken = document.getElementById('accessToken').value;
+            
+            if (!accessToken) {
+                alert('No access token. Please exchange token first.');
+                return;
+            }
+            
+            const url = `${config.baseUrl}/oauth/userinfo`;
+            
+            log(`Getting UserInfo from: ${url}`);
+            
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    log('✅ UserInfo:', data);
+                } else {
+                    log('❌ UserInfo failed:', data);
+                }
+            } catch (error) {
+                log(`❌ UserInfo error: ${error.message}`);
+            }
+        }
+
+        async function refreshToken() {
+            const config = getConfig();
+            const refreshTokenValue = document.getElementById('refreshTokenField').value;
+            
+            if (!refreshTokenValue) {
+                alert('No refresh token available.');
+                return;
+            }
+            
+            const url = `${config.baseUrl}/oauth/token`;
+            
+            log(`Refreshing token at: ${url}`);
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        grant_type: 'refresh_token',
+                        refresh_token: refreshTokenValue,
+                        client_id: config.clientId,
+                        client_secret: config.clientSecret
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    log('✅ Token refresh successful:', data);
+                    
+                    // Update tokens
+                    document.getElementById('accessToken').value = data.access_token || '';
+                    document.getElementById('refreshTokenField').value = data.refresh_token || '';
+                    if (data.id_token) {
+                        document.getElementById('idToken').value = data.id_token;
+                    }
+                } else {
+                    log('❌ Token refresh failed:', data);
+                }
+            } catch (error) {
+                log(`❌ Token refresh error: ${error.message}`);
+            }
+        }
+
+        async function introspectToken() {
+            const config = getConfig();
+            const accessToken = document.getElementById('accessToken').value;
+            
+            if (!accessToken) {
+                alert('No access token. Please exchange token first.');
+                return;
+            }
+            
+            const url = `${config.baseUrl}/oauth/introspect`;
+            
+            log(`Introspecting token at: ${url}`);
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        token: accessToken,
+                        client_id: config.clientId,
+                        client_secret: config.clientSecret
+                    })
+                });
+                
+                const data = await response.json();
+                log(response.ok ? '✅ Token introspection:' : '❌ Introspection failed:', data);
+            } catch (error) {
+                log(`❌ Introspection error: ${error.message}`);
+            }
+        }
+
+        async function revokeToken() {
+            const config = getConfig();
+            const accessToken = document.getElementById('accessToken').value;
+            
+            if (!accessToken) {
+                alert('No access token. Please exchange token first.');
+                return;
+            }
+            
+            const url = `${config.baseUrl}/oauth/revoke`;
+            
+            log(`Revoking token at: ${url}`);
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        token: accessToken,
+                        token_type_hint: 'access_token',
+                        client_id: config.clientId,
+                        client_secret: config.clientSecret
+                    })
+                });
+                
+                if (response.ok) {
+                    log('✅ Token revoked successfully');
+                    document.getElementById('accessToken').value = '';
+                } else {
+                    const data = await response.json();
+                    log('❌ Token revocation failed:', data);
+                }
+            } catch (error) {
+                log(`❌ Revocation error: ${error.message}`);
+            }
+        }
+
+        // Check for authorization code in URL on page load
+        window.onload = function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            const state = urlParams.get('state');
+            const error = urlParams.get('error');
+            
+            if (error) {
+                log(`❌ Authorization error: ${error}`, {
+                    error_description: urlParams.get('error_description')
+                });
+            } else if (code) {
+                // Restore config
+                const savedConfig = sessionStorage.getItem('oidc_config');
+                if (savedConfig) {
+                    const config = JSON.parse(savedConfig);
+                    document.getElementById('baseUrl').value = config.baseUrl;
+                    document.getElementById('clientId').value = config.clientId;
+                    document.getElementById('clientSecret').value = config.clientSecret;
+                    document.getElementById('redirectUri').value = config.redirectUri;
+                }
+                
+                document.getElementById('authCode').value = code;
+                log('✅ Authorization code received:', { code: code.substring(0, 20) + '...', state });
+                
+                // Clear URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        };
+    </script>
+</body>
+</html>

@@ -57,7 +57,7 @@ ENVIRONMENT = config("ENVIRONMENT", default="development")
 
 ALLOWED_HOSTS = config(
     "ALLOWED_HOSTS",
-    default="localhost,127.0.0.1,192.168.83.16,face.ahu.go.id",
+    default="localhost,127.0.0.1,192.168.1.41,192.168.83.16,face.ahu.go.id",
     cast=lambda v: [s.strip() for s in v.split(",")],
 )
 
@@ -358,16 +358,22 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = config(
     "CORS_ALLOWED_ORIGINS",
-    default="http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:5500,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,https://face.ahu.go.id",
+    default="http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:5500,http://localhost:5500,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,https://face.ahu.go.id",
     cast=lambda v: [s.strip() for s in v.split(",")],
 )
+
+# Allow all origins for OIDC discovery and public OAuth endpoints
+CORS_ALLOW_ALL_ORIGINS = config("CORS_ALLOW_ALL_ORIGINS", default=False, cast=bool)
+
+# CORS URL regex - apply CORS to these URL patterns
+CORS_URLS_REGEX = r'^/(\.well-known|oauth|api)/.*$'
 
 CORS_ALLOW_CREDENTIALS = True
 
 # CSRF Configuration
 CSRF_TRUSTED_ORIGINS = config(
     "CSRF_TRUSTED_ORIGINS",
-    default="http://localhost:3000,http://127.0.0.1:3000, http://127.0.0.1:5500 ,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,https://face.ahu.go.id",
+    default="http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:5500,http://localhost:5500,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,https://face.ahu.go.id",
     cast=lambda v: [s.strip() for s in v.split(",")],
 )
 
@@ -734,6 +740,48 @@ UNFOLD = {
                 ],
             },
             {
+                "title": _("OAuth / OIDC Provider"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("OAuth Clients"),
+                        "icon": "vpn_key",
+                        "link": reverse_lazy(
+                            "admin:auth_service_oauthclient_changelist"
+                        ),
+                    },
+                    {
+                        "title": _("Authorization Codes"),
+                        "icon": "code",
+                        "link": reverse_lazy(
+                            "admin:auth_service_authorizationcode_changelist"
+                        ),
+                    },
+                    {
+                        "title": _("OAuth Tokens"),
+                        "icon": "token",
+                        "link": reverse_lazy(
+                            "admin:auth_service_oauthtoken_changelist"
+                        ),
+                    },
+                    {
+                        "title": _("OIDC Sessions"),
+                        "icon": "login",
+                        "link": reverse_lazy(
+                            "admin:auth_service_oidcsession_changelist"
+                        ),
+                    },
+                    {
+                        "title": _("User Consents"),
+                        "icon": "verified_user",
+                        "link": reverse_lazy(
+                            "admin:auth_service_userconsent_changelist"
+                        ),
+                    },
+                ],
+            },
+            {
                 "title": _("Webhooks"),
                 "separator": True,
                 "collapsible": True,
@@ -887,6 +935,45 @@ UNFOLD = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# ---------------------------------------------------------------------------
+# OpenID Connect / OAuth 2.0 Provider Configuration
+# ---------------------------------------------------------------------------
+
+# OIDC Provider Settings (use local IP for development)
+OIDC_ISSUER = config("OIDC_ISSUER", default="http://192.168.1.41:8003")
+SITE_URL = config("SITE_URL", default="http://192.168.1.41:8003")
+
+# OIDC Token Lifetimes (in seconds)
+OIDC_ACCESS_TOKEN_LIFETIME = config("OIDC_ACCESS_TOKEN_LIFETIME", default=3600, cast=int)
+OIDC_REFRESH_TOKEN_LIFETIME = config("OIDC_REFRESH_TOKEN_LIFETIME", default=86400, cast=int)
+OIDC_ID_TOKEN_LIFETIME = config("OIDC_ID_TOKEN_LIFETIME", default=3600, cast=int)
+OIDC_AUTHORIZATION_CODE_LIFETIME = config("OIDC_AUTHORIZATION_CODE_LIFETIME", default=600, cast=int)
+
+# OIDC Security Settings
+OIDC_REQUIRE_PKCE = config("OIDC_REQUIRE_PKCE", default=True, cast=bool)
+OIDC_REQUIRE_CONSENT = config("OIDC_REQUIRE_CONSENT", default=True, cast=bool)
+
+# Face Authentication Settings for OIDC
+OIDC_REQUIRE_FACE_AUTH = config("OIDC_REQUIRE_FACE_AUTH", default=True, cast=bool)
+OIDC_REQUIRE_LIVENESS = config("OIDC_REQUIRE_LIVENESS", default=True, cast=bool)
+OIDC_MIN_CONFIDENCE_SCORE = config("OIDC_MIN_CONFIDENCE_SCORE", default=0.85, cast=float)
+
+# Supported OIDC Scopes
+OIDC_SCOPES_SUPPORTED = [
+    'openid',      # Required for OIDC
+    'profile',     # Name, picture, etc.
+    'email',       # Email address
+    'face_auth',   # Face authentication claims
+    'offline_access',  # Refresh tokens
+]
+
+# OIDC Claims supported
+OIDC_CLAIMS_SUPPORTED = [
+    'sub', 'iss', 'aud', 'exp', 'iat', 'auth_time', 'nonce', 'at_hash',
+    'name', 'given_name', 'family_name', 'picture', 'email', 'email_verified',
+    'face_verified', 'face_confidence', 'liveness_verified',
+]
+
 # Create required directories
-for directory in ["logs", "media/faces", "media/enrollments", "static"]:
+for directory in ["logs", "media/faces", "media/enrollments", "static", "oidc_keys"]:
     os.makedirs(BASE_DIR / directory, exist_ok=True)

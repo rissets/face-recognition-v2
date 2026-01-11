@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OIDC + Face Recognition Demo</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2em;
+            background: linear-gradient(135deg, #00d4ff, #9c27b0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .card h2 {
+            color: #00d4ff;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+            color: #aaa;
+        }
+        
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            font-size: 0.9em;
+        }
+        
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #00d4ff, #0099cc);
+            color: #fff;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 212, 255, 0.4);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #00c853, #00a040);
+            color: #fff;
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ff1744, #d50000);
+            color: #fff;
+        }
+        
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .video-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 4/3;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+        
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.7);
+        }
+        
+        .overlay.hidden {
+            display: none;
+        }
+        
+        .overlay-text {
+            text-align: center;
+            color: #00d4ff;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            margin-right: 10px;
+        }
+        
+        .status-badge.pending {
+            background: #ffc107;
+            color: #000;
+        }
+        
+        .status-badge.active {
+            background: #00c853;
+            color: #fff;
+        }
+        
+        .status-badge.error {
+            background: #ff1744;
+            color: #fff;
+        }
+        
+        .status-badge.success {
+            background: #00d4ff;
+            color: #000;
+        }
+        
+        .log-container {
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.85em;
+        }
+        
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .log-entry.info { color: #00d4ff; }
+        .log-entry.success { color: #00c853; }
+        .log-entry.error { color: #ff1744; }
+        .log-entry.warning { color: #ffc107; }
+        
+        .face-box {
+            position: absolute;
+            border: 3px solid #00c853;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0, 200, 83, 0.5);
+        }
+        
+        .liveness-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+        
+        .liveness-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #444;
+        }
+        
+        .liveness-dot.active {
+            background: #00c853;
+            box-shadow: 0 0 10px #00c853;
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .results-panel {
+            margin-top: 20px;
+            padding: 20px;
+            background: rgba(0, 200, 83, 0.1);
+            border: 1px solid #00c853;
+            border-radius: 12px;
+        }
+        
+        .results-panel.hidden {
+            display: none;
+        }
+        
+        .result-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .result-label {
+            color: #aaa;
+        }
+        
+        .result-value {
+            color: #00d4ff;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 OIDC + Face Recognition Demo</h1>
+        
+        <div class="grid">
+            <!-- Configuration Panel -->
+            <div class="card">
+                <h2>⚙️ Configuration</h2>
+                
+                <div class="form-group">
+                    <label>Base URL</label>
+                    <input type="text" id="baseUrl" value="http://127.0.0.1:8003">
+                </div>
+                
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="text" id="apiKey" value="frapi_llazJ4S2Wcjz1PH6JzeOTdTYLlfAtObuZjgZuSWPi7c">
+                </div>
+                
+                <div class="form-group">
+                    <label>API Secret</label>
+                    <input type="password" id="apiSecret" value="DuHe3d04cUU1eMnhoBgxyCBiDm3T3kRClJG3Y_cZyiTOnxpLF6uWyDUuq5K5aN3Hr1zm-otL6rpbnnfHlNAaJg">
+                </div>
+                
+                <div class="form-group">
+                    <label>User ID (external_user_id)</label>
+                    <input type="text" id="userId" value="test_similarity_1767689698">
+                </div>
+                
+                <div class="form-group">
+                    <label>OIDC Client ID</label>
+                    <input type="text" id="oidcClientId" value="oidc_vBYjlMiaEUgUdnObhaetc37L-HzsF-_H">
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <button class="btn btn-primary" id="startFlowBtn" onclick="startOIDCFlow()">
+                        🚀 Start OIDC + Face Auth
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Camera Panel -->
+            <div class="card">
+                <h2>📹 Face Recognition</h2>
+                
+                <div class="video-container">
+                    <video id="video" autoplay muted playsinline></video>
+                    <canvas id="faceCanvas" style="position: absolute; top: 0; left: 0;"></canvas>
+                    <div id="cameraOverlay" class="overlay">
+                        <div class="overlay-text">
+                            <div style="font-size: 3em; margin-bottom: 10px;">📷</div>
+                            <div>Start auth flow to enable camera</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="liveness-indicator">
+                    <div class="liveness-dot" id="livenessIndicator"></div>
+                    <span id="livenessStatus">Waiting for liveness check...</span>
+                </div>
+                
+                <div style="margin-top: 15px; display: flex; gap: 10px;">
+                    <button class="btn btn-secondary" id="startCameraBtn" onclick="startCamera()" disabled>
+                        📷 Start Camera
+                    </button>
+                    <button class="btn btn-danger" id="stopCameraBtn" onclick="stopCamera()" disabled>
+                        ⏹️ Stop
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Status Panel -->
+        <div class="card" style="margin-top: 20px;">
+            <h2>📊 Status</h2>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
+                <span class="status-badge pending" id="statusDiscovery">OIDC Discovery</span>
+                <span class="status-badge pending" id="statusApiAuth">API Auth</span>
+                <span class="status-badge pending" id="statusSession">Face Session</span>
+                <span class="status-badge pending" id="statusWebSocket">WebSocket</span>
+                <span class="status-badge pending" id="statusFaceAuth">Face Auth</span>
+                <span class="status-badge pending" id="statusToken">Token Exchange</span>
+            </div>
+            
+            <div class="log-container" id="logContainer">
+                <div class="log-entry info">[System] Ready to start OIDC + Face Recognition flow</div>
+            </div>
+        </div>
+        
+        <!-- Results Panel -->
+        <div class="card results-panel hidden" id="resultsPanel" style="margin-top: 20px;">
+            <h2>✅ Authentication Successful</h2>
+            <div id="resultsContent"></div>
+        </div>
+    </div>
+    
+    <script>
+        // Prevent page reload/navigation
+        window.onbeforeunload = function(e) {
+            if (state.wsConnection && state.wsConnection.readyState === WebSocket.OPEN) {
+                e.preventDefault();
+                e.returnValue = 'Face authentication in progress. Are you sure you want to leave?';
+                return e.returnValue;
+            }
+        };
+        
+        // Disable Live Server auto-reload
+        if (window.EventSource) {
+            const originalEventSource = window.EventSource;
+            window.EventSource = function() {
+                console.log('Live Server auto-reload disabled');
+            };
+        }
+        
+        // State management
+        let state = {
+            oidcConfig: null,
+            apiToken: null,
+            sessionToken: null,
+            wsConnection: null,
+            codeVerifier: null,
+            codeChallenge: null,
+            nonce: null,
+            authState: null,
+            stream: null,
+            frameInterval: null
+        };
+        
+        // Utility functions
+        function log(message, type = 'info') {
+            const container = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        function updateStatus(id, status) {
+            const element = document.getElementById(id);
+            element.className = `status-badge ${status}`;
+        }
+        
+        // PKCE functions
+        function generateCodeVerifier() {
+            const array = new Uint8Array(64);
+            crypto.getRandomValues(array);
+            return btoa(String.fromCharCode.apply(null, array))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=/g, '')
+                .substring(0, 64);
+        }
+        
+        async function generateCodeChallenge(verifier) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(verifier);
+            const digest = await crypto.subtle.digest('SHA-256', data);
+            return btoa(String.fromCharCode.apply(null, new Uint8Array(digest)))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=/g, '');
+        }
+        
+        function generateRandomString(length = 32) {
+            const array = new Uint8Array(length);
+            crypto.getRandomValues(array);
+            return btoa(String.fromCharCode.apply(null, array))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=/g, '')
+                .substring(0, length);
+        }
+        
+        // API functions
+        async function discoverOIDC() {
+            const baseUrl = document.getElementById('baseUrl').value;
+            log('Fetching OIDC discovery...', 'info');
+            
+            try {
+                const response = await fetch(`${baseUrl}/.well-known/openid-configuration`, {
+                    method: 'GET',
+                    mode: 'cors',
+                    cache: 'no-cache',
+                    headers: {
+                        'Accept': 'application/json',
+                    }
+                });
+                
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                state.oidcConfig = await response.json();
+                log(`✓ OIDC Issuer: ${state.oidcConfig.issuer}`, 'success');
+                updateStatus('statusDiscovery', 'success');
+                return true;
+            } catch (error) {
+                log(`✗ OIDC Discovery failed: ${error.message}`, 'error');
+                updateStatus('statusDiscovery', 'error');
+                return false;
+            }
+        }
+        
+        async function authenticateAPI() {
+            const baseUrl = document.getElementById('baseUrl').value;
+            const apiKey = document.getElementById('apiKey').value;
+            const apiSecret = document.getElementById('apiSecret').value;
+            
+            log('Authenticating with API...', 'info');
+            
+            try {
+                const response = await fetch(`${baseUrl}/api/core/auth/client/`, {
+                    method: 'POST',
+                    mode: 'cors',
+                    cache: 'no-cache',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret })
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 100)}`);
+                }
+                
+                const data = await response.json();
+                state.apiToken = data.access_token;
+                log(`✓ API Auth: ${data.client_name} (${data.tier})`, 'success');
+                updateStatus('statusApiAuth', 'success');
+                return true;
+            } catch (error) {
+                log(`✗ API Auth failed: ${error.message}`, 'error');
+                updateStatus('statusApiAuth', 'error');
+                return false;
+            }
+        }
+        
+        async function createFaceSession() {
+            const baseUrl = document.getElementById('baseUrl').value;
+            const userId = document.getElementById('userId').value;
+            
+            log(`Creating face auth session for: ${userId}`, 'info');
+            
+            try {
+                const response = await fetch(`${baseUrl}/api/auth/authentication/`, {
+                    method: 'POST',
+                    mode: 'cors',
+                    cache: 'no-cache',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'Authorization': `JWT ${state.apiToken}`
+                    },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        session_type: 'webcam',
+                        require_liveness: true
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+                    throw new Error(errorData.detail || errorData.error || `HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                state.sessionToken = data.session_token;
+                state.wsUrl = data.websocket_url;
+                
+                log(`✓ Session created: ${data.session_token.substring(0, 20)}...`, 'success');
+                updateStatus('statusSession', 'success');
+                return true;
+            } catch (error) {
+                log(`✗ Session failed: ${error.message}`, 'error');
+                updateStatus('statusSession', 'error');
+                return false;
+            }
+        }
+        
+        async function connectWebSocket() {
+            log('Connecting to WebSocket...', 'info');
+            
+            return new Promise((resolve, reject) => {
+                try {
+                    // Close existing connection if any
+                    if (state.wsConnection) {
+                        state.wsConnection.close();
+                    }
+                    
+                    state.wsConnection = new WebSocket(state.wsUrl);
+                    
+                    // Set timeout for connection
+                    const timeout = setTimeout(() => {
+                        if (state.wsConnection.readyState !== WebSocket.OPEN) {
+                            log('✗ WebSocket connection timeout', 'error');
+                            updateStatus('statusWebSocket', 'error');
+                            reject(new Error('WebSocket connection timeout'));
+                        }
+                    }, 10000); // 10 seconds timeout
+                    
+                    state.wsConnection.onopen = () => {
+                        clearTimeout(timeout);
+                        log('✓ WebSocket connected', 'success');
+                        updateStatus('statusWebSocket', 'success');
+                        resolve(true);
+                    };
+                    
+                    state.wsConnection.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            handleWebSocketMessage(data);
+                        } catch (error) {
+                            log(`✗ Failed to parse WebSocket message: ${error.message}`, 'error');
+                        }
+                    };
+                    
+                    state.wsConnection.onerror = (error) => {
+                        clearTimeout(timeout);
+                        log(`✗ WebSocket error`, 'error');
+                        console.error('WebSocket error:', error);
+                        updateStatus('statusWebSocket', 'error');
+                        reject(new Error('WebSocket error'));
+                    };
+                    
+                    state.wsConnection.onclose = (event) => {
+                        clearTimeout(timeout);
+                        if (event.wasClean) {
+                            log(`WebSocket closed cleanly (code: ${event.code})`, 'info');
+                        } else {
+                            log(`WebSocket connection died (code: ${event.code})`, 'warning');
+                        }
+                    };
+                } catch (error) {
+                    log(`✗ WebSocket connection failed: ${error.message}`, 'error');
+                    updateStatus('statusWebSocket', 'error');
+                    reject(error);
+                }
+            });
+        }
+        
+        function handleWebSocketMessage(data) {
+            console.log('WebSocket message:', data);
+            
+            if (data.type === 'authentication_complete' || data.status === 'success') {
+                log('✓ Face authentication successful!', 'success');
+                updateStatus('statusFaceAuth', 'success');
+                
+                const indicator = document.getElementById('livenessIndicator');
+                indicator.classList.add('active');
+                document.getElementById('livenessStatus').textContent = 'Authentication successful!';
+                
+                // Show results
+                showResults(data);
+                
+                // Stop streaming
+                stopCamera();
+            } else if (data.type === 'face_detected') {
+                log(`Face detected: confidence ${(data.confidence * 100).toFixed(1)}%`, 'info');
+            } else if (data.type === 'liveness_check') {
+                log(`Liveness check: ${data.passed ? 'PASSED' : 'processing...'}`, data.passed ? 'success' : 'info');
+                if (data.passed) {
+                    const indicator = document.getElementById('livenessIndicator');
+                    indicator.classList.add('active');
+                    document.getElementById('livenessStatus').textContent = 'Liveness verified!';
+                }
+            } else if (data.type === 'error' || data.status === 'error') {
+                log(`✗ Error: ${data.message || data.error}`, 'error');
+            } else if (data.type === 'progress' || data.type === 'frame_received') {
+                // Progress update, don't log everything
+                if (data.message) {
+                    log(data.message, 'info');
+                }
+            }
+        }
+        
+        function showResults(data) {
+            const panel = document.getElementById('resultsPanel');
+            const content = document.getElementById('resultsContent');
+            
+            content.innerHTML = `
+                <div class="result-item">
+                    <span class="result-label">User ID</span>
+                    <span class="result-value">${data.user_id || document.getElementById('userId').value}</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">Face Confidence</span>
+                    <span class="result-value">${((data.confidence || 0) * 100).toFixed(2)}%</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">Liveness Verified</span>
+                    <span class="result-value">${data.liveness_verified ? '✅ Yes' : '❌ No'}</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">Session Token</span>
+                    <span class="result-value" style="word-break: break-all;">${state.sessionToken}</span>
+                </div>
+            `;
+            
+            panel.classList.remove('hidden');
+        }
+        
+        // Camera functions
+        async function startCamera() {
+            log('Starting camera...', 'info');
+            
+            try {
+                state.stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: 640, height: 480 }
+                });
+                
+                const video = document.getElementById('video');
+                video.srcObject = state.stream;
+                
+                document.getElementById('cameraOverlay').classList.add('hidden');
+                document.getElementById('startCameraBtn').disabled = true;
+                document.getElementById('stopCameraBtn').disabled = false;
+                
+                log('✓ Camera started', 'success');
+                
+                // Start sending frames
+                startFrameCapture();
+            } catch (error) {
+                log(`✗ Camera error: ${error.message}`, 'error');
+            }
+        }
+        
+        function stopCamera() {
+            if (state.stream) {
+                state.stream.getTracks().forEach(track => track.stop());
+                state.stream = null;
+            }
+            
+            if (state.frameInterval) {
+                clearInterval(state.frameInterval);
+                state.frameInterval = null;
+            }
+            
+            if (state.wsConnection) {
+                state.wsConnection.close();
+                state.wsConnection = null;
+            }
+            
+            document.getElementById('cameraOverlay').classList.remove('hidden');
+            document.getElementById('startCameraBtn').disabled = false;
+            document.getElementById('stopCameraBtn').disabled = true;
+            
+            log('Camera stopped', 'info');
+        }
+        
+        function startFrameCapture() {
+            const video = document.getElementById('video');
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            const ctx = canvas.getContext('2d');
+            
+            let frameNumber = 0;
+            
+            state.frameInterval = setInterval(() => {
+                if (!state.wsConnection || state.wsConnection.readyState !== WebSocket.OPEN) {
+                    return;
+                }
+                
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = canvas.toDataURL('image/jpeg', 0.8);
+                
+                frameNumber++;
+                
+                state.wsConnection.send(JSON.stringify({
+                    type: 'frame',
+                    image: imageData,
+                    frame_number: frameNumber
+                }));
+                
+                if (frameNumber % 30 === 0) {
+                    log(`Sent ${frameNumber} frames...`, 'info');
+                }
+            }, 100); // 10 FPS
+        }
+        
+        // Main flow
+        async function startOIDCFlow() {
+            // Disable button to prevent multiple clicks
+            const startBtn = document.getElementById('startFlowBtn');
+            startBtn.disabled = true;
+            startBtn.textContent = '⏳ Processing...';
+            
+            try {
+                log('========================================', 'info');
+                log('Starting OIDC + Face Recognition Flow', 'info');
+                log('========================================', 'info');
+                
+                // Reset status
+                ['statusDiscovery', 'statusApiAuth', 'statusSession', 'statusWebSocket', 'statusFaceAuth', 'statusToken']
+                    .forEach(id => updateStatus(id, 'pending'));
+                
+                document.getElementById('resultsPanel').classList.add('hidden');
+                
+                // Step 1: OIDC Discovery
+                if (!await discoverOIDC()) {
+                    throw new Error('OIDC Discovery failed');
+                }
+                
+                // Step 2: API Authentication
+                if (!await authenticateAPI()) {
+                    throw new Error('API Authentication failed');
+                }
+                
+                // Step 3: Generate PKCE
+                state.codeVerifier = generateCodeVerifier();
+                state.codeChallenge = await generateCodeChallenge(state.codeVerifier);
+                state.nonce = generateRandomString(32);
+                state.authState = generateRandomString(32);
+                
+                log(`✓ PKCE generated: ${state.codeChallenge.substring(0, 20)}...`, 'success');
+                
+                // Step 4: Create Face Session
+                if (!await createFaceSession()) {
+                    throw new Error('Face Session creation failed');
+                }
+                
+                // Step 5: Connect WebSocket
+                await connectWebSocket();
+                
+                // Step 6: Enable camera
+                document.getElementById('startCameraBtn').disabled = false;
+                log('✅ Ready! Click "Start Camera" to begin face authentication', 'success');
+                
+                // Auto-start camera after 1 second
+                setTimeout(() => {
+                    if (document.getElementById('startCameraBtn') && !document.getElementById('startCameraBtn').disabled) {
+                        startCamera();
+                    }
+                }, 1000);
+                
+            } catch (error) {
+                log(`❌ Flow failed: ${error.message}`, 'error');
+                startBtn.disabled = false;
+                startBtn.textContent = '🚀 Start OIDC + Face Auth';
+            }
+        }
+    </script>
+</body>
+</html>

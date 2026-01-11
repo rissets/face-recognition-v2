@@ -26,11 +26,20 @@ from drf_spectacular.views import (
 from face_app import admin_dashboard  # noqa: F401
 from core.views import health_check
 
+# Import OIDC discovery URLs
+from auth_service.oidc.urls import discovery_urlpatterns
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     
     # Health check endpoint
     path("health/", health_check, name="health_check"),
+    
+    # OpenID Connect Discovery Endpoints (must be at root level)
+    path('.well-known/', include(discovery_urlpatterns)),
+    
+    # OAuth 2.0 / OpenID Connect Provider Endpoints
+    path('oauth/', include('auth_service.oidc.urls', namespace='oidc')),
     
     # API Documentation
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

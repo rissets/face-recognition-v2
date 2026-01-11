@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Authentication Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .face-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 280px;
+            height: 360px;
+            border: 3px dashed rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+        }
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .scanning-line {
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #00ff00, transparent);
+            animation: scan 2s linear infinite;
+        }
+        @keyframes scan {
+            0% { top: 0; }
+            100% { top: 100%; }
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-8 text-center">
+            {% if client.logo_url %}
+            <img src="{{ client.logo_url }}" alt="{{ client.name }}" class="h-12 mx-auto mb-4">
+            {% endif %}
+            <h1 class="text-2xl font-bold text-white">Face Authentication</h1>
+            <p class="text-indigo-200 mt-2">Sign in to {{ client.name }}</p>
+        </div>
+
+        <!-- User ID Input -->
+        <div class="p-6" id="user-input-section">
+            <div class="mb-6">
+                <label class="block text-gray-700 text-sm font-semibold mb-2" for="user_id">
+                    User ID / Employee ID
+                </label>
+                <input type="text" 
+                       id="user_id" 
+                       name="user_id"
+                       value="{{ login_hint }}"
+                       placeholder="Enter your user ID"
+                       class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition">
+            </div>
+            
+            <button onclick="startFaceAuth()" 
+                    class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition">
+                Start Face Authentication
+            </button>
+        </div>
+
+        <!-- Camera Section (Hidden initially) -->
+        <div class="p-6 hidden" id="camera-section">
+            <div class="relative bg-gray-900 rounded-lg overflow-hidden" style="aspect-ratio: 4/3;">
+                <video id="video" autoplay playsinline class="w-full h-full object-cover"></video>
+                <canvas id="canvas" class="hidden"></canvas>
+                
+                <!-- Face Guide Overlay -->
+                <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div class="border-4 border-dashed border-white/50 rounded-full w-48 h-64"></div>
+                </div>
+                
+                <!-- Status Overlay -->
+                <div id="status-overlay" class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-4">
+                    <p id="status-text" class="text-white text-center">Position your face in the oval</p>
+                </div>
+                
+                <!-- Scanning Animation -->
+                <div id="scanning-overlay" class="absolute inset-0 hidden">
+                    <div class="scanning-line"></div>
+                </div>
+            </div>
+            
+            <!-- Instructions -->
+            <div class="mt-4 text-center text-gray-600 text-sm">
+                <p id="instruction-text">Look directly at the camera and keep still</p>
+            </div>
+            
+            <!-- Liveness Instructions -->
+            <div id="liveness-instructions" class="mt-4 bg-indigo-50 rounded-lg p-4 hidden">
+                <h3 class="font-semibold text-indigo-800 mb-2">Liveness Check</h3>
+                <p id="liveness-action" class="text-indigo-600">Please blink your eyes</p>
+            </div>
+            
+            <!-- Cancel Button -->
+            <button onclick="cancelAuth()" 
+                    class="w-full mt-4 border border-gray-300 text-gray-700 py-2 rounded-lg hover:bg-gray-50 transition">
+                Cancel
+            </button>
+        </div>
+
+        <!-- Success Section -->
+        <div class="p-6 hidden text-center" id="success-section">
+            <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg class="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">Authentication Successful</h2>
+            <p class="text-gray-600">Redirecting you to {{ client.name }}...</p>
+        </div>
+
+        <!-- Error Section -->
+        <div class="p-6 hidden text-center" id="error-section">
+            <div class="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg class="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">Authentication Failed</h2>
+            <p id="error-message" class="text-gray-600 mb-4">An error occurred during authentication.</p>
+            <button onclick="retryAuth()" 
+                    class="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition">
+                Try Again
+            </button>
+        </div>
+
+        <!-- Scopes Info -->
+        <div class="px-6 pb-6 border-t border-gray-100 pt-4">
+            <p class="text-xs text-gray-500 text-center mb-2">This app will receive:</p>
+            <div class="flex flex-wrap justify-center gap-2">
+                {% for scope in scopes %}
+                <span class="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs">{{ scope }}</span>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '{{ api_base_url }}';
+        const WS_URL = '{{ websocket_url }}';
+        
+        let video = null;
+        let canvas = null;
+        let ctx = null;
+        let stream = null;
+        let ws = null;
+        let sessionToken = null;
+        let frameInterval = null;
+        let userId = null;
+        
+        async function startFaceAuth() {
+            userId = document.getElementById('user_id').value.trim();
+            if (!userId) {
+                alert('Please enter your User ID');
+                return;
+            }
+            
+            // Show camera section
+            document.getElementById('user-input-section').classList.add('hidden');
+            document.getElementById('camera-section').classList.remove('hidden');
+            
+            try {
+                // Initialize camera
+                video = document.getElementById('video');
+                canvas = document.getElementById('canvas');
+                ctx = canvas.getContext('2d');
+                
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: 'user',
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                });
+                
+                video.srcObject = stream;
+                await video.play();
+                
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                // Create authentication session
+                await createAuthSession();
+                
+            } catch (error) {
+                console.error('Camera error:', error);
+                showError('Could not access camera. Please allow camera permissions.');
+            }
+        }
+        
+        async function createAuthSession() {
+            try {
+                updateStatus('Creating authentication session...');
+                
+                const response = await fetch(`${API_BASE}authentication/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        external_user_id: userId,
+                        liveness_required: true,
+                        anti_spoofing_required: true
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to create session');
+                }
+                
+                const data = await response.json();
+                sessionToken = data.session_token;
+                
+                // Start WebSocket connection
+                connectWebSocket();
+                
+            } catch (error) {
+                console.error('Session error:', error);
+                showError('Failed to create authentication session');
+            }
+        }
+        
+        function connectWebSocket() {
+            updateStatus('Connecting...');
+            
+            ws = new WebSocket(`${WS_URL}?session_token=${sessionToken}`);
+            
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                updateStatus('Position your face in the oval');
+                startFrameCapture();
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleWSMessage(data);
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                showError('Connection error');
+            };
+            
+            ws.onclose = () => {
+                console.log('WebSocket closed');
+                stopFrameCapture();
+            };
+        }
+        
+        function handleWSMessage(data) {
+            console.log('WS message:', data);
+            
+            switch (data.type) {
+                case 'face_detected':
+                    updateStatus('Face detected - hold still...');
+                    break;
+                    
+                case 'liveness_check':
+                    showLivenessInstruction(data.action);
+                    break;
+                    
+                case 'processing':
+                    updateStatus('Verifying your identity...');
+                    document.getElementById('scanning-overlay').classList.remove('hidden');
+                    break;
+                    
+                case 'authentication_success':
+                    handleAuthSuccess(data);
+                    break;
+                    
+                case 'authentication_failed':
+                    showError(data.message || 'Authentication failed');
+                    break;
+                    
+                case 'error':
+                    showError(data.message);
+                    break;
+            }
+        }
+        
+        function startFrameCapture() {
+            frameInterval = setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN && video.readyState === 4) {
+                    ctx.drawImage(video, 0, 0);
+                    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+                    ws.send(JSON.stringify({
+                        type: 'frame',
+                        image: imageData
+                    }));
+                }
+            }, 200); // 5 FPS
+        }
+        
+        function stopFrameCapture() {
+            if (frameInterval) {
+                clearInterval(frameInterval);
+                frameInterval = null;
+            }
+        }
+        
+        function showLivenessInstruction(action) {
+            const instructions = document.getElementById('liveness-instructions');
+            const actionText = document.getElementById('liveness-action');
+            
+            instructions.classList.remove('hidden');
+            
+            switch (action) {
+                case 'blink':
+                    actionText.textContent = 'Please blink your eyes';
+                    break;
+                case 'turn_left':
+                    actionText.textContent = 'Turn your head slightly to the left';
+                    break;
+                case 'turn_right':
+                    actionText.textContent = 'Turn your head slightly to the right';
+                    break;
+                case 'smile':
+                    actionText.textContent = 'Please smile';
+                    break;
+                default:
+                    actionText.textContent = action;
+            }
+        }
+        
+        async function handleAuthSuccess(data) {
+            stopFrameCapture();
+            stopCamera();
+            
+            document.getElementById('camera-section').classList.add('hidden');
+            document.getElementById('success-section').classList.remove('hidden');
+            
+            // Send callback to complete OAuth flow
+            try {
+                const response = await fetch('/oauth/face-auth-callback', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        session_token: sessionToken,
+                        confidence_score: data.confidence_score || 0.95,
+                        liveness_verified: data.liveness_verified || true
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.requires_consent) {
+                    window.location.href = result.redirect;
+                } else if (result.redirect) {
+                    window.location.href = result.redirect;
+                }
+                
+            } catch (error) {
+                console.error('Callback error:', error);
+                showError('Failed to complete authentication');
+            }
+        }
+        
+        function updateStatus(message) {
+            document.getElementById('status-text').textContent = message;
+        }
+        
+        function showError(message) {
+            stopFrameCapture();
+            stopCamera();
+            
+            document.getElementById('user-input-section').classList.add('hidden');
+            document.getElementById('camera-section').classList.add('hidden');
+            document.getElementById('success-section').classList.add('hidden');
+            document.getElementById('error-section').classList.remove('hidden');
+            document.getElementById('error-message').textContent = message;
+        }
+        
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+        
+        function cancelAuth() {
+            stopFrameCapture();
+            stopCamera();
+            
+            document.getElementById('camera-section').classList.add('hidden');
+            document.getElementById('user-input-section').classList.remove('hidden');
+        }
+        
+        function retryAuth() {
+            document.getElementById('error-section').classList.add('hidden');
+            document.getElementById('user-input-section').classList.remove('hidden');
+        }
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            stopFrameCapture();
+            stopCamera();
+        });
+    </script>
+</body>
+</html>
