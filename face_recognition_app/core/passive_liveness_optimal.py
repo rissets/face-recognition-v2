@@ -875,9 +875,11 @@ class OptimizedPassiveLivenessDetector:
         self.debug = debug
         self.max_duration = max_duration
         
-        # MediaPipe
+        # MediaPipe - use static_image_mode=True to avoid timestamp conflicts
+        # when multiple sessions are active simultaneously
         self.mp_face_mesh = mp.solutions.face_mesh
         self.face_mesh = self.mp_face_mesh.FaceMesh(
+            static_image_mode=True,  # IMPORTANT: Prevents timestamp mismatch errors
             max_num_faces=1,
             refine_landmarks=True,
             min_detection_confidence=0.5,

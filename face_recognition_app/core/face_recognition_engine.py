@@ -105,6 +105,22 @@ class LivenessDetector:
                 min_tracking_confidence=0.5
             )
     
+    def reinitialize_face_mesh(self):
+        """Force reinitialize MediaPipe FaceMesh to clear internal timestamp state.
+        
+        Call this when restoring from cache to avoid timestamp mismatch errors.
+        MediaPipe maintains internal graph state with monotonically increasing timestamps,
+        which can cause conflicts when sessions are restored.
+        """
+        if self._face_mesh is not None:
+            try:
+                self._face_mesh.close()
+            except Exception:
+                pass
+            self._face_mesh = None
+        self._initialize_face_mesh()
+        logger.debug("Reinitialized MediaPipe FaceMesh to clear timestamp state")
+    
     @property
     def face_mesh(self):
         """Lazy property for face_mesh"""
@@ -471,8 +487,10 @@ class ObstacleDetector:
         )
         
         self.mp_face_mesh = mp.solutions.face_mesh
+        # Use static_image_mode=True to avoid timestamp tracking issues
+        # Each frame is processed independently without internal state
         self.face_mesh = self.mp_face_mesh.FaceMesh(
-            static_image_mode=False,
+            static_image_mode=True,  # IMPORTANT: Prevents timestamp mismatch errors
             max_num_faces=1,
             refine_landmarks=True,
             min_detection_confidence=0.5,
@@ -482,7 +500,7 @@ class ObstacleDetector:
         # Initialize MediaPipe Hands for better hand detection
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
-            static_image_mode=False,
+            static_image_mode=True,  # IMPORTANT: Prevents timestamp mismatch errors
             max_num_hands=2,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
@@ -829,22 +847,11 @@ class ObstacleDetector:
             return []
 
 
-# Global singletons for heavy components
-_shared_obstacle_detector = None
-_shared_obstacle_detector_lock = threading.Lock()
+# Global singletons for STATELESS heavy components only
+# NOTE: ObstacleDetector uses MediaPipe which has internal timestamp state
+# and CANNOT be shared across sessions - will cause timestamp mismatch errors!
 _shared_chroma_store = None
 _shared_chroma_store_lock = threading.Lock()
-
-
-def get_shared_obstacle_detector():
-    """Get or create shared ObstacleDetector instance"""
-    global _shared_obstacle_detector
-    if _shared_obstacle_detector is None:
-        with _shared_obstacle_detector_lock:
-            if _shared_obstacle_detector is None:
-                logger.info("🔧 Creating shared ObstacleDetector instance...")
-                _shared_obstacle_detector = ObstacleDetector()
-    return _shared_obstacle_detector
 
 
 def get_shared_chroma_store():
@@ -1039,8 +1046,11 @@ class FaceRecognitionEngine:
         # This avoids loading InsightFace models multiple times!
         self.app = get_shared_face_analysis()
         
-        # OPTIMIZATION: Use shared ObstacleDetector and ChromaEmbeddingStore
-        self.obstacle_detector = get_shared_obstacle_detector()
+        # ObstacleDetector uses MediaPipe which has internal timestamp state
+        # CANNOT be shared - each session needs its own instance to avoid timestamp conflicts
+        self.obstacle_detector = ObstacleDetector()
+        
+        # ChromaDB connection can be shared safely
         self.embedding_store = get_shared_chroma_store()
         
         # NEW: Optimized embedding store with caching and client isolation
