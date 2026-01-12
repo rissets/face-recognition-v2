@@ -29,60 +29,169 @@ def debug_log(message: str):
 
 
 # =============================================================================
-# THREAD-LOCAL: Per-thread MediaPipe FaceMesh instances
-# This avoids timestamp conflicts when multiple threads process frames concurrently
-# Each thread gets its own FaceMesh instance, preventing the "Packet timestamp mismatch" error
+# BOUNDED POOL: FaceMesh instances with fixed pool size
+# Uses a queue-based pool to prevent unbounded thread/instance creation
+# Each instance is reused across sessions, preventing memory/thread explosion
 # =============================================================================
-_thread_local_face_mesh = threading.local()
-_face_mesh_usage_count = {}  # Track usage per thread for periodic cleanup
-_face_mesh_usage_lock = threading.Lock()
-_FACE_MESH_REINIT_INTERVAL = 500  # Reinitialize per-thread instance every N frames
+from queue import Queue, Empty
+from contextlib import contextmanager
+
+# Configuration
+_FACE_MESH_POOL_SIZE = int(getattr(settings, 'FACE_MESH_POOL_SIZE', 8))  # Max concurrent instances
+_FACE_MESH_REINIT_INTERVAL = 500  # Reinitialize instance every N uses
+_FACE_MESH_ACQUIRE_TIMEOUT = 5.0  # Seconds to wait for available instance
+
+# Pool storage
+_face_mesh_pool: Queue = None
+_face_mesh_pool_lock = threading.Lock()
+_face_mesh_usage_counts: Dict[int, int] = {}  # Track usage per instance
+_pool_initialized = False
+
+
+def _create_face_mesh_instance():
+    """Create a new FaceMesh instance with optimal settings"""
+    return mp.solutions.face_mesh.FaceMesh(
+        static_image_mode=True,  # CRITICAL: True = no timestamp tracking
+        max_num_faces=1,
+        refine_landmarks=True,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5
+    )
+
+
+def _init_face_mesh_pool():
+    """Initialize the FaceMesh pool with bounded instances"""
+    global _face_mesh_pool, _pool_initialized
+    
+    with _face_mesh_pool_lock:
+        if _pool_initialized:
+            return
+        
+        _face_mesh_pool = Queue(maxsize=_FACE_MESH_POOL_SIZE)
+        
+        # Pre-create pool instances
+        for i in range(_FACE_MESH_POOL_SIZE):
+            try:
+                instance = _create_face_mesh_instance()
+                _face_mesh_pool.put((i, instance))
+                _face_mesh_usage_counts[i] = 0
+                logger.debug(f"Created FaceMesh pool instance {i}")
+            except Exception as e:
+                logger.error(f"Failed to create FaceMesh pool instance {i}: {e}")
+        
+        _pool_initialized = True
+        logger.info(f"FaceMesh pool initialized with {_face_mesh_pool.qsize()} instances (max {_FACE_MESH_POOL_SIZE})")
 
 
 def get_shared_face_mesh():
-    """Get or create a thread-local MediaPipe FaceMesh instance
+    """Get a FaceMesh from the bounded pool - FOR SIMPLE USE CASES ONLY
     
-    Uses thread-local storage to give each thread its own FaceMesh instance.
-    This prevents the "Packet timestamp mismatch" error that occurs when
-    multiple concurrent sessions share the same MediaPipe graph.
-    
-    Still significantly reduces CPU usage compared to creating a new FaceMesh
-    for every frame, since each thread reuses its instance across frames.
+    WARNING: This acquires but doesn't release! Use acquire_face_mesh() context manager
+    for proper pool management. This function exists for backward compatibility.
     """
-    thread_id = threading.get_ident()
+    if not _pool_initialized:
+        _init_face_mesh_pool()
     
-    # Check if this thread already has a FaceMesh instance
-    face_mesh = getattr(_thread_local_face_mesh, 'instance', None)
-    
-    # Track usage count for periodic reinitialization
-    with _face_mesh_usage_lock:
-        usage_count = _face_mesh_usage_count.get(thread_id, 0) + 1
-        _face_mesh_usage_count[thread_id] = usage_count
-        should_reinit = usage_count >= _FACE_MESH_REINIT_INTERVAL
-        if should_reinit:
-            _face_mesh_usage_count[thread_id] = 0
-    
-    # Create new instance if needed
-    if face_mesh is None or should_reinit:
-        if face_mesh is not None:
+    try:
+        instance_id, face_mesh = _face_mesh_pool.get(timeout=_FACE_MESH_ACQUIRE_TIMEOUT)
+        
+        # Track usage and check if reinit needed
+        _face_mesh_usage_counts[instance_id] = _face_mesh_usage_counts.get(instance_id, 0) + 1
+        if _face_mesh_usage_counts[instance_id] >= _FACE_MESH_REINIT_INTERVAL:
             try:
                 face_mesh.close()
             except Exception:
                 pass
+            face_mesh = _create_face_mesh_instance()
+            _face_mesh_usage_counts[instance_id] = 0
+            logger.debug(f"Reinitialized FaceMesh pool instance {instance_id}")
         
-        face_mesh = mp.solutions.face_mesh.FaceMesh(
-            static_image_mode=True,  # True = no timestamp tracking between frames
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
-        )
-        _thread_local_face_mesh.instance = face_mesh
+        # Return to pool immediately for simple use case
+        _face_mesh_pool.put((instance_id, face_mesh))
+        return face_mesh
         
-        if should_reinit:
-            logger.debug(f"Periodic reinit of thread-local FaceMesh (thread {thread_id})")
+    except Empty:
+        # Pool exhausted - create temporary instance (will be GC'd)
+        logger.warning("FaceMesh pool exhausted, creating temporary instance")
+        return _create_face_mesh_instance()
+
+
+@contextmanager
+def acquire_face_mesh():
+    """Context manager to safely acquire/release FaceMesh from pool
     
-    return face_mesh
+    Usage:
+        with acquire_face_mesh() as face_mesh:
+            result = face_mesh.process(rgb_frame)
+    
+    This ensures the instance is returned to the pool after use.
+    """
+    if not _pool_initialized:
+        _init_face_mesh_pool()
+    
+    instance_id = None
+    face_mesh = None
+    temp_instance = False
+    
+    try:
+        try:
+            instance_id, face_mesh = _face_mesh_pool.get(timeout=_FACE_MESH_ACQUIRE_TIMEOUT)
+            
+            # Track usage
+            _face_mesh_usage_counts[instance_id] = _face_mesh_usage_counts.get(instance_id, 0) + 1
+            
+            # Check if reinit needed
+            if _face_mesh_usage_counts[instance_id] >= _FACE_MESH_REINIT_INTERVAL:
+                try:
+                    face_mesh.close()
+                except Exception:
+                    pass
+                face_mesh = _create_face_mesh_instance()
+                _face_mesh_usage_counts[instance_id] = 0
+                logger.debug(f"Reinitialized FaceMesh pool instance {instance_id}")
+                
+        except Empty:
+            # Pool exhausted - create temporary instance
+            logger.warning("FaceMesh pool exhausted, creating temporary instance")
+            face_mesh = _create_face_mesh_instance()
+            temp_instance = True
+        
+        yield face_mesh
+        
+    finally:
+        # Return instance to pool
+        if instance_id is not None and face_mesh is not None and not temp_instance:
+            try:
+                _face_mesh_pool.put((instance_id, face_mesh))
+            except Exception as e:
+                logger.error(f"Failed to return FaceMesh to pool: {e}")
+        elif temp_instance and face_mesh is not None:
+            # Close temporary instance
+            try:
+                face_mesh.close()
+            except Exception:
+                pass
+
+
+def cleanup_face_mesh_pool():
+    """Cleanup all FaceMesh instances in the pool - call on shutdown"""
+    global _pool_initialized
+    
+    if not _pool_initialized:
+        return
+    
+    with _face_mesh_pool_lock:
+        while not _face_mesh_pool.empty():
+            try:
+                instance_id, face_mesh = _face_mesh_pool.get_nowait()
+                face_mesh.close()
+                logger.debug(f"Closed FaceMesh pool instance {instance_id}")
+            except Exception as e:
+                logger.error(f"Error closing FaceMesh instance: {e}")
+        
+        _pool_initialized = False
+        _face_mesh_usage_counts.clear()
+        logger.info("FaceMesh pool cleaned up")
 
 
 def json_serializable(obj):
@@ -115,12 +224,11 @@ def json_serializable(obj):
 class LivenessDetector:
     """Enhanced liveness detection for spoofing prevention
     
-    Uses THREAD-LOCAL shared FaceMesh to prevent creating new EGL threads
-    for every session. Each thread gets one FaceMesh instance that is reused
-    across all sessions on that thread.
+    Uses BOUNDED FaceMesh pool to prevent creating new EGL threads
+    for every session. Pool has fixed size and instances are reused.
     """
     
-    # Use thread-local shared FaceMesh to prevent thread explosion
+    # Use pool-based shared FaceMesh to prevent thread explosion
     USE_SHARED_FACE_MESH = True
     
     def __init__(self, skip_init=False):
@@ -156,7 +264,7 @@ class LivenessDetector:
     def _initialize_face_mesh(self):
         """Initialize private FaceMesh (only used when USE_SHARED_FACE_MESH=False)"""
         if self._use_shared:
-            return  # No-op when using shared FaceMesh
+            return  # No-op when using pool-based FaceMesh
             
         if self._face_mesh is not None:
             try:
@@ -175,15 +283,14 @@ class LivenessDetector:
     def reinitialize_face_mesh(self):
         """Force reinitialize MediaPipe FaceMesh to recover from errors"""
         if self._use_shared:
-            # For shared mode, reinit is handled by get_shared_face_mesh()
-            # Just clear any cached private instance
+            # For pool mode, reinit is handled by the pool automatically
             return
         self._initialize_face_mesh()
         logger.debug("Reinitialized MediaPipe FaceMesh")
     
     @property
     def face_mesh(self):
-        """Get FaceMesh instance - uses thread-local shared instance"""
+        """Get FaceMesh instance - uses pool-based shared instance"""
         if self._use_shared:
             return get_shared_face_mesh()
         if self._face_mesh is None:
@@ -191,23 +298,24 @@ class LivenessDetector:
         return self._face_mesh
     
     def safe_process(self, rgb_frame):
-        """Process frame with auto-recovery on timestamp errors"""
+        """Process frame with auto-recovery on timestamp errors
+        
+        Uses the FaceMesh pool for bounded resource usage.
+        """
         try:
-            return self.face_mesh.process(rgb_frame)
+            # Use context manager for proper pool management
+            if self._use_shared:
+                with acquire_face_mesh() as fm:
+                    return fm.process(rgb_frame)
+            else:
+                return self.face_mesh.process(rgb_frame)
         except ValueError as e:
             if "timestamp" in str(e).lower():
-                logger.warning("Timestamp mismatch detected, getting fresh FaceMesh...")
-                # For shared mode, force thread-local reinit
+                logger.warning("Timestamp mismatch detected, retrying with fresh instance...")
+                # Pool will provide a fresh or different instance on retry
                 if self._use_shared:
-                    global _thread_local_face_mesh
-                    old_mesh = getattr(_thread_local_face_mesh, 'instance', None)
-                    if old_mesh:
-                        try:
-                            old_mesh.close()
-                        except Exception:
-                            pass
-                    _thread_local_face_mesh.instance = None
-                    return get_shared_face_mesh().process(rgb_frame)
+                    with acquire_face_mesh() as fm:
+                        return fm.process(rgb_frame)
                 else:
                     self.reinitialize_face_mesh()
                     return self.face_mesh.process(rgb_frame)
@@ -565,7 +673,10 @@ class LivenessDetector:
 
 
 class ObstacleDetector:
-    """Enhanced obstacle detection system"""
+    """Enhanced obstacle detection system
+    
+    Uses bounded FaceMesh pool for efficient resource usage.
+    """
     
     def __init__(self):
         self.mp_face_detection = mp.solutions.face_detection
@@ -574,15 +685,8 @@ class ObstacleDetector:
         )
         
         self.mp_face_mesh = mp.solutions.face_mesh
-        # Use static_image_mode=True to avoid timestamp tracking issues
-        # Each frame is processed independently without internal state
-        self.face_mesh = self.mp_face_mesh.FaceMesh(
-            static_image_mode=True,  # IMPORTANT: Prevents timestamp mismatch errors
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
-        )
+        # Use pool-based FaceMesh instead of creating our own
+        self._use_pool = True  # Use shared pool
         
         # Initialize MediaPipe Hands for better hand detection
         self.mp_hands = mp.solutions.hands
@@ -624,9 +728,12 @@ class ObstacleDetector:
                 logger.warning("Empty face ROI for obstacle detection")
                 return obstacles, confidence_scores
                 
-            # Detect using face mesh landmarks
+            # Detect using face mesh landmarks from pool
             rgb_roi = cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB)
-            results = self.face_mesh.process(rgb_roi)
+            
+            # Use pool-based FaceMesh
+            with acquire_face_mesh() as face_mesh:
+                results = face_mesh.process(rgb_roi)
             
             if results.multi_face_landmarks:
                 for face_landmarks in results.multi_face_landmarks:

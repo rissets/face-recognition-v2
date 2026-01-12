@@ -13,6 +13,7 @@ KEY IMPROVEMENTS v2.2:
 7. Illumination analysis: FIXED - gradient + variance + color
 8. Reflection detection: FIXED - high reflection = SPOOF
 9. Debug mode untuk monitoring real-time
+10. Pool-based FaceMesh to prevent thread explosion
 """
 
 import cv2
@@ -21,6 +22,9 @@ import mediapipe as mp
 from collections import deque
 from scipy.spatial import distance as dist
 import time
+
+# Import pool-based FaceMesh
+from core.face_recognition_engine import acquire_face_mesh
 
 try:
     from ultralytics import YOLO
@@ -875,16 +879,10 @@ class OptimizedPassiveLivenessDetector:
         self.debug = debug
         self.max_duration = max_duration
         
-        # MediaPipe - use static_image_mode=True to avoid timestamp conflicts
-        # when multiple sessions are active simultaneously
+        # MediaPipe - use pool-based FaceMesh to prevent thread explosion
         self.mp_face_mesh = mp.solutions.face_mesh
-        self.face_mesh = self.mp_face_mesh.FaceMesh(
-            static_image_mode=True,  # IMPORTANT: Prevents timestamp mismatch errors
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
-        )
+        self._use_pool = True  # Flag to use pool-based FaceMesh
+        self._face_mesh = None  # Only used if pool not available
         
         # Components with configurable timeout
         self.blink_detector = ImprovedBlinkDetector(max_duration=max_duration)
@@ -1040,9 +1038,12 @@ class OptimizedPassiveLivenessDetector:
                 'device_detected': device_name
             }
         
-        # Stage 2: Face detection
+        # Stage 2: Face detection using pool-based FaceMesh
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.face_mesh.process(rgb_frame)
+        
+        # Use pool-based FaceMesh for bounded resource usage
+        with acquire_face_mesh() as face_mesh:
+            results = face_mesh.process(rgb_frame)
         
         if not results.multi_face_landmarks:
             return False, 0.0, {"error": "No face detected"}
@@ -1185,8 +1186,9 @@ class OptimizedPassiveLivenessDetector:
         return frame
     
     def __del__(self):
-        if hasattr(self, 'face_mesh'):
-            self.face_mesh.close()
+        # No cleanup needed - we use pool-based FaceMesh
+        # Pool handles cleanup automatically
+        pass
 
 
 def main():

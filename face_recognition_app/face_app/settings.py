@@ -500,6 +500,10 @@ FACE_RECOGNITION_CONFIG = {
     "SKIP_MEDIAPIPE_REINIT": MEDIAPIPE_SKIP_REINIT,  # Uses env var, default True
 }
 
+# FaceMesh Pool Settings (per worker process)
+# Total FaceMesh instances = FACE_MESH_POOL_SIZE * number_of_workers
+FACE_MESH_POOL_SIZE = int(os.environ.get('FACE_MESH_POOL_SIZE', 8))
+
 # Third-Party Service Configuration
 THIRD_PARTY_SERVICE_CONFIG = {
     "DEFAULT_SESSION_TIMEOUT": 600,  # 10 minutes

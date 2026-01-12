@@ -237,8 +237,30 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         logger.info(f"WebSocket connected for {self.session.session_type} session {self.session_token}")
 
     async def disconnect(self, close_code):
-        """Handle WebSocket disconnect"""
+        """Handle WebSocket disconnect - cleanup resources"""
         self._is_connected = False  # Mark as disconnected
+        
+        # Cleanup session resources
+        try:
+            # Clear cached embeddings and scores
+            self._similarity_scores.clear() if self._similarity_scores else None
+            self._embeddings_collected.clear() if self._embeddings_collected else None
+            self._old_photo_embedding = None
+            
+            # Clear liveness detector reference (pool handles FaceMesh cleanup)
+            self._auth_liveness_detector = None
+            
+            # Clear async processor
+            if self._async_processor is not None:
+                self._async_processor = None
+            
+            # Note: face_engine is a singleton, don't destroy it
+            # Just clear our reference
+            self._face_engine = None
+            
+        except Exception as e:
+            logger.warning(f"Error during disconnect cleanup: {e}")
+        
         if self.session and self.session.status == "active":
             await self.update_session_status("disconnected")
         

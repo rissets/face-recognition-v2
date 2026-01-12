@@ -1,0 +1,47 @@
+[Unit]
+Description=Face Recognition Service (Gunicorn + Uvicorn)
+After=network.target postgresql.service redis.service
+Requires=redis.service
+
+[Service]
+Type=notify
+User=aitstack
+Group=aitstack
+RuntimeDirectory=face-recognition
+WorkingDirectory=/home/aistack/face-recognition-v2/face_recognition_app
+
+# Environment
+Environment="PATH=/home/aistack/face-recognition-v2/env/bin:/usr/local/bin:/usr/bin"
+Environment="PYTHONPATH=/home/aistack/face-recognition-v2/face_recognition_app"
+Environment="DJANGO_SETTINGS_MODULE=face_app.settings"
+Environment="ENVIRONMENT=production"
+
+# Performance tuning
+Environment="GUNICORN_WORKERS=4"
+Environment="FACE_MESH_POOL_SIZE=8"
+Environment="GUNICORN_TIMEOUT=120"
+Environment="GUNICORN_LOG_LEVEL=info"
+
+# Start command with Gunicorn
+ExecStart=/home/aistack/face-recognition-v2/env/bin/gunicorn \
+    --config /home/aistack/face-recognition-v2/face_recognition_app/gunicorn_config.py \
+    --bind 0.0.0.0:8003 \
+    --workers 4 \
+    face_app.asgi:application
+
+# Graceful restart
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+
+# Resource limits - prevent runaway memory/threads
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target
