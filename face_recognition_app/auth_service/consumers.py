@@ -1279,6 +1279,9 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 logger.error(f"Failed to save embedding for user {engine_user_id}")
                 return False, None
             
+            # Get client_user reference for caching and profile image
+            client_user = self.session.client_user
+            
             # OPTIMIZATION: Cache embedding in database for fast verification later
             try:
                 client_user.cache_embedding(embedding)
@@ -1288,7 +1291,6 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             
             # Calculate similarity with old_profile_photo and save profile_image
             similarity_score = None
-            client_user = self.session.client_user
             
             logger.info(f"🔍 Checking for old_profile_photo - exists: {bool(client_user.old_profile_photo)}")
             

@@ -393,8 +393,8 @@ CACHE_TTL = 60 * 30  # 30 minutes default cache timeout
 # Face Recognition Performance Settings
 FACE_EMBEDDING_CACHE_TTL = config("FACE_EMBEDDING_CACHE_TTL", default=3600, cast=int)  # 1 hour
 FACE_SEARCH_CACHE_TTL = config("FACE_SEARCH_CACHE_TTL", default=300, cast=int)  # 5 minutes
-FACE_MAX_FRAMES_PER_SESSION = config("FACE_MAX_FRAMES_PER_SESSION", default=120, cast=int)
-FACE_ENGINE_WORKER_THREADS = config("FACE_ENGINE_WORKER_THREADS", default=4, cast=int)
+FACE_MAX_FRAMES_PER_SESSION = config("FACE_MAX_FRAMES_PER_SESSION", default=20, cast=int)
+FACE_ENGINE_WORKER_THREADS = config("FACE_ENGINE_WORKER_THREADS", default=5, cast=int)
 
 # Celery Configuration
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=f"{REDIS_BASE_URL}/0")
@@ -477,7 +477,7 @@ FACE_RECOGNITION_CONFIG = {
     "LIVENESS_METHODS": ["blink_detection", "motion_detection", "head_pose_validation"],
     "OBSTACLE_DETECTION_ENABLED": True,
     "USE_EMBEDDING_AVERAGING": True,  # Use embedding averaging for enrollment
-    "SESSION_TIMEOUT_MINUTES": 10,  # Session timeout in minutes
+    "SESSION_TIMEOUT_MINUTES": 1,  # Session timeout in minutes
 }
 
 # Third-Party Service Configuration
