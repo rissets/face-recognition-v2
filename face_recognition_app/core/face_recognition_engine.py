@@ -115,12 +115,13 @@ def json_serializable(obj):
 class LivenessDetector:
     """Enhanced liveness detection for spoofing prevention
     
-    Each LivenessDetector has its own FaceMesh instance with static_image_mode=True
-    to prevent timestamp conflicts. Instance is cached per-session for performance.
+    Uses THREAD-LOCAL shared FaceMesh to prevent creating new EGL threads
+    for every session. Each thread gets one FaceMesh instance that is reused
+    across all sessions on that thread.
     """
     
-    # DISABLED shared FaceMesh - causes timestamp conflicts in concurrent sessions
-    USE_SHARED_FACE_MESH = False
+    # Use thread-local shared FaceMesh to prevent thread explosion
+    USE_SHARED_FACE_MESH = True
     
     def __init__(self, skip_init=False):
         """
@@ -129,12 +130,8 @@ class LivenessDetector:
             skip_init: If True, skip MediaPipe initialization (for restoring from cache)
         """
         self.mp_face_mesh = mp.solutions.face_mesh
-        self._face_mesh = None  # Each detector has its own FaceMesh
-        self._use_shared = False  # Always use own instance
-        
-        # Initialize FaceMesh immediately unless skipping
-        if not skip_init:
-            self._initialize_face_mesh()
+        self._face_mesh = None  # Not used when USE_SHARED_FACE_MESH=True
+        self._use_shared = self.USE_SHARED_FACE_MESH
         
         # Eye landmarks for blink detection
         self.LEFT_EYE_LANDMARKS = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
@@ -157,7 +154,10 @@ class LivenessDetector:
         self.reset()
     
     def _initialize_face_mesh(self):
-        """Initialize MediaPipe FaceMesh with static_image_mode=True"""
+        """Initialize private FaceMesh (only used when USE_SHARED_FACE_MESH=False)"""
+        if self._use_shared:
+            return  # No-op when using shared FaceMesh
+            
         if self._face_mesh is not None:
             try:
                 self._face_mesh.close()
@@ -174,12 +174,18 @@ class LivenessDetector:
     
     def reinitialize_face_mesh(self):
         """Force reinitialize MediaPipe FaceMesh to recover from errors"""
+        if self._use_shared:
+            # For shared mode, reinit is handled by get_shared_face_mesh()
+            # Just clear any cached private instance
+            return
         self._initialize_face_mesh()
         logger.debug("Reinitialized MediaPipe FaceMesh")
     
     @property
     def face_mesh(self):
-        """Lazy property for face_mesh"""
+        """Get FaceMesh instance - uses thread-local shared instance"""
+        if self._use_shared:
+            return get_shared_face_mesh()
         if self._face_mesh is None:
             self._initialize_face_mesh()
         return self._face_mesh
@@ -190,9 +196,21 @@ class LivenessDetector:
             return self.face_mesh.process(rgb_frame)
         except ValueError as e:
             if "timestamp" in str(e).lower():
-                logger.warning("Timestamp mismatch detected, reinitializing FaceMesh...")
-                self.reinitialize_face_mesh()
-                return self.face_mesh.process(rgb_frame)
+                logger.warning("Timestamp mismatch detected, getting fresh FaceMesh...")
+                # For shared mode, force thread-local reinit
+                if self._use_shared:
+                    global _thread_local_face_mesh
+                    old_mesh = getattr(_thread_local_face_mesh, 'instance', None)
+                    if old_mesh:
+                        try:
+                            old_mesh.close()
+                        except Exception:
+                            pass
+                    _thread_local_face_mesh.instance = None
+                    return get_shared_face_mesh().process(rgb_frame)
+                else:
+                    self.reinitialize_face_mesh()
+                    return self.face_mesh.process(rgb_frame)
             raise
         
     def reset(self):
@@ -1108,6 +1126,31 @@ def get_shared_face_analysis():
                 _shared_face_analysis.prepare(ctx_id=0, det_size=config['DET_SIZE'])
                 logger.info("✅ Shared FaceAnalysis loaded successfully!")
     return _shared_face_analysis
+
+
+# =============================================================================
+# SINGLETON: FaceRecognitionEngine per client_id
+# This avoids creating new engine instances for every WebSocket session
+# =============================================================================
+_face_recognition_engines: Dict[str, 'FaceRecognitionEngine'] = {}
+_face_recognition_engines_lock = threading.Lock()
+
+
+def get_face_recognition_engine(client_id: str = None) -> 'FaceRecognitionEngine':
+    """
+    Get or create shared FaceRecognitionEngine instance per client_id.
+    This avoids creating new engine instances for every WebSocket session,
+    which significantly reduces CPU/memory usage.
+    """
+    cache_key = client_id or '__default__'
+    
+    if cache_key not in _face_recognition_engines:
+        with _face_recognition_engines_lock:
+            if cache_key not in _face_recognition_engines:
+                logger.debug(f"Creating shared FaceRecognitionEngine for client: {client_id}")
+                _face_recognition_engines[cache_key] = FaceRecognitionEngine(client_id=client_id)
+    
+    return _face_recognition_engines[cache_key]
 
 
 class FaceRecognitionEngine:

@@ -24,7 +24,7 @@ import hashlib
 
 from .models import AuthenticationSession, FaceEnrollment
 from clients.models import Client, ClientUser
-from core.face_recognition_engine import FaceRecognitionEngine
+from core.face_recognition_engine import FaceRecognitionEngine, get_face_recognition_engine
 from core.passive_liveness_optimal import OptimizedPassiveLivenessDetector
 
 logger = logging.getLogger("auth_service")
@@ -103,10 +103,11 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
     
     @property
     def face_engine(self):
-        """Lazy initialize face engine with client_id for per-client collection isolation"""
+        """Get shared face engine singleton per client_id for memory efficiency"""
         if self._face_engine is None:
             client_id = self.client.client_id if self.client else None
-            self._face_engine = FaceRecognitionEngine(client_id=client_id)
+            # Use singleton pattern - avoids creating new engine per session
+            self._face_engine = get_face_recognition_engine(client_id=client_id)
         return self._face_engine
     
     @property
