@@ -1424,13 +1424,13 @@ class FaceRecognitionEngine:
             return self.embedding_cache.get_cached_embedding(client_id, user_id)
         return None
     
-    def check_face_duplicate(self, embedding: np.ndarray, current_user_id: str, similarity_threshold: float = 0.6) -> Dict[str, Any]:
+    def check_face_duplicate(self, embedding: np.ndarray, current_user_id: str, similarity_threshold: float = 0.80) -> Dict[str, Any]:
         """Check if face embedding already exists for a different user
         
         Args:
             embedding: Face embedding to check
             current_user_id: User ID attempting enrollment (format: client_id:external_user_id)
-            similarity_threshold: Minimum similarity to consider as duplicate (default 0.6)
+            similarity_threshold: Minimum similarity to consider as duplicate (default 0.75 = 75%)
             
         Returns:
             Dict with keys:
@@ -1834,10 +1834,12 @@ class FaceRecognitionEngine:
             )
             
             # VALIDASI: Check if face already exists for another user
+            from django.conf import settings as django_settings
+            duplicate_threshold = getattr(django_settings, 'FACE_RECOGNITION_CONFIG', {}).get('DUPLICATE_FACE_THRESHOLD', 0.75)
             duplicate_check = self.check_face_duplicate(
                 embedding=final_embedding,
                 current_user_id=user_id,
-                similarity_threshold=0.6  # 60% similarity threshold
+                similarity_threshold=duplicate_threshold  # From settings.FACE_RECOGNITION_CONFIG
             )
             
             if duplicate_check.get('is_duplicate', False):
