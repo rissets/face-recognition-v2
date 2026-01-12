@@ -62,7 +62,7 @@ easydict==1.13
 factory_boy==3.3.3
 faiss-cpu==1.13.0
 Faker==38.2.0
-filelock==3.20.0
+filelock==3.20.1
 flatbuffers==25.9.23
 fonttools==4.60.1
 fsspec==2025.10.0
