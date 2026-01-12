@@ -169,12 +169,9 @@ class SessionManager:
             detector.eye_visibility_score = state.get('eye_visibility_score', 0.0)
             detector.blink_quality_scores = state.get('blink_quality_scores', [])
             
-            # OPTIMIZATION: Only reinitialize MediaPipe if configured to do so
-            # Skipping this saves significant CPU/GPU resources
-            from django.conf import settings
-            skip_reinit = settings.FACE_RECOGNITION_CONFIG.get('SKIP_MEDIAPIPE_REINIT', False)
-            if not skip_reinit:
-                detector.reinitialize_face_mesh()
+            # ALWAYS reinitialize FaceMesh when restoring from Redis
+            # This prevents timestamp conflicts and ensures clean state
+            detector.reinitialize_face_mesh()
             
             # Store in in-memory cache for fast subsequent access
             with _liveness_detector_cache_lock:

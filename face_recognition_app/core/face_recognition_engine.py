@@ -29,50 +29,60 @@ def debug_log(message: str):
 
 
 # =============================================================================
-# SINGLETON: Shared MediaPipe FaceMesh instance
-# This avoids expensive re-initialization of MediaPipe graph on every frame
+# THREAD-LOCAL: Per-thread MediaPipe FaceMesh instances
+# This avoids timestamp conflicts when multiple threads process frames concurrently
+# Each thread gets its own FaceMesh instance, preventing the "Packet timestamp mismatch" error
 # =============================================================================
-_shared_face_mesh = None
-_shared_face_mesh_lock = threading.Lock()
-_face_mesh_frame_counter = 0
-_FACE_MESH_REINIT_INTERVAL = 1000  # Reinitialize every N frames to prevent memory leaks
+_thread_local_face_mesh = threading.local()
+_face_mesh_usage_count = {}  # Track usage per thread for periodic cleanup
+_face_mesh_usage_lock = threading.Lock()
+_FACE_MESH_REINIT_INTERVAL = 500  # Reinitialize per-thread instance every N frames
 
 
 def get_shared_face_mesh():
-    """Get or create a shared MediaPipe FaceMesh instance (singleton pattern)
+    """Get or create a thread-local MediaPipe FaceMesh instance
     
-    This significantly reduces CPU usage by reusing the same MediaPipe graph
-    across all liveness detection operations instead of creating a new one
-    for each session or frame.
+    Uses thread-local storage to give each thread its own FaceMesh instance.
+    This prevents the "Packet timestamp mismatch" error that occurs when
+    multiple concurrent sessions share the same MediaPipe graph.
+    
+    Still significantly reduces CPU usage compared to creating a new FaceMesh
+    for every frame, since each thread reuses its instance across frames.
     """
-    global _shared_face_mesh, _face_mesh_frame_counter
+    thread_id = threading.get_ident()
     
-    with _shared_face_mesh_lock:
-        _face_mesh_frame_counter += 1
+    # Check if this thread already has a FaceMesh instance
+    face_mesh = getattr(_thread_local_face_mesh, 'instance', None)
+    
+    # Track usage count for periodic reinitialization
+    with _face_mesh_usage_lock:
+        usage_count = _face_mesh_usage_count.get(thread_id, 0) + 1
+        _face_mesh_usage_count[thread_id] = usage_count
+        should_reinit = usage_count >= _FACE_MESH_REINIT_INTERVAL
+        if should_reinit:
+            _face_mesh_usage_count[thread_id] = 0
+    
+    # Create new instance if needed
+    if face_mesh is None or should_reinit:
+        if face_mesh is not None:
+            try:
+                face_mesh.close()
+            except Exception:
+                pass
         
-        # Periodically reinitialize to prevent memory accumulation
-        should_reinit = _face_mesh_frame_counter >= _FACE_MESH_REINIT_INTERVAL
+        face_mesh = mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=True,  # True = no timestamp tracking between frames
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+        _thread_local_face_mesh.instance = face_mesh
         
-        if _shared_face_mesh is None or should_reinit:
-            if _shared_face_mesh is not None:
-                try:
-                    _shared_face_mesh.close()
-                except Exception:
-                    pass
-            
-            _shared_face_mesh = mp.solutions.face_mesh.FaceMesh(
-                static_image_mode=True,  # True = treat each frame independently, no timestamp tracking
-                max_num_faces=1,
-                refine_landmarks=True,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5
-            )
-            
-            if should_reinit:
-                logger.debug("Periodic reinit of shared FaceMesh after 1000 frames")
-                _face_mesh_frame_counter = 0
-        
-        return _shared_face_mesh
+        if should_reinit:
+            logger.debug(f"Periodic reinit of thread-local FaceMesh (thread {thread_id})")
+    
+    return face_mesh
 
 
 def json_serializable(obj):
@@ -105,12 +115,12 @@ def json_serializable(obj):
 class LivenessDetector:
     """Enhanced liveness detection for spoofing prevention
     
-    OPTIMIZATION: Uses shared MediaPipe FaceMesh singleton to avoid expensive
-    re-initialization of MediaPipe graph on every frame/session.
+    Each LivenessDetector has its own FaceMesh instance with static_image_mode=True
+    to prevent timestamp conflicts. Instance is cached per-session for performance.
     """
     
-    # Class-level flag to use shared FaceMesh
-    USE_SHARED_FACE_MESH = True
+    # DISABLED shared FaceMesh - causes timestamp conflicts in concurrent sessions
+    USE_SHARED_FACE_MESH = False
     
     def __init__(self, skip_init=False):
         """
@@ -119,8 +129,12 @@ class LivenessDetector:
             skip_init: If True, skip MediaPipe initialization (for restoring from cache)
         """
         self.mp_face_mesh = mp.solutions.face_mesh
-        self._face_mesh = None  # Only used if USE_SHARED_FACE_MESH is False
-        self._use_shared = self.USE_SHARED_FACE_MESH
+        self._face_mesh = None  # Each detector has its own FaceMesh
+        self._use_shared = False  # Always use own instance
+        
+        # Initialize FaceMesh immediately unless skipping
+        if not skip_init:
+            self._initialize_face_mesh()
         
         # Eye landmarks for blink detection
         self.LEFT_EYE_LANDMARKS = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
@@ -143,44 +157,43 @@ class LivenessDetector:
         self.reset()
     
     def _initialize_face_mesh(self):
-        """Initialize MediaPipe FaceMesh (only for non-shared mode)"""
-        if self._use_shared:
-            return  # No-op when using shared FaceMesh
-        if self._face_mesh is None:
-            self._face_mesh = self.mp_face_mesh.FaceMesh(
-                static_image_mode=True,  # True = no timestamp tracking
-                max_num_faces=1,
-                refine_landmarks=True,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5
-            )
-    
-    def reinitialize_face_mesh(self):
-        """Force reinitialize MediaPipe FaceMesh to clear internal timestamp state.
-        
-        When using shared FaceMesh, this is a no-op since static_image_mode=True
-        eliminates timestamp issues.
-        """
-        if self._use_shared:
-            return  # Shared mode uses static_image_mode, no reinit needed
-        
+        """Initialize MediaPipe FaceMesh with static_image_mode=True"""
         if self._face_mesh is not None:
             try:
                 self._face_mesh.close()
             except Exception:
                 pass
-            self._face_mesh = None
+        
+        self._face_mesh = self.mp_face_mesh.FaceMesh(
+            static_image_mode=True,  # CRITICAL: True = no timestamp tracking
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+    
+    def reinitialize_face_mesh(self):
+        """Force reinitialize MediaPipe FaceMesh to recover from errors"""
         self._initialize_face_mesh()
-        logger.debug("Reinitialized MediaPipe FaceMesh to clear timestamp state")
+        logger.debug("Reinitialized MediaPipe FaceMesh")
     
     @property
     def face_mesh(self):
-        """Lazy property for face_mesh - uses shared singleton if enabled"""
-        if self._use_shared:
-            return get_shared_face_mesh()
+        """Lazy property for face_mesh"""
         if self._face_mesh is None:
             self._initialize_face_mesh()
         return self._face_mesh
+    
+    def safe_process(self, rgb_frame):
+        """Process frame with auto-recovery on timestamp errors"""
+        try:
+            return self.face_mesh.process(rgb_frame)
+        except ValueError as e:
+            if "timestamp" in str(e).lower():
+                logger.warning("Timestamp mismatch detected, reinitializing FaceMesh...")
+                self.reinitialize_face_mesh()
+                return self.face_mesh.process(rgb_frame)
+            raise
         
     def reset(self):
         """Reset detector for new session"""
@@ -388,13 +401,15 @@ class LivenessDetector:
             logger.error(f"Error updating motion data: {exc}", exc_info=True)
         
     def detect_blink(self, frame, bbox=None):
-        """Enhanced blink detection"""
+        """Enhanced blink detection with auto-recovery from timestamp errors"""
         try:
             # Update motion first
             self._update_motion(bbox)
 
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = self.face_mesh.process(rgb_frame)
+            
+            # Use safe_process for auto-recovery from timestamp errors
+            results = self.safe_process(rgb_frame)
             
             self.frame_counter += 1
             current_time = time.time()

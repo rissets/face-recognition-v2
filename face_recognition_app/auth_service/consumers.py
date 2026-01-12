@@ -355,29 +355,34 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             obstacle_data = result.get("obstacle_data", {})
             visual_data = result.get("visual_data", {})
             
-            # STRICT: Reject frame if ANY obstacle is detected (blocking or non-blocking)
+            # Only reject frame if BLOCKING obstacles are detected
+            # Non-blocking obstacles (glasses, hat) are allowed per config
+            from django.conf import settings
+            blocking_obstacles = settings.FACE_RECOGNITION_CONFIG.get('BLOCKING_OBSTACLES', ['mask', 'hand_covering'])
             detected_obstacles = obstacle_data.get("detected", [])
-            if detected_obstacles:
-                obstacle_names = ', '.join(detected_obstacles)
+            blocking_detected = [obs for obs in detected_obstacles if obs in blocking_obstacles]
+            
+            if blocking_detected:
+                obstacle_names = ', '.join(blocking_detected)
                 obstacle_emoji = {
                     'glasses': '🕶️',
                     'mask': '😷',
                     'hat': '🎩',
                     'hand_covering': '✋'
                 }
-                emoji_list = ' '.join([obstacle_emoji.get(obs, '⚠️') for obs in detected_obstacles])
+                emoji_list = ' '.join([obstacle_emoji.get(obs, '⚠️') for obs in blocking_detected])
                 
                 await self.safe_send(text_data=json.dumps({
                     "type": "frame_rejected",
                     "success": False,
-                    "error": f"Obstacles detected: {obstacle_names}",
+                    "error": f"Blocking obstacles detected: {obstacle_names}",
                     "reason": f"{emoji_list} Please remove: {obstacle_names}",
-                    "obstacles": detected_obstacles,
+                    "obstacles": blocking_detected,
                     "obstacle_confidence": obstacle_data.get("confidence", {}),
                     "visual_data": visual_data,
                     "frame_accepted": False
                 }))
-                logger.warning(f"⛔ ENROLLMENT FRAME REJECTED due to obstacles: {detected_obstacles}")
+                logger.warning(f"⛔ ENROLLMENT FRAME REJECTED due to blocking obstacles: {blocking_detected}")
                 return
             
             # Collect embedding and calculate per-frame similarity with old_profile_photo
@@ -1056,7 +1061,9 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 if liveness_detector:
                     # Get eye landmarks for visualization
                     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    results = liveness_detector.face_mesh.process(rgb_frame)
+                    
+                    # Use safe_process for auto-recovery from timestamp errors
+                    results = liveness_detector.safe_process(rgb_frame)
                     
                     if results.multi_face_landmarks:
                         face_landmarks = results.multi_face_landmarks[0]
