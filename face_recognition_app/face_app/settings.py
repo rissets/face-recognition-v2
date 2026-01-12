@@ -16,6 +16,7 @@ PERFORMANCE OPTIMIZATIONS:
 3. Redis Embedding Cache: Caches user embeddings with TTL for fast lookups
 4. Async Face Processing: Thread pool for CPU-intensive operations
 5. Cached Embeddings in PostgreSQL: Binary field for fast verification
+6. Bounded Thread Pool: Prevents "can't start new thread" errors
 
 ENV VARIABLES for tuning:
 - DB_CONN_MAX_AGE: Database connection reuse timeout (default: 600s)
@@ -23,6 +24,8 @@ ENV VARIABLES for tuning:
 - CHROMA_CACHE_TTL: Embedding cache TTL in seconds (default: 3600)
 - FACE_EMBEDDING_CACHE_TTL: Redis embedding cache TTL (default: 3600)
 - FACE_ENGINE_WORKER_THREADS: Thread pool size (default: 4)
+- DJANGO_MAX_THREADS: Max threads for sync_to_async (default: 32)
+- FACE_MESH_POOL_SIZE: FaceMesh instances per worker (default: 8)
 """
 
 import os

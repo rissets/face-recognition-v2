@@ -22,6 +22,39 @@ import os
 import multiprocessing
 
 # =============================================================================
+# CRITICAL: Thread Pool Limits - SET BEFORE ANY LIBRARY IMPORTS
+# Prevents thread explosion from ONNX Runtime, OpenBLAS, MKL, etc.
+# =============================================================================
+
+# ONNX Runtime threads (InsightFace uses this)
+os.environ.setdefault('ORT_NUM_THREADS', '4')
+
+# OpenMP threads
+os.environ.setdefault('OMP_NUM_THREADS', '4')
+
+# OpenBLAS threads (used by numpy/scipy)
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '4')
+
+# Intel MKL threads
+os.environ.setdefault('MKL_NUM_THREADS', '4')
+
+# Apple Accelerate threads
+os.environ.setdefault('VECLIB_MAXIMUM_THREADS', '4')
+
+# NumExpr threads
+os.environ.setdefault('NUMEXPR_NUM_THREADS', '4')
+
+# TensorFlow threads (if used)
+os.environ.setdefault('TF_NUM_INTEROP_THREADS', '4')
+os.environ.setdefault('TF_NUM_INTRAOP_THREADS', '4')
+
+# Django async thread pool limit
+os.environ.setdefault('DJANGO_MAX_THREADS', '16')
+
+# FaceMesh pool size
+os.environ.setdefault('FACE_MESH_POOL_SIZE', '4')
+
+# =============================================================================
 # WORKER CONFIGURATION
 # =============================================================================
 
@@ -75,14 +108,26 @@ graceful_timeout = int(os.environ.get('GUNICORN_GRACEFUL_TIMEOUT', 30))
 # Set to False to ensure each process gets its own FaceAnalysis instance
 preload_app = False
 
-# Max requests per worker before restart (prevents memory leaks)
-max_requests = int(os.environ.get('GUNICORN_MAX_REQUESTS', 10000))
+# Max requests per worker before restart (prevents thread/memory leaks)
+# Lower value = more frequent restarts = better thread cleanup
+max_requests = int(os.environ.get('GUNICORN_MAX_REQUESTS', 2000))
 
 # Random jitter for max_requests to prevent all workers restarting at once
-max_requests_jitter = int(os.environ.get('GUNICORN_MAX_REQUESTS_JITTER', 1000))
+max_requests_jitter = int(os.environ.get('GUNICORN_MAX_REQUESTS_JITTER', 500))
 
 # Daemon mode - run in background (set via command line usually)
 daemon = False
+
+
+# =============================================================================
+# THREAD/RESOURCE LIMITS
+# =============================================================================
+
+# Set thread pool limits via environment before worker starts
+raw_env = [
+    f'DJANGO_MAX_THREADS={os.environ.get("DJANGO_MAX_THREADS", "32")}',
+    f'FACE_MESH_POOL_SIZE={os.environ.get("FACE_MESH_POOL_SIZE", "8")}',
+]
 
 
 # =============================================================================
