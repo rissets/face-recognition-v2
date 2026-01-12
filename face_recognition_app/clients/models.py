@@ -274,6 +274,26 @@ class ClientUser(models.Model):
         help_text="Similarity score between current and old profile photo (0.0 - 1.0)"
     )
     
+    # OPTIMIZATION: Cached embeddings for fast authentication
+    # Store embeddings as binary to avoid ChromaDB query overhead
+    cached_embedding = models.BinaryField(
+        null=True,
+        blank=True,
+        help_text="Cached face embedding (512-dim float32 array as bytes)"
+    )
+    
+    cached_old_photo_embedding = models.BinaryField(
+        null=True,
+        blank=True,
+        help_text="Cached embedding from old profile photo"
+    )
+    
+    embedding_cached_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the embedding was last cached"
+    )
+    
     # Metadata
     metadata = models.JSONField(default=dict)
     
@@ -290,11 +310,68 @@ class ClientUser(models.Model):
             models.Index(fields=['client', 'external_user_id']),
             models.Index(fields=['external_user_uuid']),
             models.Index(fields=['is_enrolled']),
+            models.Index(fields=['embedding_cached_at']),  # Index for cache invalidation queries
         ]
         ordering = ['-created_at']
     
     def __str__(self):
         return f"{self.client.name} - {self.external_user_id}"
+    
+    def cache_embedding(self, embedding):
+        """Cache a face embedding for fast retrieval"""
+        import numpy as np
+        from django.utils import timezone
+        
+        if embedding is None:
+            return
+        
+        if not isinstance(embedding, np.ndarray):
+            embedding = np.array(embedding, dtype=np.float32)
+        else:
+            embedding = embedding.astype(np.float32)
+        
+        self.cached_embedding = embedding.tobytes()
+        self.embedding_cached_at = timezone.now()
+        self.save(update_fields=['cached_embedding', 'embedding_cached_at'])
+    
+    def get_cached_embedding(self):
+        """Get cached embedding as numpy array"""
+        import numpy as np
+        
+        if not self.cached_embedding:
+            return None
+        
+        return np.frombuffer(self.cached_embedding, dtype=np.float32)
+    
+    def cache_old_photo_embedding(self, embedding):
+        """Cache the old profile photo embedding"""
+        import numpy as np
+        
+        if embedding is None:
+            return
+        
+        if not isinstance(embedding, np.ndarray):
+            embedding = np.array(embedding, dtype=np.float32)
+        else:
+            embedding = embedding.astype(np.float32)
+        
+        self.cached_old_photo_embedding = embedding.tobytes()
+        self.save(update_fields=['cached_old_photo_embedding'])
+    
+    def get_cached_old_photo_embedding(self):
+        """Get cached old photo embedding as numpy array"""
+        import numpy as np
+        
+        if not self.cached_old_photo_embedding:
+            return None
+        
+        return np.frombuffer(self.cached_old_photo_embedding, dtype=np.float32)
+    
+    def invalidate_embedding_cache(self):
+        """Invalidate cached embeddings (e.g., after re-enrollment)"""
+        self.cached_embedding = None
+        self.embedding_cached_at = None
+        self.save(update_fields=['cached_embedding', 'embedding_cached_at'])
     
     @property
     def display_name(self):

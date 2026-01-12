@@ -9,6 +9,7 @@ import base64
 import hashlib
 import json
 import sys
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -950,14 +951,90 @@ class FaceAuthWebSocketClient:
             pass
 
 
+def load_config_file():
+    """Load configuration from web_config.json if available"""
+    config_path = Path(__file__).parent / 'web_config.json'
+    if config_path.exists():
+        try:
+            with open(config_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not load config file: {e}")
+    return None
+
+
 async def main():
     """Main function"""
-    if len(sys.argv) < 4:
+    config = load_config_file()
+    
+    # Check if using config file
+    if len(sys.argv) == 1 and config:
+        print("🔧 Using configuration from web_config.json")
+        print("\nAvailable profiles:")
+        for profile_name, profile_data in config.get('profiles', {}).items():
+            print(f"  - {profile_name}: {profile_data.get('name')} ({profile_data.get('base_url')})")
+        
+        print("\n" + "="*70)
+        print("Usage with config file:")
+        print("  python test_websocket_auth.py --profile <profile_name> [enrollment|authentication] [user_id] [old_photo_path]")
+        print("\nOr use direct credentials:")
+        print("  python test_websocket_auth.py <API_KEY> <SECRET_KEY> <BASE_URL> [enrollment|authentication] [user_id] [old_photo_path]")
+        print("="*70)
+        sys.exit(0)
+    
+    # Parse arguments
+    if len(sys.argv) > 1 and sys.argv[1] == '--profile':
+        # Using config profile
+        if len(sys.argv) < 3:
+            print("❌ Error: --profile requires profile name")
+            sys.exit(1)
+        
+        if not config:
+            print("❌ Error: web_config.json not found")
+            sys.exit(1)
+        
+        profile_name = sys.argv[2]
+        profile = config.get('profiles', {}).get(profile_name)
+        
+        if not profile:
+            print(f"❌ Error: Profile '{profile_name}' not found")
+            print("\nAvailable profiles:")
+            for name in config.get('profiles', {}).keys():
+                print(f"  - {name}")
+            sys.exit(1)
+        
+        api_key = profile.get('api_key')
+        secret_key = profile.get('secret_key')
+        base_url = profile.get('base_url')
+        
+        if not api_key or not secret_key:
+            print(f"❌ Error: Profile '{profile_name}' is missing credentials")
+            sys.exit(1)
+        
+        print(f"✅ Using profile: {profile.get('name')}")
+        print(f"   Base URL: {base_url}")
+        
+        mode = sys.argv[3] if len(sys.argv) > 3 else "enrollment"
+        user_id = sys.argv[4] if len(sys.argv) > 4 else None
+        old_photo_path = sys.argv[5] if len(sys.argv) > 5 else None
+        
+    elif len(sys.argv) >= 4:
+        # Using direct credentials
+        api_key = sys.argv[1]
+        secret_key = sys.argv[2]
+        base_url = sys.argv[3]
+        mode = sys.argv[4] if len(sys.argv) > 4 else "enrollment"
+        user_id = sys.argv[5] if len(sys.argv) > 5 else None
+        old_photo_path = sys.argv[6] if len(sys.argv) > 6 else None
+    else:
         print(
             "Usage: python test_websocket_auth.py <API_KEY> <SECRET_KEY> <BASE_URL> [enrollment|authentication] [user_id] [old_photo_path]"
         )
+        print("   Or: python test_websocket_auth.py --profile <profile_name> [enrollment|authentication] [user_id] [old_photo_path]")
         print("\nExamples:")
-        print("  # Enrollment without old photo")
+        print("  # Using config profile")
+        print("  python test_websocket_auth.py --profile production enrollment 653384")
+        print("\n  # Enrollment without old photo")
         print(
             "  python test_websocket_auth.py YOUR_API_KEY YOUR_SECRET_KEY http://localhost:8000 enrollment user123"
         )
@@ -974,13 +1051,6 @@ async def main():
             "  python test_websocket_auth.py YOUR_API_KEY YOUR_SECRET_KEY http://localhost:8000 authentication"
         )
         sys.exit(1)
-
-    api_key = sys.argv[1]
-    secret_key = sys.argv[2]
-    base_url = sys.argv[3]
-    mode = sys.argv[4] if len(sys.argv) > 4 else "enrollment"
-    user_id = sys.argv[5] if len(sys.argv) > 5 else None
-    old_photo_path = sys.argv[6] if len(sys.argv) > 6 else None
 
     # Create client
     client = FaceAuthWebSocketClient(api_key, secret_key, base_url)

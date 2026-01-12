@@ -68,6 +68,12 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
     WebSocket consumer for processing face images during authentication and enrollment.
     Events are created based on session token from create_enrollment_session 
     and create_authentication_session.
+    
+    OPTIMIZATIONS:
+    - Uses async processing with thread pool for CPU-intensive operations
+    - Caches old photo embeddings in database to avoid re-extraction
+    - Uses per-client ChromaDB collections for faster queries
+    - Leverages Redis caching for embedding lookups
     """
 
     def __init__(self, *args, **kwargs):
@@ -75,7 +81,8 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         self.session_token = None
         self.session = None
         self.client = None
-        self.face_engine = FaceRecognitionEngine()
+        self._face_engine = None  # Lazy initialization with client_id
+        self._async_processor = None  # Async face processor
         self._frames_processed = 0
         self._last_frame_ts = 0.0
         self._throttle_interval = 0.1  # 10 fps max
@@ -93,142 +100,51 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         self._old_photo_embedding = None  # Cached embedding from old_profile_photo (extracted once)
         self._old_photo_embedding_extracted = False  # Flag to track if extraction was attempted
         self._enrollment_completing = False  # Flag to prevent multiple enrollment completions
+    
+    @property
+    def face_engine(self):
+        """Lazy initialize face engine with client_id for per-client collection isolation"""
+        if self._face_engine is None:
+            client_id = self.client.client_id if self.client else None
+            self._face_engine = FaceRecognitionEngine(client_id=client_id)
+        return self._face_engine
+    
+    @property
+    def async_processor(self):
+        """Get async face processor for thread pool operations"""
+        if self._async_processor is None:
+            from core.async_processing import AsyncFaceProcessor
+            self._async_processor = AsyncFaceProcessor(self.face_engine)
+        return self._async_processor
 
     def _extract_old_photo_embedding(self, client_user) -> Optional[np.ndarray]:
         """
-        Extract embedding from old_profile_photo. This is called ONCE and cached.
+        Extract embedding from old_profile_photo using the optimized extractor.
+        This is called ONCE and cached in self._old_photo_embedding.
+        
+        Uses the singleton OldPhotoEmbeddingExtractor which:
+        1. Checks database cache first (fastest)
+        2. Checks Redis cache second  
+        3. Uses shared FaceAnalysis instance (avoids recreation overhead)
+        4. Saves to database cache for future use
+        
         Returns the embedding or None if extraction fails.
         """
-        if not client_user.old_profile_photo:
-            logger.info(f"ℹ️ No old_profile_photo found for user {client_user.external_user_id}")
-            return None
-            
         try:
-            import cv2
-            from insightface.app import FaceAnalysis
+            from core.old_photo_extractor import get_old_photo_extractor
             
-            # Read file from storage (works with MinIO and local)
-            old_photo_file = client_user.old_profile_photo.open('rb')
-            old_photo_bytes = old_photo_file.read()
-            old_photo_file.close()
+            extractor = get_old_photo_extractor()
+            embedding = extractor.extract_from_client_user(client_user)
             
-            # Convert bytes to numpy array
-            nparr = np.frombuffer(old_photo_bytes, np.uint8)
-            old_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            
-            if old_image is None:
-                logger.warning(f"Failed to decode old profile photo for user {client_user.external_user_id}")
-                return None
-                
-            logger.info(f"📸 Loaded old profile photo from storage, size: {old_image.shape}")
-            
-            faces = None
-            
-            # Strategy 1: Try with original image using LOWER threshold (0.3)
-            try:
-                lenient_app = FaceAnalysis(allowed_modules=['detection', 'recognition'])
-                lenient_app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.3)
-                
-                faces = lenient_app.get(old_image)
-                if faces:
-                    logger.info(f"✅ Strategy 1 (original, thresh=0.3): Found {len(faces)} face(s)")
-            except Exception as e:
-                logger.warning(f"Strategy 1 failed: {e}")
-            
-            # Strategy 2: CLAHE + Lower threshold
-            if not faces or len(faces) == 0:
-                try:
-                    lab = cv2.cvtColor(old_image, cv2.COLOR_BGR2LAB)
-                    l, a, b = cv2.split(lab)
-                    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-                    l = clahe.apply(l)
-                    enhanced = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
-                    
-                    faces = lenient_app.get(enhanced)
-                    if faces:
-                        logger.info(f"✅ Strategy 2 (CLAHE, thresh=0.3): Found {len(faces)} face(s)")
-                except Exception as e:
-                    logger.warning(f"Strategy 2 failed: {e}")
-            
-            # Strategy 3: Even LOWER threshold (0.2) + CLAHE
-            if not faces or len(faces) == 0:
-                try:
-                    very_lenient_app = FaceAnalysis(allowed_modules=['detection', 'recognition'])
-                    very_lenient_app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=0.2)
-                    
-                    lab = cv2.cvtColor(old_image, cv2.COLOR_BGR2LAB)
-                    l, a, b = cv2.split(lab)
-                    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-                    l = clahe.apply(l)
-                    enhanced = cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
-                    
-                    faces = very_lenient_app.get(enhanced)
-                    if faces:
-                        logger.info(f"✅ Strategy 3 (CLAHE, thresh=0.2): Found {len(faces)} face(s)")
-                except Exception as e:
-                    logger.warning(f"Strategy 3 failed: {e}")
-            
-            # Strategy 4: Gamma correction + Lower threshold
-            if not faces or len(faces) == 0:
-                try:
-                    gamma = 1.5
-                    inv_gamma = 1.0 / gamma
-                    table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
-                    gamma_corrected = cv2.LUT(old_image, table)
-                    
-                    faces = lenient_app.get(gamma_corrected)
-                    if faces:
-                        logger.info(f"✅ Strategy 4 (gamma, thresh=0.3): Found {len(faces)} face(s)")
-                except Exception as e:
-                    logger.warning(f"Strategy 4 failed: {e}")
-            
-            # Strategy 5: Resize to larger det_size + very low threshold
-            if not faces or len(faces) == 0:
-                try:
-                    large_detector = FaceAnalysis(allowed_modules=['detection', 'recognition'])
-                    large_detector.prepare(ctx_id=0, det_size=(1024, 1024), det_thresh=0.2)
-                    
-                    # Upscale image
-                    height, width = old_image.shape[:2]
-                    if max(height, width) < 1024:
-                        scale = 1280.0 / max(height, width)
-                        new_size = (int(width * scale), int(height * scale))
-                        resized = cv2.resize(old_image, new_size, interpolation=cv2.INTER_CUBIC)
-                    else:
-                        resized = old_image
-                    
-                    faces = large_detector.get(resized)
-                    if faces:
-                        logger.info(f"✅ Strategy 5 (upscale+det_size=1024, thresh=0.2): Found {len(faces)} face(s)")
-                except Exception as e:
-                    logger.warning(f"Strategy 5 failed: {e}")
-            
-            if faces and len(faces) > 0:
-                logger.info(f"✅ Successfully detected {len(faces)} face(s) in old profile photo")
-                # Get the largest face (most likely the main subject)
-                largest_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-                old_embedding = largest_face.embedding
-                
-                if old_embedding is not None:
-                    if not isinstance(old_embedding, np.ndarray):
-                        old_embedding = np.array(old_embedding)
-                    # Normalize for cosine similarity
-                    old_embedding_norm = old_embedding / np.linalg.norm(old_embedding)
-                    logger.info(f"✅ Successfully extracted and normalized embedding from old_profile_photo")
-                    return old_embedding_norm
-                else:
-                    logger.warning("No embedding extracted from detected face in old photo")
-                    return None
+            if embedding is not None:
+                logger.info(f"✅ Got old photo embedding for user {client_user.external_user_id}")
             else:
-                logger.warning(f"⚠️ No face detected in old profile photo after trying all strategies")
-                return None
-                    
+                logger.info(f"ℹ️ No old photo embedding for user {client_user.external_user_id}")
+            
+            return embedding
+            
         except Exception as e:
-            logger.error(f"Error extracting old photo embedding: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return None
-
+            logger.error(f"Error in _extract_old_photo_embedding: {e}")
     def _calculate_frame_similarity(self, frame_embedding: np.ndarray) -> Optional[float]:
         """
         Calculate similarity between current frame embedding and cached old_profile_photo embedding.
@@ -1334,21 +1250,41 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             if not isinstance(embedding, np.ndarray):
                 embedding = np.array(embedding)
             
-            # Save embedding with metadata
-            embedding_id = self.face_engine.save_embedding(
-                user_id=engine_user_id,
-                embedding=embedding,
-                metadata={
-                    "enrollment_id": str(enrollment.id),
-                    "client_id": self.client.client_id,
-                    "external_user_id": self.session.client_user.external_user_id,
-                    "created_at": timezone.now().timestamp()
-                }
-            )
+            # Save embedding with metadata (using OPTIMIZED store if available)
+            if self.face_engine._use_optimized_store:
+                embedding_id = self.face_engine.save_embedding_optimized(
+                    user_id=engine_user_id,
+                    embedding=embedding,
+                    metadata={
+                        "enrollment_id": str(enrollment.id),
+                        "client_id": self.client.client_id,
+                        "external_user_id": self.session.client_user.external_user_id,
+                        "created_at": timezone.now().timestamp()
+                    },
+                    client_id=self.client.client_id
+                )
+            else:
+                embedding_id = self.face_engine.save_embedding(
+                    user_id=engine_user_id,
+                    embedding=embedding,
+                    metadata={
+                        "enrollment_id": str(enrollment.id),
+                        "client_id": self.client.client_id,
+                        "external_user_id": self.session.client_user.external_user_id,
+                        "created_at": timezone.now().timestamp()
+                    }
+                )
             
             if not embedding_id:
                 logger.error(f"Failed to save embedding for user {engine_user_id}")
                 return False, None
+            
+            # OPTIMIZATION: Cache embedding in database for fast verification later
+            try:
+                client_user.cache_embedding(embedding)
+                logger.info(f"💾 Cached embedding for user {client_user.external_user_id}")
+            except Exception as cache_error:
+                logger.warning(f"Failed to cache embedding: {cache_error}")
             
             # Calculate similarity with old_profile_photo and save profile_image
             similarity_score = None
@@ -1409,7 +1345,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         face_data: Dict[str, Any],
         liveness_data: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Perform face authentication"""
+        """Perform face authentication using async processing"""
         return await asyncio.get_event_loop().run_in_executor(
             None,
             self._sync_perform_authentication,
@@ -1422,7 +1358,12 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         face_data: Dict[str, Any],
         liveness_data: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Synchronous authentication"""
+        """
+        Synchronous authentication with OPTIMIZATIONS:
+        1. Check cached embedding in Redis first
+        2. Use per-client ChromaDB collection
+        3. Cache successful matches
+        """
         try:
             embedding = face_data.get("embedding")
             if embedding is None:
@@ -1432,17 +1373,36 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             if not isinstance(embedding, np.ndarray):
                 embedding = np.array(embedding)
             
+            # Get client ID for isolation
+            client_id = self.client.client_id if self.client else None
+            
             # Get target user if verification
             target_user_id = None
+            target_external_user_id = None
             if self.session.session_type == "verification" and self.session.client_user:
-                target_user_id = f"{self.client.client_id}:{self.session.client_user.external_user_id}"
+                target_user_id = f"{client_id}:{self.session.client_user.external_user_id}"
+                target_external_user_id = self.session.client_user.external_user_id
+                
+                # OPTIMIZATION: Try cached embedding first for verification
+                cached_result = self._try_cached_verification(embedding, self.session.client_user)
+                if cached_result:
+                    return cached_result
             
-            # Search for similar faces in ChromaDB
-            matches = self.face_engine.embedding_store.search_similar(
-                embedding=embedding,
-                top_k=5,
-                threshold=0.6
-            )
+            # Search for similar faces using OPTIMIZED store with client isolation
+            if self.face_engine._use_optimized_store and self.face_engine.optimized_store:
+                matches = self.face_engine.optimized_store.search_similar_with_legacy_fallback(
+                    embedding=embedding,
+                    top_k=5,
+                    threshold=0.6,
+                    client_id=client_id
+                )
+                logger.debug(f"🔍 Optimized search (client: {client_id}) found {len(matches)} matches")
+            else:
+                matches = self.face_engine.embedding_store.search_similar(
+                    embedding=embedding,
+                    top_k=5,
+                    threshold=0.6
+                )
             
             if not matches:
                 return {
@@ -1482,6 +1442,48 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             logger.error(f"Error performing authentication: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
+    
+    def _try_cached_verification(self, embedding: np.ndarray, client_user) -> Optional[Dict[str, Any]]:
+        """
+        OPTIMIZATION: Try to verify using cached embedding from database
+        This avoids ChromaDB query entirely for verification of known users
+        """
+        try:
+            # Get cached embedding from database
+            cached_embedding = client_user.get_cached_embedding()
+            
+            if cached_embedding is None:
+                return None
+            
+            # Calculate cosine similarity
+            if not isinstance(embedding, np.ndarray):
+                embedding = np.array(embedding, dtype=np.float32)
+            else:
+                embedding = embedding.astype(np.float32)
+            
+            # Normalize embeddings
+            embedding_norm = embedding / np.linalg.norm(embedding)
+            cached_norm = cached_embedding / np.linalg.norm(cached_embedding)
+            
+            # Cosine similarity
+            similarity = float(np.dot(embedding_norm, cached_norm))
+            
+            # Threshold check
+            if similarity >= 0.6:  # Same threshold as ChromaDB search
+                logger.info(f"✅ CACHE HIT: Verified user {client_user.external_user_id} with similarity {similarity:.3f}")
+                return {
+                    "success": True,
+                    "user_id": client_user.external_user_id,
+                    "confidence": similarity,
+                    "source": "cached_embedding"
+                }
+            else:
+                logger.debug(f"❌ Cached verification failed: similarity {similarity:.3f} < 0.6")
+                return None
+                
+        except Exception as e:
+            logger.warning(f"Cached verification failed: {e}")
+            return None
 
     # Database operations
     @database_sync_to_async

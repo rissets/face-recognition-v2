@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Recognition WebSocket Client</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 0.95em;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            padding: 30px;
+        }
+
+        @media (max-width: 968px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Left Panel - Control */
+        .control-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .section h2 {
+            color: #333;
+            font-size: 1.2em;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+            font-size: 0.95em;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="url"],
+        input[type="file"],
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.95em;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus,
+        input[type="url"]:focus,
+        input[type="file"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            grid-column: 1 / -1;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: #e9ecef;
+            color: #333;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #dee2e6;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Right Panel - Video & Status */
+        .media-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .video-container {
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            aspect-ratio: 4 / 3;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .video-placeholder {
+            color: #888;
+            font-size: 1.1em;
+            text-align: center;
+        }
+
+        .status-panel {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .status-panel h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1em;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #ddd;
+            font-size: 0.9em;
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+        }
+
+        .status-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .status-value {
+            color: #333;
+            font-family: 'Courier New', monospace;
+        }
+
+        .indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .indicator.success {
+            background: #28a745;
+        }
+
+        .indicator.warning {
+            background: #ffc107;
+        }
+
+        .indicator.error {
+            background: #dc3545;
+        }
+
+        .indicator.pending {
+            background: #6c757d;
+        }
+
+        .log-area {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            max-height: 200px;
+            overflow-y: auto;
+            line-height: 1.5;
+        }
+
+        .log-entry {
+            margin: 5px 0;
+        }
+
+        .log-entry.info {
+            color: #00ff00;
+        }
+
+        .log-entry.warning {
+            color: #ffff00;
+        }
+
+        .log-entry.error {
+            color: #ff4444;
+        }
+
+        .log-entry.success {
+            color: #44ff44;
+        }
+
+        /* Modal Dialog */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 90%;
+            text-align: center;
+        }
+
+        .modal-icon {
+            font-size: 4em;
+            margin-bottom: 15px;
+        }
+
+        .modal-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .modal-message {
+            color: #666;
+            margin-bottom: 20px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            text-align: left;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+
+        .modal-details {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            text-align: left;
+            font-size: 0.9em;
+        }
+
+        .modal-details p {
+            margin: 5px 0;
+        }
+
+        .modal-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .modal-buttons button {
+            padding: 10px 20px;
+        }
+
+        .btn-ok {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-cancel {
+            background: #e9ecef;
+            color: #333;
+        }
+
+        /* Obstacles Alert */
+        .obstacle-warning {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 10px 0;
+            color: #856404;
+        }
+
+        .obstacle-warning strong {
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        .obstacle-list {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .obstacle-list li {
+            padding: 5px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        .obstacle-list li:before {
+            content: "⚠";
+            position: absolute;
+            left: 0;
+        }
+
+        /* Responsive */
+        @media (max-width: 480px) {
+            .header h1 {
+                font-size: 1.5em;
+            }
+
+            .content {
+                padding: 15px;
+                gap: 15px;
+            }
+
+            .button-group {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 Face Recognition WebSocket Client</h1>
+            <p>Real-time face authentication and enrollment with liveness detection</p>
+            <div id="websocketWarning" style="display: none; background: #fff3cd; color: #856404; padding: 15px; margin-top: 15px; border-radius: 8px; text-align: left;">
+                <strong>⚠️ WebSocket Connection Issue</strong>
+                <p style="margin: 10px 0 0 0; font-size: 0.9em;">
+                    Browser WebSocket connections may be blocked by CORS policy. 
+                    <strong>Recommended: Use Python CLI client instead.</strong>
+                </p>
+                <pre style="background: #000; color: #0f0; padding: 10px; border-radius: 4px; margin-top: 10px; overflow-x: auto; font-size: 0.85em;">python test_websocket_auth.py --profile production enrollment 653384</pre>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- Left Panel: Controls -->
+            <div class="control-panel">
+                <!-- Server Configuration -->
+                <div class="section">
+                    <h2>⚙️ Server Configuration</h2>
+                    <div class="form-group">
+                        <label for="baseUrl">Base URL:</label>
+                        <input type="url" id="baseUrl" placeholder="https://face.ahu.go.id" value="http://localhost:8000">
+                    </div>
+                    <div class="form-group">
+                        <label for="apiKey">API Key:</label>
+                        <input type="text" id="apiKey" placeholder="Your API Key">
+                    </div>
+                    <div class="form-group">
+                        <label for="secretKey">Secret Key:</label>
+                        <input type="password" id="secretKey" placeholder="Your Secret Key">
+                    </div>
+                </div>
+
+                <!-- Operation Mode -->
+                <div class="section">
+                    <h2>🎯 Operation Mode</h2>
+                    <div class="form-group">
+                        <label for="mode">Select Mode:</label>
+                        <select id="mode">
+                            <option value="enrollment">📝 Enrollment</option>
+                            <option value="authentication">✓ Authentication</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="userIdGroup">
+                        <label for="userId">User ID:</label>
+                        <input type="text" id="userId" placeholder="e.g., user123">
+                    </div>
+
+                    <div class="form-group" id="oldPhotoGroup" style="display: none;">
+                        <label for="oldPhoto">Old Profile Photo (optional):</label>
+                        <input type="file" id="oldPhoto" accept="image/*">
+                        <small style="color: #666; margin-top: 5px; display: block;">For similarity comparison during enrollment</small>
+                    </div>
+                </div>
+
+                <!-- Camera Settings -->
+                <div class="section">
+                    <h2>📹 Camera Settings</h2>
+                    <div class="form-group">
+                        <label for="cameraSelect">Camera Device:</label>
+                        <select id="cameraSelect">
+                            <option value="0">Default Camera (0)</option>
+                            <option value="1">Camera 1</option>
+                            <option value="2">Camera 2</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="duration">Duration (seconds):</label>
+                        <input type="text" id="duration" value="30">
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="section">
+                    <h2>🚀 Actions</h2>
+                    <div class="button-group">
+                        <button id="connectBtn" class="btn-primary">🔌 Connect & Start</button>
+                        <button id="stopBtn" class="btn-secondary" disabled>⏹️ Stop</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Video & Status -->
+            <div class="media-panel">
+                <!-- Video Canvas -->
+                <div class="video-container">
+                    <canvas id="canvas"></canvas>
+                    <div class="video-placeholder" id="videoPlaceholder">
+                        Click "Connect & Start" to begin
+                    </div>
+                </div>
+
+                <!-- Status Panel -->
+                <div class="status-panel">
+                    <h3>📊 Session Status</h3>
+                    <div class="status-item">
+                        <span class="status-label">Connection:</span>
+                        <span><span class="indicator pending"></span><span class="status-value" id="connectionStatus">Disconnected</span></span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Session Token:</span>
+                        <span class="status-value" id="sessionToken">-</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Frames Processed:</span>
+                        <span class="status-value" id="framesProcessed">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Liveness Score:</span>
+                        <span class="status-value" id="livenessScore">0.00</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Blinks:</span>
+                        <span class="status-value" id="blinkCount">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Motion:</span>
+                        <span class="status-value" id="motionEvents">0</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Quality Score:</span>
+                        <span class="status-value" id="qualityScore">0.00</span>
+                    </div>
+                </div>
+
+                <!-- Log Area -->
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 10px;">
+                    <h3 style="margin-bottom: 10px; color: #333;">📋 Log Output</h3>
+                    <div class="log-area" id="logArea"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div id="successModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-icon">🎉</div>
+            <div class="modal-title" id="successTitle">Success!</div>
+            <div class="modal-message" id="successMessage"></div>
+            <div class="modal-details" id="successDetails" style="display: none;"></div>
+            <div class="modal-buttons">
+                <button onclick="closeModal('successModal')" class="btn-ok">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Modal -->
+    <div id="errorModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-icon">❌</div>
+            <div class="modal-title" id="errorTitle">Error</div>
+            <div class="modal-message" id="errorMessage"></div>
+            <div class="modal-details" id="errorDetails" style="display: none;"></div>
+            <div class="modal-buttons">
+                <button onclick="closeModal('errorModal')" class="btn-cancel">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global State
+        const state = {
+            ws: null,
+            canvas: null,
+            ctx: null,
+            stream: null,
+            isRunning: false,
+            sessionToken: null,
+            lastVisualData: {},
+            lastResponse: {}
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            state.canvas = document.getElementById('canvas');
+            state.ctx = state.canvas.getContext('2d');
+
+            // Set canvas size
+            state.canvas.width = 640;
+            state.canvas.height = 480;
+
+            // Event listeners
+            document.getElementById('connectBtn').addEventListener('click', handleConnect);
+            document.getElementById('stopBtn').addEventListener('click', handleStop);
+            document.getElementById('mode').addEventListener('change', handleModeChange);
+            
+            // Create profile selector
+            createProfileSelector();
+
+            // Load configuration
+            await loadConfiguration();
+
+            log('✅ Client initialized and ready', 'info');
+        });
+        
+        // Create profile selector
+        function createProfileSelector() {
+            const configSection = document.querySelector('.section');
+            const profileGroup = document.createElement('div');
+            profileGroup.className = 'form-group';
+            profileGroup.innerHTML = `
+                <label for="profileSelect">Configuration Profile:</label>
+                <select id="profileSelect">
+                    <option value="">Manual Configuration</option>
+                </select>
+            `;
+            configSection.insertBefore(profileGroup, configSection.firstChild.nextSibling);
+            
+            document.getElementById('profileSelect').addEventListener('change', handleProfileChange);
+        }
+        
+        // Load configuration from server
+        async function loadConfiguration() {
+            try {
+                const response = await fetch('/api/config');
+                if (!response.ok) {
+                    log('⚠️ Could not load configuration file', 'warning');
+                    return;
+                }
+                
+                const config = await response.json();
+                const profileSelect = document.getElementById('profileSelect');
+                
+                // Populate profile selector
+                Object.keys(config.profiles || {}).forEach(profileName => {
+                    const profile = config.profiles[profileName];
+                    const option = document.createElement('option');
+                    option.value = profileName;
+                    option.textContent = `${profile.name}${profile.has_credentials ? ' ✓' : ''}`;
+                    profileSelect.appendChild(option);
+                });
+                
+                // Load default profile if set
+                const defaultProfile = config.default_profile;
+                if (defaultProfile) {
+                    profileSelect.value = defaultProfile;
+                    await loadProfileCredentials(defaultProfile);
+                    log(`✅ Loaded default profile: ${config.profiles[defaultProfile].name}`, 'success');
+                }
+                
+                // Apply settings
+                if (config.settings) {
+                    if (config.settings.camera) {
+                        document.getElementById('cameraSelect').value = config.settings.camera.default_device || 0;
+                        document.getElementById('duration').value = config.settings.session?.enrollment?.duration || 30;
+                    }
+                }
+                
+            } catch (error) {
+                log(`⚠️ Configuration load error: ${error.message}`, 'warning');
+            }
+        }
+        
+        // Handle profile change
+        async function handleProfileChange() {
+            const profileName = document.getElementById('profileSelect').value;
+            if (!profileName) {
+                // Clear fields for manual configuration
+                document.getElementById('baseUrl').value = '';
+                document.getElementById('apiKey').value = '';
+                document.getElementById('secretKey').value = '';
+                log('📝 Manual configuration mode', 'info');
+                return;
+            }
+            
+            await loadProfileCredentials(profileName);
+        }
+        
+        // Load profile credentials
+        async function loadProfileCredentials(profileName) {
+            try {
+                const response = await fetch(`/api/credentials/${profileName}`);
+                if (!response.ok) {
+                    throw new Error('Failed to load credentials');
+                }
+                
+                const credentials = await response.json();
+                document.getElementById('baseUrl').value = credentials.base_url || '';
+                document.getElementById('apiKey').value = credentials.api_key || '';
+                document.getElementById('secretKey').value = credentials.secret_key || '';
+                
+                log(`✅ Loaded profile: ${profileName}`, 'success');
+            } catch (error) {
+                log(`❌ Failed to load profile: ${error.message}`, 'error');
+            }
+        }
+
+        // Handle mode change
+        function handleModeChange() {
+            const mode = document.getElementById('mode').value;
+            const userIdGroup = document.getElementById('userIdGroup');
+            const oldPhotoGroup = document.getElementById('oldPhotoGroup');
+
+            if (mode === 'enrollment') {
+                userIdGroup.style.display = 'block';
+                oldPhotoGroup.style.display = 'block';
+            } else {
+                oldPhotoGroup.style.display = 'none';
+            }
+        }
+
+        // Logging function
+        function log(message, type = 'info') {
+            const logArea = document.getElementById('logArea');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${timestamp}] ${message}`;
+            logArea.appendChild(entry);
+            logArea.scrollTop = logArea.scrollHeight;
+
+            console.log(`[${type.toUpperCase()}]`, message);
+        }
+
+        // Connect to server and start
+        async function handleConnect() {
+            try {
+                const baseUrl = document.getElementById('baseUrl').value;
+                const apiKey = document.getElementById('apiKey').value;
+                const secretKey = document.getElementById('secretKey').value;
+                const mode = document.getElementById('mode').value;
+                const userId = document.getElementById('userId').value;
+
+                if (!baseUrl || !apiKey || !secretKey) {
+                    showError('Configuration Error', 'Please fill in all required fields');
+                    return;
+                }
+
+                if (mode === 'enrollment' && !userId) {
+                    showError('Configuration Error', 'User ID is required for enrollment');
+                    return;
+                }
+
+                log('🔑 Authenticating client...', 'info');
+                document.getElementById('connectBtn').disabled = true;
+
+                // Authenticate
+                const authResponse = await fetch(`${baseUrl}/api/core/auth/client/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        api_key: apiKey,
+                        api_secret: secretKey
+                    })
+                });
+
+                if (!authResponse.ok) {
+                    throw new Error(`Authentication failed: ${authResponse.statusText}`);
+                }
+
+                const authData = await authResponse.json();
+                const jwtToken = authData.access_token;
+                log('✅ Client authenticated successfully', 'success');
+
+                // Create session
+                let sessionResponse;
+                if (mode === 'enrollment') {
+                    log(`👤 Creating enrollment session for user '${userId}'...`, 'info');
+                    sessionResponse = await fetch(`${baseUrl}/api/auth/enrollment/`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `JWT ${jwtToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            user_id: userId,
+                            session_type: 'webcam',
+                            metadata: {
+                                target_samples: 3,
+                                device_info: { platform: 'web_client' }
+                            }
+                        })
+                    });
+                } else {
+                    log('🔐 Creating authentication session...', 'info');
+                    sessionResponse = await fetch(`${baseUrl}/api/auth/authentication/`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `JWT ${jwtToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            user_id: userId || null,
+                            session_type: 'webcam',
+                            require_liveness: true,
+                            metadata: {
+                                min_frames_required: 10,
+                                required_blinks: 1,
+                                device_info: { platform: 'web_client' }
+                            }
+                        })
+                    });
+                }
+
+                if (!sessionResponse.ok) {
+                    throw new Error(`Session creation failed: ${sessionResponse.statusText}`);
+                }
+
+                const sessionData = await sessionResponse.json();
+                state.sessionToken = sessionData.session_token;
+                updateStatus('sessionToken', state.sessionToken);
+                log(`✅ Session created: ${state.sessionToken}`, 'success');
+
+                // Connect to WebSocket
+                const wsUrl = sessionData.websocket_url.replace('http://', 'ws://').replace('https://', 'wss://');
+                log(`🔌 Connecting to WebSocket: ${wsUrl}`, 'info');
+                
+                // WebSocket connection with detailed error handling
+                state.ws = new WebSocket(wsUrl);
+                
+                // Set connection timeout
+                const connectionTimeout = setTimeout(() => {
+                    if (state.ws.readyState !== WebSocket.OPEN) {
+                        log('⏱️ WebSocket connection timeout', 'error');
+                        state.ws.close();
+                        showError('Connection Timeout', 
+                            'WebSocket connection timed out.\n\n' +
+                            'Possible causes:\n' +
+                            '• Server does not support WebSocket from browser\n' +
+                            '• CORS policy blocking WebSocket\n' +
+                            '• Firewall/proxy blocking WebSocket\n\n' +
+                            'Try using the Python CLI client instead:\n' +
+                            'python test_websocket_auth.py --profile production enrollment 653384'
+                        );
+                        document.getElementById('connectBtn').disabled = false;
+                    }
+                }, 10000); // 10 second timeout
+                
+                state.ws.onopen = () => {
+                    clearTimeout(connectionTimeout);
+                    log('✅ WebSocket connected!', 'success');
+                    updateStatus('connectionStatus', 'Connected');
+                    startCamera();
+                    state.isRunning = true;
+                    document.getElementById('stopBtn').disabled = false;
+                };
+
+                state.ws.onmessage = (event) => handleMessage(JSON.parse(event.data));
+                
+                state.ws.onerror = (error) => {
+                    clearTimeout(connectionTimeout);
+                    console.error('WebSocket Error Details:', error);
+                    log(`❌ WebSocket error - Check console for details`, 'error');
+                    
+                    // Show warning banner
+                    document.getElementById('websocketWarning').style.display = 'block';
+                    
+                    // Show detailed error
+                    showError('WebSocket Connection Failed', 
+                        'Failed to establish WebSocket connection.\n\n' +
+                        'Common issues:\n' +
+                        '• Server may not support WebSocket from browser origin\n' +
+                        '• CORS policy may be blocking the connection\n' +
+                        '• Your network/firewall may be blocking WebSocket\n\n' +
+                        '✅ Solution: Use Python CLI client\n' +
+                        'python test_websocket_auth.py --profile production enrollment 653384\n\n' +
+                        'The CLI client works directly with the server without browser restrictions.'
+                    );
+                };
+
+                state.ws.onclose = (event) => {
+                    clearTimeout(connectionTimeout);
+                    const reason = event.reason || 'Unknown reason';
+                    const code = event.code || 'Unknown code';
+                    
+                    log(`🔌 WebSocket disconnected (Code: ${code}, Reason: ${reason})`, 'warning');
+                    console.log('WebSocket Close Details:', {
+                        code: event.code,
+                        reason: event.reason,
+                        wasClean: event.wasClean
+                    });
+                    
+                    updateStatus('connectionStatus', 'Disconnected');
+                    stopCamera();
+                    state.isRunning = false;
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('stopBtn').disabled = true;
+                    
+                    // Show error if connection was not clean
+                    if (!event.wasClean && event.code !== 1000) {
+                        showError('Connection Closed', 
+                            `WebSocket connection closed unexpectedly.\n\n` +
+                            `Code: ${code}\n` +
+                            `Reason: ${reason}\n\n` +
+                            'This may indicate a server-side issue or network problem.'
+                        );
+                    }
+                };
+
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, 'error');
+                showError('Connection Error', error.message);
+                document.getElementById('connectBtn').disabled = false;
+            }
+        }
+
+        // Start camera
+        async function startCamera() {
+            try {
+                log('📹 Requesting camera access...', 'info');
+                state.stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 480 }
+                });
+
+                const video = document.createElement('video');
+                video.srcObject = state.stream;
+                video.play();
+
+                document.getElementById('videoPlaceholder').style.display = 'none';
+                sendFrames(video);
+            } catch (error) {
+                log(`❌ Camera error: ${error.message}`, 'error');
+                showError('Camera Error', error.message);
+                handleStop();
+            }
+        }
+
+        // Send frames from camera
+        function sendFrames(video) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 640;
+            canvas.height = 480;
+            const ctx = canvas.getContext('2d');
+
+            const interval = setInterval(() => {
+                if (!state.isRunning) {
+                    clearInterval(interval);
+                    return;
+                }
+
+                if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+
+                    state.ws.send(JSON.stringify({
+                        type: 'frame',
+                        image: imageData
+                    }));
+
+                    // Draw on display canvas
+                    state.ctx.drawImage(video, 0, 0, state.canvas.width, state.canvas.height);
+                    drawOverlays();
+                }
+            }, 100); // 10 FPS
+        }
+
+        // Draw overlays on canvas
+        function drawOverlays() {
+            const visualData = state.lastVisualData;
+
+            // Draw face bbox
+            const bbox = visualData.face_bbox;
+            if (bbox) {
+                const [x1, y1, x2, y2] = bbox;
+                state.ctx.strokeStyle = '#00ff00';
+                state.ctx.lineWidth = 2;
+                state.ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            }
+
+            // Draw face mesh landmarks
+            drawFaceMesh(visualData.face_mesh_landmarks);
+
+            // Draw status text
+            drawStatusText();
+        }
+
+        // Draw face mesh
+        function drawFaceMesh(faceMesh) {
+            if (!faceMesh) return;
+
+            // Draw face oval
+            drawLandmarks(faceMesh.face_oval, '#ffff00', false);
+            // Draw eyebrows
+            drawLandmarks(faceMesh.left_eyebrow, '#00ff64', false);
+            drawLandmarks(faceMesh.right_eyebrow, '#00ff64', false);
+            // Draw nose
+            drawLandmarks(faceMesh.nose, '#ffffff', false);
+            // Draw lips
+            drawLandmarks(faceMesh.lips, '#0064ff', true);
+        }
+
+        // Draw landmarks
+        function drawLandmarks(points, color, closed) {
+            if (!points || points.length < 2) return;
+
+            state.ctx.strokeStyle = color;
+            state.ctx.lineWidth = 2;
+            state.ctx.beginPath();
+            state.ctx.moveTo(points[0][0], points[0][1]);
+
+            for (let i = 1; i < points.length; i++) {
+                state.ctx.lineTo(points[i][0], points[i][1]);
+            }
+
+            if (closed) state.ctx.closePath();
+            state.ctx.stroke();
+        }
+
+        // Draw status text
+        function drawStatusText() {
+            const response = state.lastResponse;
+            let y = 30;
+
+            state.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            state.ctx.fillRect(5, 5, 350, 200);
+
+            state.ctx.fillStyle = '#00ff00';
+            state.ctx.font = '14px Arial';
+
+            if (response.frames_processed !== undefined) {
+                state.ctx.fillText(`Frame: ${response.frames_processed}/${response.target_samples || response.min_frames_required || '?'}`, 10, y);
+                y += 25;
+            }
+
+            if (response.liveness_score !== undefined) {
+                state.ctx.fillText(`Liveness: ${response.liveness_score.toFixed(2)}`, 10, y);
+                y += 25;
+            }
+
+            if (response.quality_score !== undefined) {
+                state.ctx.fillText(`Quality: ${response.quality_score.toFixed(2)}`, 10, y);
+                y += 25;
+            }
+
+            if (response.blinks_detected !== undefined) {
+                state.ctx.fillText(`Blinks: ${response.blinks_detected}/${response.blinks_required || 1}`, 10, y);
+                y += 25;
+            }
+
+            if (response.message) {
+                state.ctx.fillText(response.message, 10, y);
+            }
+        }
+
+        // Handle WebSocket messages
+        function handleMessage(data) {
+            const type = data.type;
+
+            if (data.visual_data) {
+                state.lastVisualData = data.visual_data;
+            }
+            state.lastResponse = data;
+
+            switch (type) {
+                case 'connection_established':
+                    log(`✅ Connection established: ${data.session_type}`, 'success');
+                    break;
+
+                case 'frame_processed':
+                    if (data.success) {
+                        updateStatus('framesProcessed', data.frames_processed);
+                        updateStatus('livenessScore', (data.liveness_score || 0).toFixed(2));
+                        updateStatus('qualityScore', (data.quality_score || 0).toFixed(2));
+                        updateStatus('blinkCount', data.blinks_detected || 0);
+                        updateStatus('motionEvents', data.motion_events || 0);
+                        log(`📊 Frame ${data.frames_processed}/${data.target_samples || data.min_frames_required}: ${data.message}`, 'info');
+                    }
+                    break;
+
+                case 'enrollment_complete':
+                    log('🎉 ENROLLMENT COMPLETE!', 'success');
+                    showSuccess('Enrollment Successful', 
+                        `Enrollment ID: ${data.enrollment_id}\nFrames: ${data.frames_processed}\nQuality: ${(data.quality_score || 0).toFixed(2)}`);
+                    handleStop();
+                    break;
+
+                case 'enrollment_failed':
+                    log(`❌ Enrollment failed: ${data.reason}`, 'error');
+                    showError('Enrollment Failed', data.message || data.reason);
+                    handleStop();
+                    break;
+
+                case 'authentication_complete':
+                    if (data.authenticated) {
+                        log(`🎉 AUTHENTICATION SUCCESSFUL! Confidence: ${(data.confidence * 100).toFixed(1)}%`, 'success');
+                        showSuccess('Authentication Successful', 
+                            `User: ${data.user_id}\nConfidence: ${(data.confidence * 100).toFixed(1)}%`);
+                    } else {
+                        log('❌ Authentication failed', 'error');
+                        showError('Authentication Failed', 'Face not recognized');
+                    }
+                    handleStop();
+                    break;
+
+                case 'frame_rejected':
+                    log(`⛔ Frame rejected: ${data.reason}`, 'warning');
+                    break;
+
+                case 'error':
+                    log(`❌ Error: ${data.error}`, 'error');
+                    break;
+            }
+        }
+
+        // Stop handler
+        function handleStop() {
+            state.isRunning = false;
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.close();
+            }
+            stopCamera();
+            document.getElementById('connectBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            log('⏹️ Session stopped', 'warning');
+        }
+
+        // Stop camera
+        function stopCamera() {
+            if (state.stream) {
+                state.stream.getTracks().forEach(track => track.stop());
+                state.stream = null;
+            }
+            document.getElementById('videoPlaceholder').style.display = 'flex';
+        }
+
+        // Update status display
+        function updateStatus(key, value) {
+            const element = document.getElementById(key);
+            if (element) {
+                element.textContent = value;
+            }
+        }
+
+        // Show success modal
+        function showSuccess(title, message) {
+            document.getElementById('successTitle').textContent = title;
+            document.getElementById('successMessage').textContent = message;
+            document.getElementById('successModal').classList.add('show');
+        }
+
+        // Show error modal
+        function showError(title, message) {
+            document.getElementById('errorTitle').textContent = title;
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('errorModal').classList.add('show');
+        }
+
+        // Close modal
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
+        }
+    </script>
+</body>
+</html>

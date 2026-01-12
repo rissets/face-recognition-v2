@@ -424,6 +424,17 @@ def create_enrollment_session(request):
     session.save(update_fields=["metadata"])
 
     face_engine.reset_liveness_detector()
+    
+    # OPTIMIZATION: Trigger background preload of old_profile_photo embedding
+    # This extracts the embedding asynchronously so it's ready when enrollment starts
+    if user.old_profile_photo:
+        try:
+            from core.tasks import preload_enrollment_user
+            preload_enrollment_user.delay(client.client_id, user.external_user_id)
+            logger.debug(f"Triggered preload for user {user.external_user_id}")
+        except Exception as e:
+            # Don't fail enrollment creation if preload fails
+            logger.warning(f"Failed to trigger preload: {e}")
 
     # Generate WebSocket URL - check for proxy headers
     is_secure = request.is_secure() or request.META.get('HTTP_X_FORWARDED_PROTO', '').lower() == 'https'

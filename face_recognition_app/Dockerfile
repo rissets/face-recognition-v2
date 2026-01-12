@@ -47,13 +47,11 @@ RUN adduser --disabled-password --gecos '' appuser && \
 FROM base as development
 USER appuser
 EXPOSE 8000
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+# Use uvicorn for development with ASGI support (WebSocket + HTTP)
+CMD ["uvicorn", "face_app.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
 # Production stage
 FROM base as production
-
-# Install production dependencies
-RUN pip install gunicorn
 
 # Collect static files
 RUN python manage.py collectstatic --noinput || true
@@ -67,5 +65,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/health/ || exit 1
 
-# Production command with Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "120", "face_app.wsgi:application"]
+# Production command with Uvicorn (ASGI) for WebSocket + HTTPS support
+# Using multiple workers with uvloop for better performance
+CMD ["uvicorn", "face_app.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--loop", "uvloop", "--http", "httptools", "--ws", "websockets", "--lifespan", "off"]

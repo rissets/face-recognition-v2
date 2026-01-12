@@ -8,6 +8,21 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
+
+PERFORMANCE OPTIMIZATIONS:
+=========================
+1. Database Connection Pooling: CONN_MAX_AGE=600 for persistent connections
+2. ChromaDB Per-Client Collections: Isolates data per client for faster queries
+3. Redis Embedding Cache: Caches user embeddings with TTL for fast lookups
+4. Async Face Processing: Thread pool for CPU-intensive operations
+5. Cached Embeddings in PostgreSQL: Binary field for fast verification
+
+ENV VARIABLES for tuning:
+- DB_CONN_MAX_AGE: Database connection reuse timeout (default: 600s)
+- CHROMA_CLIENT_COLLECTIONS: Enable per-client collections (default: true)
+- CHROMA_CACHE_TTL: Embedding cache TTL in seconds (default: 3600)
+- FACE_EMBEDDING_CACHE_TTL: Redis embedding cache TTL (default: 3600)
+- FACE_ENGINE_WORKER_THREADS: Thread pool size (default: 4)
 """
 
 import os
@@ -152,6 +167,13 @@ DATABASES = {
         "PASSWORD": config("DB_PASSWORD", default="password_rahasia"),
         "HOST": config("DB_HOST", default="localhost"),
         "PORT": config("DB_PORT", default="5433"),
+        # Connection pooling and performance optimizations
+        "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=600, cast=int),  # Keep connections for 10 minutes
+        "CONN_HEALTH_CHECKS": True,  # Check connection health before use
+        "OPTIONS": {
+            "connect_timeout": 10,
+            "options": "-c statement_timeout=30000",  # 30 second query timeout
+        },
     }
 }
 
@@ -160,6 +182,10 @@ CHROMA_DB_CONFIG = {
     "host": config("CHROMA_HOST", default="localhost"),
     "port": config("CHROMA_PORT", default=8000, cast=int),
     "collection_name": "face_embeddings",
+    # Performance tuning
+    "enable_client_collections": config("CHROMA_CLIENT_COLLECTIONS", default=True, cast=bool),
+    "embedding_cache_ttl": config("CHROMA_CACHE_TTL", default=3600, cast=int),  # 1 hour
+    "search_cache_ttl": config("CHROMA_SEARCH_CACHE_TTL", default=300, cast=int),  # 5 minutes
 }
 
 # Password validation
@@ -341,10 +367,34 @@ CACHES = {
         "TIMEOUT": 1800,  # 30 minutes for face recognition sessions
         "KEY_PREFIX": "face_sessions",
     },
+    # Dedicated cache for face embeddings - high capacity, longer TTL
+    "embeddings": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": config("REDIS_EMBEDDINGS_URL", default=f"{REDIS_BASE_URL}/4"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "IGNORE_EXCEPTIONS": True,
+            "CONNECTION_POOL_KWARGS": {
+                "max_connections": 100,  # Higher capacity for embeddings
+                "retry_on_timeout": True,
+                "socket_connect_timeout": 5,
+                "socket_timeout": 5,
+            },
+            "SERIALIZER": "django_redis.serializers.json.JSONSerializer",  # Better for numpy arrays
+        },
+        "TIMEOUT": 3600,  # 1 hour for embeddings
+        "KEY_PREFIX": "face_emb",
+    },
 }
 
 # Use Redis for session caching
 CACHE_TTL = 60 * 30  # 30 minutes default cache timeout
+
+# Face Recognition Performance Settings
+FACE_EMBEDDING_CACHE_TTL = config("FACE_EMBEDDING_CACHE_TTL", default=3600, cast=int)  # 1 hour
+FACE_SEARCH_CACHE_TTL = config("FACE_SEARCH_CACHE_TTL", default=300, cast=int)  # 5 minutes
+FACE_MAX_FRAMES_PER_SESSION = config("FACE_MAX_FRAMES_PER_SESSION", default=120, cast=int)
+FACE_ENGINE_WORKER_THREADS = config("FACE_ENGINE_WORKER_THREADS", default=4, cast=int)
 
 # Celery Configuration
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=f"{REDIS_BASE_URL}/0")

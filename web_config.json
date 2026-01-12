@@ -1,0 +1,69 @@
+{
+  "default_profile": "production",
+  "profiles": {
+    "production": {
+      "name": "Production Server",
+      "base_url": "https://face.ahu.go.id",
+      "api_key": "frapi_YY7OEJn1FCyDoGiGLwiueTw79hkQWduGNy2L-XbsCB4",
+      "secret_key": "_lwZfcqmdsi5PtRLjmOeTDgTxP5JaRAN3r4i6IpCSOC6ndL536sO9ZuFVjbgLshbmuNKmBButy_wZgdyXEw-DA",
+      "description": "Production Face Recognition API"
+    },
+    "local": {
+      "name": "Local Development",
+      "base_url": "http://localhost:8000",
+      "api_key": "",
+      "secret_key": "",
+      "description": "Local Django development server"
+    },
+    "staging": {
+      "name": "Staging Server",
+      "base_url": "https://staging-face.ahu.go.id",
+      "api_key": "",
+      "secret_key": "",
+      "description": "Staging environment for testing"
+    }
+  },
+  "settings": {
+    "web_server": {
+      "host": "127.0.0.1",
+      "port": 8080,
+      "auto_load_config": true
+    },
+    "camera": {
+      "default_device": 0,
+      "resolution": {
+        "width": 640,
+        "height": 480
+      },
+      "frame_rate": 10,
+      "jpeg_quality": 80
+    },
+    "session": {
+      "enrollment": {
+        "target_samples": 3,
+        "duration": 30,
+        "enable_old_photo_comparison": true
+      },
+      "authentication": {
+        "min_frames_required": 10,
+        "required_blinks": 1,
+        "duration": 30,
+        "require_liveness": true
+      }
+    },
+    "ui": {
+      "auto_connect": false,
+      "show_detailed_logs": true,
+      "display_fps": true,
+      "overlay_landmarks": true
+    }
+  },
+  "test_users": {
+    "user_653384": {
+      "id": "653384",
+      "name": "Test User 653384",
+      "description": "Example user for testing",
+      "old_photo_path": ""
+    }
+  }
+}

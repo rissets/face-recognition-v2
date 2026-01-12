@@ -966,10 +966,17 @@ class ChromaEmbeddingStore:
 
 
 class FaceRecognitionEngine:
-    """Main face recognition engine"""
+    """Main face recognition engine with optimized embedding storage"""
     
-    def __init__(self):
+    def __init__(self, client_id: str = None):
+        """
+        Initialize Face Recognition Engine
+        
+        Args:
+            client_id: Optional client ID for per-client collection isolation
+        """
         self.config = settings.FACE_RECOGNITION_CONFIG
+        self.client_id = client_id
         
         # Initialize InsightFace
         self.app = FaceAnalysis(allowed_modules=['detection', 'recognition'])
@@ -977,7 +984,22 @@ class FaceRecognitionEngine:
         
         # Initialize components
         self.obstacle_detector = ObstacleDetector()
+        
+        # Legacy embedding store (for backward compatibility)
         self.embedding_store = ChromaEmbeddingStore()
+        
+        # NEW: Optimized embedding store with caching and client isolation
+        try:
+            from .optimized_embedding_store import OptimizedChromaEmbeddingStore, EmbeddingCacheManager
+            self.optimized_store = OptimizedChromaEmbeddingStore(client_id=client_id)
+            self.embedding_cache = EmbeddingCacheManager
+            self._use_optimized_store = True
+            logger.info(f"Using optimized embedding store (client_id: {client_id})")
+        except Exception as e:
+            logger.warning(f"Failed to initialize optimized store, using legacy: {e}")
+            self.optimized_store = None
+            self.embedding_cache = None
+            self._use_optimized_store = False
         
         # Remove FAISS - using ChromaDB only
         self.dimension = self.config['EMBEDDING_DIMENSION']
@@ -1002,7 +1024,92 @@ class FaceRecognitionEngine:
         self.embedding_averager = embedding_averager
         self.allowed_obstacles = set(self.config.get('NON_BLOCKING_OBSTACLES', ['glasses', 'hat']))
         
-        logger.info("Face recognition engine initialized")
+        logger.info(f"Face recognition engine initialized (optimized: {self._use_optimized_store})")
+    
+    def set_client_id(self, client_id: str):
+        """Set client ID for per-client isolation (useful for reusing engine instance)"""
+        self.client_id = client_id
+        if self.optimized_store:
+            self.optimized_store.client_id = client_id
+    
+    def search_similar_optimized(
+        self, 
+        embedding: np.ndarray, 
+        top_k: int = 5, 
+        threshold: float = 0.4,
+        client_id: str = None
+    ) -> List[Dict]:
+        """
+        Search for similar embeddings using optimized store with caching
+        
+        Args:
+            embedding: Query embedding
+            top_k: Number of results
+            threshold: Similarity threshold
+            client_id: Optional client ID override
+        
+        Returns:
+            List of matches with similarity scores
+        """
+        cid = client_id or self.client_id
+        
+        if self._use_optimized_store and self.optimized_store:
+            return self.optimized_store.search_similar_with_legacy_fallback(
+                embedding, top_k, threshold, cid
+            )
+        else:
+            return self.embedding_store.search_similar(embedding, top_k, threshold)
+    
+    def save_embedding_optimized(
+        self, 
+        user_id: str, 
+        embedding: np.ndarray, 
+        metadata: dict = None,
+        client_id: str = None
+    ) -> Optional[str]:
+        """
+        Save embedding using optimized store with caching
+        
+        Args:
+            user_id: User identifier
+            embedding: Face embedding
+            metadata: Additional metadata
+            client_id: Optional client ID override
+        
+        Returns:
+            Embedding ID if successful
+        """
+        cid = client_id or self.client_id
+        
+        if self._use_optimized_store and self.optimized_store:
+            embedding_id = self.optimized_store.add_embedding(user_id, embedding, metadata, cid)
+            
+            # Also cache in Redis for fast retrieval
+            if self.embedding_cache and embedding_id:
+                if ':' in user_id:
+                    cli_id, ext_user_id = user_id.split(':', 1)
+                else:
+                    cli_id, ext_user_id = cid or '', user_id
+                self.embedding_cache.cache_user_embedding(cli_id, ext_user_id, embedding, metadata)
+            
+            return embedding_id
+        else:
+            return self.embedding_store.add_embedding(user_id, embedding, metadata)
+    
+    def get_cached_user_embedding(self, client_id: str, user_id: str) -> Optional[tuple]:
+        """
+        Get cached embedding for user (fast Redis lookup)
+        
+        Args:
+            client_id: Client identifier
+            user_id: User identifier
+        
+        Returns:
+            Tuple of (embedding, metadata) or None
+        """
+        if self.embedding_cache:
+            return self.embedding_cache.get_cached_embedding(client_id, user_id)
+        return None
     
     def check_face_duplicate(self, embedding: np.ndarray, current_user_id: str, similarity_threshold: float = 0.6) -> Dict[str, Any]:
         """Check if face embedding already exists for a different user

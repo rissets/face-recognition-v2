@@ -1,6 +1,7 @@
 """
 Client management API views for the third-party face recognition service.
 """
+import logging
 from datetime import timedelta
 
 from django.utils import timezone
@@ -9,7 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 try:
-    from drf_spectacular.utils import extend_schema, extend_schema_view
+    from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
     SPECTACULAR_AVAILABLE = True
 except ImportError:
     def extend_schema(*args, **kwargs):
@@ -22,7 +23,12 @@ except ImportError:
             return cls
         return decorator
     
+    def OpenApiResponse(*args, **kwargs):
+        return None
+    
     SPECTACULAR_AVAILABLE = False
+
+logger = logging.getLogger("clients.views")
 
 from auth_service.authentication import APIKeyAuthentication, JWTClientAuthentication
 from .models import Client, ClientAPIUsage, ClientUser, ClientWebhookLog
@@ -232,7 +238,57 @@ class ClientUserViewSet(viewsets.ModelViewSet):
         return ClientUserSerializer
 
     def perform_create(self, serializer):
+        """
+        Create a new ClientUser.
+        The signal will automatically trigger old_profile_photo embedding extraction.
+        """
         serializer.save(client=self.request.client)
+    
+    def perform_update(self, serializer):
+        """
+        Update a ClientUser.
+        The signal will automatically trigger old_profile_photo embedding extraction if changed.
+        """
+        serializer.save()
+    
+    @extend_schema(
+        tags=["Client Management"],
+        summary="Preload User for Enrollment",
+        description="Pre-extract old_profile_photo embedding in the background. Call this before creating an enrollment session to reduce latency.",
+        responses={
+            200: {"type": "object", "properties": {"message": {"type": "string"}, "preload_started": {"type": "boolean"}}},
+            404: OpenApiResponse(description="User not found"),
+        },
+    )
+    @action(detail=True, methods=["post"])
+    def preload(self, request, external_user_id=None):
+        """
+        Preload user data for enrollment.
+        This triggers background extraction of old_profile_photo embedding.
+        """
+        user = self.get_object()
+        
+        preload_started = False
+        message = "User already preloaded or no old profile photo"
+        
+        if user.old_profile_photo and not user.get_cached_old_photo_embedding():
+            try:
+                from core.tasks import extract_old_photo_embedding_task
+                extract_old_photo_embedding_task.delay(str(user.id))
+                preload_started = True
+                message = "Preload started for old profile photo embedding extraction"
+            except Exception as e:
+                message = f"Failed to start preload: {str(e)}"
+        elif user.get_cached_old_photo_embedding():
+            message = "Old profile photo embedding already cached"
+        else:
+            message = "No old profile photo to preload"
+        
+        return Response({
+            "message": message,
+            "preload_started": preload_started,
+            "user_id": user.external_user_id,
+        })
 
     @extend_schema(
         tags=["Client Management"],
