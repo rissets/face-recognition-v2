@@ -28,6 +28,53 @@ def debug_log(message: str):
         logger.debug(message)
 
 
+# =============================================================================
+# SINGLETON: Shared MediaPipe FaceMesh instance
+# This avoids expensive re-initialization of MediaPipe graph on every frame
+# =============================================================================
+_shared_face_mesh = None
+_shared_face_mesh_lock = threading.Lock()
+_face_mesh_frame_counter = 0
+_FACE_MESH_REINIT_INTERVAL = 1000  # Reinitialize every N frames to prevent memory leaks
+
+
+def get_shared_face_mesh():
+    """Get or create a shared MediaPipe FaceMesh instance (singleton pattern)
+    
+    This significantly reduces CPU usage by reusing the same MediaPipe graph
+    across all liveness detection operations instead of creating a new one
+    for each session or frame.
+    """
+    global _shared_face_mesh, _face_mesh_frame_counter
+    
+    with _shared_face_mesh_lock:
+        _face_mesh_frame_counter += 1
+        
+        # Periodically reinitialize to prevent memory accumulation
+        should_reinit = _face_mesh_frame_counter >= _FACE_MESH_REINIT_INTERVAL
+        
+        if _shared_face_mesh is None or should_reinit:
+            if _shared_face_mesh is not None:
+                try:
+                    _shared_face_mesh.close()
+                except Exception:
+                    pass
+            
+            _shared_face_mesh = mp.solutions.face_mesh.FaceMesh(
+                static_image_mode=True,  # True = treat each frame independently, no timestamp tracking
+                max_num_faces=1,
+                refine_landmarks=True,
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5
+            )
+            
+            if should_reinit:
+                logger.debug("Periodic reinit of shared FaceMesh after 1000 frames")
+                _face_mesh_frame_counter = 0
+        
+        return _shared_face_mesh
+
+
 def json_serializable(obj):
     """Convert numpy types and other non-serializable objects to JSON serializable format"""
     if isinstance(obj, (int, float, str, bool, type(None))):
@@ -56,7 +103,14 @@ def json_serializable(obj):
 
 
 class LivenessDetector:
-    """Enhanced liveness detection for spoofing prevention"""
+    """Enhanced liveness detection for spoofing prevention
+    
+    OPTIMIZATION: Uses shared MediaPipe FaceMesh singleton to avoid expensive
+    re-initialization of MediaPipe graph on every frame/session.
+    """
+    
+    # Class-level flag to use shared FaceMesh
+    USE_SHARED_FACE_MESH = True
     
     def __init__(self, skip_init=False):
         """
@@ -64,15 +118,9 @@ class LivenessDetector:
         Args:
             skip_init: If True, skip MediaPipe initialization (for restoring from cache)
         """
-        if not skip_init:
-            logger.info("Initializing LivenessDetector...")
-        
         self.mp_face_mesh = mp.solutions.face_mesh
-        self._face_mesh = None  # Lazy initialization
-        
-        # Only initialize MediaPipe if not skipping
-        if not skip_init:
-            self._initialize_face_mesh()
+        self._face_mesh = None  # Only used if USE_SHARED_FACE_MESH is False
+        self._use_shared = self.USE_SHARED_FACE_MESH
         
         # Eye landmarks for blink detection
         self.LEFT_EYE_LANDMARKS = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
@@ -95,10 +143,12 @@ class LivenessDetector:
         self.reset()
     
     def _initialize_face_mesh(self):
-        """Initialize MediaPipe FaceMesh (lazy initialization)"""
+        """Initialize MediaPipe FaceMesh (only for non-shared mode)"""
+        if self._use_shared:
+            return  # No-op when using shared FaceMesh
         if self._face_mesh is None:
             self._face_mesh = self.mp_face_mesh.FaceMesh(
-                static_image_mode=False,
+                static_image_mode=True,  # True = no timestamp tracking
                 max_num_faces=1,
                 refine_landmarks=True,
                 min_detection_confidence=0.5,
@@ -108,10 +158,12 @@ class LivenessDetector:
     def reinitialize_face_mesh(self):
         """Force reinitialize MediaPipe FaceMesh to clear internal timestamp state.
         
-        Call this when restoring from cache to avoid timestamp mismatch errors.
-        MediaPipe maintains internal graph state with monotonically increasing timestamps,
-        which can cause conflicts when sessions are restored.
+        When using shared FaceMesh, this is a no-op since static_image_mode=True
+        eliminates timestamp issues.
         """
+        if self._use_shared:
+            return  # Shared mode uses static_image_mode, no reinit needed
+        
         if self._face_mesh is not None:
             try:
                 self._face_mesh.close()
@@ -123,7 +175,9 @@ class LivenessDetector:
     
     @property
     def face_mesh(self):
-        """Lazy property for face_mesh"""
+        """Lazy property for face_mesh - uses shared singleton if enabled"""
+        if self._use_shared:
+            return get_shared_face_mesh()
         if self._face_mesh is None:
             self._initialize_face_mesh()
         return self._face_mesh
@@ -322,11 +376,9 @@ class LivenessDetector:
                 self.motion_events += 1
                 self.motion_score = min(1.0, self.motion_score + normalized_shift)
                 self.last_motion_time = now
-                logger.info(f"✓ MOTION DETECTED! Events: {self.motion_events}, Shift: {normalized_shift:.3f}, Score: {self.motion_score:.3f}")
-
-            # Log every 30 frames for debugging
-            if self.frame_counter % 30 == 0:
-                logger.debug(f"Motion: shift={normalized_shift:.4f}, sensitivity={self.MOTION_SENSITIVITY}, events={self.motion_events}")
+                # Log only first 3 motion events, then every 5th
+                if self.motion_events <= 3 or self.motion_events % 5 == 0:
+                    logger.debug(f"✓ MOTION DETECTED! Events: {self.motion_events}, Shift: {normalized_shift:.3f}, Score: {self.motion_score:.3f}")
 
             # Always keep latest bbox for next frame comparison
             self.last_bbox_center = current_center
@@ -394,7 +446,9 @@ class LivenessDetector:
                                     self.blink_quality_scores.append(avg_quality)
                                     self.last_blink_time = current_time
                                     
-                                    logger.info(f"✓ BLINK DETECTED! Count: {self.blink_count}, Duration: {blink_duration}, EAR: {avg_ear:.3f}")
+                                    # Log only first 3 blinks, then every 5th
+                                    if self.blink_count <= 3 or self.blink_count % 5 == 0:
+                                        logger.debug(f"✓ BLINK DETECTED! Count: {self.blink_count}, Duration: {blink_duration}, EAR: {avg_ear:.3f}")
                                 else:
                                     logger.debug(f"Blink rejected: duration={blink_duration} out of range [{self.MIN_BLINK_DURATION}, {self.MAX_BLINK_DURATION}]")
                             
@@ -549,7 +603,6 @@ class ObstacleDetector:
                     if glasses_conf > 0.65:  # MUCH HIGHER threshold - only detect obvious glasses
                         obstacles.append('glasses')
                         confidence_scores['glasses'] = glasses_conf
-                        logger.info(f"🕶️ GLASSES DETECTED: confidence={glasses_conf:.2f}")
                     
                     # Mask detection - keep at 0.3 (masks are serious)
                     mask_conf = self._detect_mask_advanced(face_roi, face_landmarks)
@@ -557,7 +610,6 @@ class ObstacleDetector:
                     if mask_conf > 0.3:  # Keep sensitive for masks
                         obstacles.append('mask')
                         confidence_scores['mask'] = mask_conf
-                        logger.info(f"😷 MASK DETECTED: confidence={mask_conf:.2f}")
                     
                     # Hat detection - keep at 0.3
                     hat_conf = self._detect_hat_advanced(face_roi, face_landmarks)
@@ -565,7 +617,6 @@ class ObstacleDetector:
                     if hat_conf > 0.3:  # Keep sensitive for hats
                         obstacles.append('hat')
                         confidence_scores['hat'] = hat_conf
-                        logger.info(f"🎩 HAT DETECTED: confidence={hat_conf:.2f}")
                     
                     # Hand covering detection - keep at 0.3 (hands are serious)
                     hand_conf = self._detect_hand_covering(face_roi, face_landmarks)
@@ -573,17 +624,16 @@ class ObstacleDetector:
                     if hand_conf > 0.3:  # Keep sensitive for hands
                         obstacles.append('hand_covering')
                         confidence_scores['hand_covering'] = hand_conf
-                        logger.info(f"✋ HAND COVERING DETECTED: confidence={hand_conf:.2f}")
                 
                 if obstacles:
-                    logger.info(f"Obstacles detected: {obstacles}")
+                    logger.debug(f"Obstacles detected: {obstacles}")
             else:
                 # Fallback to traditional detection
                 logger.debug("No face mesh landmarks, using traditional obstacle detection")
                 traditional_obstacles = self._detect_obstacles_traditional(face_roi)
                 obstacles.extend(traditional_obstacles)
                 if traditional_obstacles:
-                    logger.info(f"Traditional obstacles detected: {traditional_obstacles}")
+                    logger.debug(f"Traditional obstacles detected: {traditional_obstacles}")
             
             return obstacles, confidence_scores
             
@@ -785,7 +835,7 @@ class ObstacleDetector:
             # Return confidence based on overlap ratio
             if max_overlap_ratio > 0.10:  # LOWERED from 0.15 to 0.10 (10% face coverage threshold)
                 confidence = min(1.0, max_overlap_ratio * 6)  # INCREASED multiplier from 4 to 6
-                logger.info(f"✋ Hand overlap detected: {max_overlap_ratio:.3f} ({max_overlap_ratio*100:.1f}% of face), confidence: {confidence:.3f}")
+                logger.debug(f"✋ Hand overlap detected: {max_overlap_ratio:.3f} ({max_overlap_ratio*100:.1f}% of face), confidence: {confidence:.3f}")
                 return confidence
             
             return 0.0
@@ -1006,6 +1056,26 @@ class ChromaEmbeddingStore:
 _shared_face_analysis = None
 _shared_face_analysis_lock = threading.Lock()
 
+# Global singleton for shared ObstacleDetector instance (MediaPipe models - expensive to init)
+_shared_obstacle_detector = None
+_shared_obstacle_detector_lock = threading.Lock()
+
+
+def get_shared_obstacle_detector():
+    """
+    Get or create shared ObstacleDetector instance.
+    MediaPipe FaceMesh and Hands are expensive to initialize.
+    MUST be singleton to avoid excessive GPU/CPU usage.
+    """
+    global _shared_obstacle_detector
+    if _shared_obstacle_detector is None:
+        with _shared_obstacle_detector_lock:
+            if _shared_obstacle_detector is None:
+                logger.debug("Creating shared ObstacleDetector singleton...")
+                _shared_obstacle_detector = ObstacleDetector()
+                logger.debug("Shared ObstacleDetector singleton created")
+    return _shared_obstacle_detector
+
 
 def get_shared_face_analysis():
     """
@@ -1094,10 +1164,11 @@ class FaceRecognitionEngine:
     
     @property
     def obstacle_detector(self):
-        """Lazy-load ObstacleDetector only when needed"""
-        if self._obstacle_detector is None and self._obstacle_detection_enabled:
-            self._obstacle_detector = ObstacleDetector()
-        return self._obstacle_detector
+        """Get shared ObstacleDetector singleton (lazy-loaded only when needed)"""
+        if self._obstacle_detection_enabled:
+            # Use global singleton instead of creating new instance
+            return get_shared_obstacle_detector()
+        return None
     
     def is_obstacle_detection_enabled(self) -> bool:
         """Check if obstacle detection is enabled"""

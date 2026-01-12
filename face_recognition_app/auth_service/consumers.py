@@ -317,10 +317,6 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
     async def process_enrollment_frame(self, frame: np.ndarray, data: Dict[str, Any]):
         """Process enrollment frame"""
         try:
-            # DEBUG: Log enrollment state at start of each frame
-            if self._frames_processed <= 3:
-                logger.info(f"📍 ENROLLMENT FRAME START - Frame {self._frames_processed}, enrollment_completing={self._enrollment_completing}")
-            
             # Get enrollment record
             enrollment = await self.get_enrollment(self.session.id)
             if not enrollment:
@@ -357,13 +353,6 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             face_data = result.get("face_data", {})
             liveness_data = result.get("liveness_data", {})
             obstacle_data = result.get("obstacle_data", {})
-            
-            # DEBUG: Log liveness_data from engine
-            if self._frames_processed <= 10:
-                logger.info(f"🔬 Frame {self._frames_processed} liveness_data from engine: "
-                           f"blinks={liveness_data.get('blinks_detected', 0)}, "
-                           f"motion={liveness_data.get('motion_events', 0)}, "
-                           f"is_live={liveness_data.get('is_live', False)}")
             visual_data = result.get("visual_data", {})
             
             # STRICT: Reject frame if ANY obstacle is detected (blocking or non-blocking)
@@ -404,7 +393,9 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 frame_similarity = self._calculate_frame_similarity(frame_embedding)
                 if frame_similarity is not None:
                     self._similarity_scores.append(frame_similarity)
-                    logger.info(f"📊 Frame {self._frames_processed} similarity: {frame_similarity:.3f} ({frame_similarity*100:.1f}%)")
+                    # Log only every 10 frames to reduce log spam
+                    if self._frames_processed % 10 == 0:
+                        logger.debug(f"📊 Frame {self._frames_processed} similarity: {frame_similarity:.3f} ({frame_similarity*100:.1f}%)")
             
             # Update session metadata
             metadata = self.session.metadata or {}
@@ -434,16 +425,6 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             quality_ok = bool(actual_quality >= quality_threshold)
             liveness_verified = bool(blinks_ok and motion_ok and no_obstacles)
             
-            # DEBUG: Log all condition values for EVERY frame during debugging
-            logger.info(f"🔍 ENROLLMENT CHECK Frame {self._frames_processed}: "
-                       f"frames_ok={frames_ok}({self._frames_processed}/{target_samples}), "
-                       f"blinks_ok={blinks_ok}({actual_blinks}/{required_blinks}), "
-                       f"motion_ok={motion_ok}({actual_motion}/{required_motion}), "
-                       f"no_obstacles={no_obstacles}, "
-                       f"quality_ok={quality_ok}({actual_quality:.2f}/{quality_threshold}), "
-                       f"liveness_verified={liveness_verified}, "
-                       f"not_completing={not self._enrollment_completing}")
-            
             # Check if enrollment is complete (and not already completing)
             is_complete = (
                 not self._enrollment_completing and  # Prevent multiple completions
@@ -452,19 +433,18 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 quality_ok
             )
             
-            # Check if enrollment is complete (and not already completing)
-            is_complete = (
-                not self._enrollment_completing and  # Prevent multiple completions
-                frames_ok and 
-                liveness_verified and
-                quality_ok
-            )
+            # Log only every 5 frames or on completion
+            if self._frames_processed % 5 == 0 or is_complete:
+                logger.debug(f"Enrollment check Frame {self._frames_processed}: "
+                           f"frames={self._frames_processed}/{target_samples}, "
+                           f"blinks={actual_blinks}/{required_blinks}, "
+                           f"motion={actual_motion}/{required_motion}, "
+                           f"is_complete={is_complete}")
 
             if is_complete:
                 logger.info(f"✅ ENROLLMENT COMPLETE - ALL CONDITIONS MET at frame {self._frames_processed}")
                 # Set flag to prevent multiple completions
                 self._enrollment_completing = True
-                logger.info(f"🔒 Enrollment completion started - blocking further completions")
                 
                 try:
                     # Calculate AVERAGE similarity from all collected frames

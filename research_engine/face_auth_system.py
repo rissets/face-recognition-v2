@@ -49,10 +49,10 @@ class LivenessDetector:
     """Deteksi liveness untuk mencegah spoofing dengan foto/gambar"""
     
     def __init__(self):
-        logger.info("Initializing LivenessDetector...")
+        logger.debug("Initializing LivenessDetector...")  # Changed to debug
         self.mp_face_mesh = mp.solutions.face_mesh
         self.face_mesh = self.mp_face_mesh.FaceMesh(
-            static_image_mode=False,
+            static_image_mode=True,  # True = no timestamp tracking, safer for concurrent sessions
             max_num_faces=1,
             refine_landmarks=True,
             min_detection_confidence=0.5,

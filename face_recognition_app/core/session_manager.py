@@ -5,6 +5,7 @@ Handles stateful components like LivenessDetector across HTTP requests
 import json
 import logging
 import uuid
+import threading
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, Type
 
@@ -17,10 +18,21 @@ from core.face_recognition_engine import LivenessDetector, ObstacleDetector
 
 logger = logging.getLogger('face_recognition')
 
+
+# Global in-memory cache for LivenessDetectors (much faster than Redis for same-process access)
+_liveness_detector_cache: Dict[str, LivenessDetector] = {}
+_liveness_detector_cache_lock = threading.Lock()
+_cache_cleanup_counter = 0
+_MAX_CACHED_DETECTORS = 100  # Limit to prevent memory bloat
+
+
 class SessionManager:
     """
     Manages session state for face recognition components across HTTP requests.
     Uses Redis cache to store and retrieve stateful objects like LivenessDetector.
+    
+    OPTIMIZATION: Uses in-memory cache first, falls back to Redis for persistence.
+    This avoids expensive serialization/deserialization on every frame.
     """
     
     def __init__(self, cache_name='sessions'):
@@ -35,10 +47,42 @@ class SessionManager:
         """Generate cache key for session component"""
         return f"face_session:{session_token}:{component}"
     
+    def _cleanup_old_detectors(self):
+        """Cleanup old detectors from in-memory cache if too many"""
+        global _cache_cleanup_counter, _liveness_detector_cache
+        
+        _cache_cleanup_counter += 1
+        
+        # Only cleanup every 50 operations
+        if _cache_cleanup_counter < 50:
+            return
+            
+        _cache_cleanup_counter = 0
+        
+        with _liveness_detector_cache_lock:
+            if len(_liveness_detector_cache) > _MAX_CACHED_DETECTORS:
+                # Remove oldest half of entries
+                keys_to_remove = list(_liveness_detector_cache.keys())[:len(_liveness_detector_cache) // 2]
+                for key in keys_to_remove:
+                    del _liveness_detector_cache[key]
+                logger.debug(f"Cleaned up {len(keys_to_remove)} old liveness detectors from memory cache")
+    
     def store_liveness_detector(self, session_token: str, liveness_detector: LivenessDetector) -> None:
         """Store LivenessDetector state in cache"""
         from .face_recognition_engine import json_serializable
         
+        # OPTIMIZATION: Store in in-memory cache first (fast path)
+        with _liveness_detector_cache_lock:
+            _liveness_detector_cache[session_token] = liveness_detector
+        
+        # Cleanup old detectors periodically
+        self._cleanup_old_detectors()
+        
+        # Also store state in Redis for persistence (but less frequently)
+        # Only update Redis every 5 frames to reduce overhead
+        if liveness_detector.frame_count % 5 != 0:
+            return  # Skip Redis update for most frames
+            
         cache_key = self._get_cache_key(session_token, 'liveness_detector')
         
         # Serialize detector state with proper JSON serialization
@@ -69,18 +113,25 @@ class SessionManager:
         
         serialized_state = json.dumps(json_serializable(state))
         self.cache.set(cache_key, serialized_state, timeout=self.session_timeout)
-        logger.debug(f"Stored liveness detector state for session {session_token} - blinks: {state['total_blinks']}, motion_events: {state['motion_events']}")
     
     def get_liveness_detector(self, session_token: str) -> Optional[LivenessDetector]:
-        """Retrieve LivenessDetector from cache and restore state"""
+        """Retrieve LivenessDetector from cache and restore state
+        
+        OPTIMIZATION: Check in-memory cache first (fast path), then Redis (slow path)
+        """
         from .face_recognition_engine import LivenessDetector
         import numpy as np
         
+        # FAST PATH: Check in-memory cache first
+        with _liveness_detector_cache_lock:
+            if session_token in _liveness_detector_cache:
+                return _liveness_detector_cache[session_token]
+        
+        # SLOW PATH: Check Redis cache
         cache_key = self._get_cache_key(session_token, 'liveness_detector')
         cached_state = self.cache.get(cache_key)
         
         if not cached_state:
-            logger.debug(f"No cached liveness detector found for session {session_token}")
             return None
         
         try:
@@ -124,13 +175,25 @@ class SessionManager:
             skip_reinit = settings.FACE_RECOGNITION_CONFIG.get('SKIP_MEDIAPIPE_REINIT', False)
             if not skip_reinit:
                 detector.reinitialize_face_mesh()
-                logger.debug(f"Restored liveness detector for session {session_token} - total_blinks: {detector.total_blinks}, motion_events: {detector.motion_events}, frame_counter: {detector.frame_counter}")
+            
+            # Store in in-memory cache for fast subsequent access
+            with _liveness_detector_cache_lock:
+                _liveness_detector_cache[session_token] = detector
             
             return detector
             
         except (json.JSONDecodeError, KeyError) as e:
             logger.error(f"Failed to restore liveness detector state: {e}")
             return None
+    
+    def clear_liveness_detector_cache(self, session_token: str) -> None:
+        """Clear liveness detector from both in-memory and Redis cache"""
+        with _liveness_detector_cache_lock:
+            if session_token in _liveness_detector_cache:
+                del _liveness_detector_cache[session_token]
+        
+        cache_key = self._get_cache_key(session_token, 'liveness_detector')
+        self.cache.delete(cache_key)
     
     def store_enrollment_data(self, session_token: str, embeddings: list, metadata: dict) -> None:
         """Store enrollment embeddings temporarily for averaging"""
@@ -174,14 +237,15 @@ class SessionManager:
         return len(embeddings)
     
     def clear_session(self, session_token: str) -> None:
-        """Clear all session data"""
-        components = ['liveness_detector', 'enrollment_embeddings']
+        """Clear all session data including in-memory cache"""
+        # Clear in-memory cache first
+        self.clear_liveness_detector_cache(session_token)
         
+        # Clear Redis cache
+        components = ['liveness_detector', 'enrollment_embeddings']
         for component in components:
             cache_key = self._get_cache_key(session_token, component)
             self.cache.delete(cache_key)
-        
-        logger.debug(f"Cleared session data for {session_token}")
     
     def cleanup_session(self, session_token: str) -> None:
         """Clean up failed session - alias for clear_session"""
