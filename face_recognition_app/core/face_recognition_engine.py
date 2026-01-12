@@ -5,6 +5,7 @@ Refactored for session-based state management and ChromaDB-only storage
 import logging
 import time
 import json
+import threading
 import numpy as np
 import cv2
 import mediapipe as mp
@@ -828,6 +829,35 @@ class ObstacleDetector:
             return []
 
 
+# Global singletons for heavy components
+_shared_obstacle_detector = None
+_shared_obstacle_detector_lock = threading.Lock()
+_shared_chroma_store = None
+_shared_chroma_store_lock = threading.Lock()
+
+
+def get_shared_obstacle_detector():
+    """Get or create shared ObstacleDetector instance"""
+    global _shared_obstacle_detector
+    if _shared_obstacle_detector is None:
+        with _shared_obstacle_detector_lock:
+            if _shared_obstacle_detector is None:
+                logger.info("🔧 Creating shared ObstacleDetector instance...")
+                _shared_obstacle_detector = ObstacleDetector()
+    return _shared_obstacle_detector
+
+
+def get_shared_chroma_store():
+    """Get or create shared ChromaEmbeddingStore instance"""
+    global _shared_chroma_store
+    if _shared_chroma_store is None:
+        with _shared_chroma_store_lock:
+            if _shared_chroma_store is None:
+                logger.info("🔧 Creating shared ChromaEmbeddingStore instance...")
+                _shared_chroma_store = ChromaEmbeddingStore()
+    return _shared_chroma_store
+
+
 class ChromaEmbeddingStore:
     """ChromaDB integration for face embeddings"""
     
@@ -965,8 +995,35 @@ class ChromaEmbeddingStore:
             return False
 
 
+# Global singleton for shared FaceAnalysis instance (HEAVY MODEL - only load once!)
+_shared_face_analysis = None
+_shared_face_analysis_lock = threading.Lock()
+
+
+def get_shared_face_analysis():
+    """
+    Get or create shared FaceAnalysis instance.
+    This is the MOST expensive component - InsightFace models use ~1-2GB memory.
+    MUST be singleton to avoid memory explosion.
+    """
+    global _shared_face_analysis
+    if _shared_face_analysis is None:
+        with _shared_face_analysis_lock:
+            if _shared_face_analysis is None:
+                logger.info("🚀 Loading shared FaceAnalysis instance (this is expensive, only done ONCE)...")
+                config = settings.FACE_RECOGNITION_CONFIG
+                _shared_face_analysis = FaceAnalysis(allowed_modules=['detection', 'recognition'])
+                _shared_face_analysis.prepare(ctx_id=0, det_size=config['DET_SIZE'])
+                logger.info("✅ Shared FaceAnalysis loaded successfully!")
+    return _shared_face_analysis
+
+
 class FaceRecognitionEngine:
-    """Main face recognition engine with optimized embedding storage"""
+    """Main face recognition engine with optimized embedding storage
+    
+    OPTIMIZATION: Uses shared FaceAnalysis singleton to avoid loading
+    InsightFace models multiple times (each instance uses ~1-2GB memory!)
+    """
     
     def __init__(self, client_id: str = None):
         """
@@ -978,15 +1035,13 @@ class FaceRecognitionEngine:
         self.config = settings.FACE_RECOGNITION_CONFIG
         self.client_id = client_id
         
-        # Initialize InsightFace
-        self.app = FaceAnalysis(allowed_modules=['detection', 'recognition'])
-        self.app.prepare(ctx_id=0, det_size=self.config['DET_SIZE'])
+        # CRITICAL: Use SHARED FaceAnalysis instance (singleton pattern)
+        # This avoids loading InsightFace models multiple times!
+        self.app = get_shared_face_analysis()
         
-        # Initialize components
-        self.obstacle_detector = ObstacleDetector()
-        
-        # Legacy embedding store (for backward compatibility)
-        self.embedding_store = ChromaEmbeddingStore()
+        # OPTIMIZATION: Use shared ObstacleDetector and ChromaEmbeddingStore
+        self.obstacle_detector = get_shared_obstacle_detector()
+        self.embedding_store = get_shared_chroma_store()
         
         # NEW: Optimized embedding store with caching and client isolation
         try:

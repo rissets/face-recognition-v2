@@ -219,7 +219,9 @@ services:
       ENVIRONMENT: production
       SECRET_KEY: "django-insecure-production-key-change-in-production"
       
-    command: celery -A face_app worker --loglevel=info --concurrency=4
+    # OPTIMIZATION: Use solo pool to ensure only 1 worker with shared model
+    # This prevents multiple InsightFace model loading (each uses ~1-2GB memory!)
+    command: celery -A face_app worker --pool=solo --loglevel=info
     volumes:
       - django_media:/app/media
       - django_logs:/app/logs
