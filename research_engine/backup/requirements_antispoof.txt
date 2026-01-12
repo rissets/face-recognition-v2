@@ -1,0 +1,16 @@
+# DeepFace Anti-Spoofing Requirements
+opencv-python>=4.5.0
+deepface>=0.0.75
+tensorflow>=2.4.0
+numpy>=1.19.0
+pillow>=8.0.0
+pandas>=1.1.0
+gdown>=3.12.0
+tqdm>=4.60.0
+requests>=2.25.0
+
+# Optional packages for better detection
+mtcnn>=0.1.1
+retina-face>=0.0.12
+mediapipe>=0.8.0
+# dlib>=19.22.0  # Uncomment if needed, but can be hard to install

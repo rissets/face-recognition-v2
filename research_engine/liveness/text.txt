@@ -1,0 +1,21 @@
+Real-time Liveness Detection System
+
+This folder contains a comprehensive real-time liveness detection system for face recognition applications.
+
+Files:
+- realtime_liveness_detector.py: Core liveness detection engine
+- liveness_demo.py: Desktop demo application
+- liveness_web_app.py: Web-based interface
+- test_liveness.py: Comprehensive test suite
+- requirements.txt: Python dependencies
+- README.md: Complete documentation
+
+The system uses advanced anti-spoofing techniques including:
+- Blink detection with adaptive thresholds
+- 3D head movement tracking
+- Texture analysis for printed photos
+- Light reflection analysis
+- Interactive challenge system
+- Multi-modal scoring
+
+See README.md for complete usage instructions.

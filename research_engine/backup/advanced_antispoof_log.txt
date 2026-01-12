@@ -1,0 +1,28 @@
+2025-11-03 14:46:16,908 - INFO - Inisialisasi Advanced Anti-Spoofing Detector...
+2025-11-03 14:46:20,665 - INFO - Memuat InsightFace models...
+2025-11-03 14:46:21,280 - INFO - ✓ InsightFace berhasil dimuat
+2025-11-03 14:46:21,363 - INFO - ✓ New feature scaler created
+2025-11-03 14:46:21,363 - INFO - Detector berhasil diinisialisasi!
+2025-11-03 14:46:21,363 - INFO - Memulai Advanced Anti-Spoofing Detection...
+2025-11-03 14:46:23,540 - INFO - Frame 1: ASLI - Score: 0.648, Texture: 141
+2025-11-03 14:46:26,288 - INFO - Frame 2: ASLI - Score: 0.690, Texture: 190
+2025-11-03 14:46:28,226 - INFO - Frame 3: PALSU - Score: 0.587, Texture: 195
+2025-11-03 14:46:30,132 - INFO - Frame 4: PALSU - Score: 0.586, Texture: 182
+2025-11-03 14:46:32,017 - INFO - Frame 5: PALSU - Score: 0.544, Texture: 147
+2025-11-03 14:46:33,960 - INFO - Frame 6: PALSU - Score: 0.514, Texture: 162
+2025-11-03 14:46:35,639 - INFO - Frame 7: PALSU - Score: 0.586, Texture: 139
+2025-11-03 14:46:37,511 - INFO - Frame 8: PALSU - Score: 0.544, Texture: 149
+2025-11-03 14:46:39,412 - INFO - Frame 9: ASLI - Score: 0.628, Texture: 161
+2025-11-03 14:46:41,420 - INFO - Frame 10: PALSU - Score: 0.586, Texture: 178
+2025-11-03 14:46:43,397 - INFO - Frame 11: PALSU - Score: 0.586, Texture: 151
+2025-11-03 14:46:45,366 - INFO - Frame 12: PALSU - Score: 0.589, Texture: 200
+2025-11-03 14:46:47,319 - INFO - Frame 13: PALSU - Score: 0.549, Texture: 150
+2025-11-03 14:46:49,279 - INFO - Frame 14: PALSU - Score: 0.590, Texture: 165
+2025-11-03 14:46:49,292 - INFO - Aplikasi dihentikan oleh user
+2025-11-03 14:46:49,292 - INFO - === STATISTIK FINAL ===
+2025-11-03 14:46:49,292 - INFO - Total frames: 14
+2025-11-03 14:46:49,292 - INFO - Total deteksi: 14
+2025-11-03 14:46:49,292 - INFO - Wajah asli: 3
+2025-11-03 14:46:49,292 - INFO - Wajah palsu: 11
+2025-11-03 14:46:49,292 - INFO - Persentase asli: 21.4%
+2025-11-03 14:46:49,292 - INFO - Persentase palsu: 78.6%

@@ -2,9 +2,15 @@
 Analytics app serializers with comprehensive Swagger documentation
 """
 from rest_framework import serializers
-from drf_spectacular.utils import extend_schema_field
-from drf_spectacular.types import OpenApiTypes
-from .models import AuthenticationLog, SecurityAlert, SystemMetrics, UserBehaviorAnalytics
+from .models import (
+    AuthenticationLog,
+    SecurityAlert,
+    SystemMetrics,
+    UserBehaviorAnalytics,
+    FaceRecognitionStats,
+    ModelPerformance,
+    DataQualityMetrics,
+)
 
 
 class AuthenticationLogSerializer(serializers.ModelSerializer):
@@ -110,18 +116,118 @@ class SystemMetricsSerializer(serializers.ModelSerializer):
 
 class UserBehaviorAnalyticsSerializer(serializers.ModelSerializer):
     """Serializer for UserBehaviorAnalytics model"""
-    
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+
     class Meta:
         model = UserBehaviorAnalytics
         fields = [
-            'id', 'user', 'session_duration', 'pages_visited',
-            'authentication_method_preference', 'device_preferences',
-            'time_patterns', 'location_patterns', 'success_patterns',
-            'created_at', 'updated_at'
+            'id',
+            'user',
+            'user_email',
+            'avg_login_time',
+            'common_locations',
+            'device_preferences',
+            'auth_success_rate',
+            'avg_similarity_score',
+            'avg_liveness_score',
+            'login_frequency',
+            'peak_activity_hours',
+            'suspicious_activity_count',
+            'last_risk_assessment',
+            'risk_level',
+            'analysis_start',
+            'analysis_end',
+            'created_at',
+            'updated_at',
         ]
-        read_only_fields = [
-            'id', 'user', 'created_at', 'updated_at'
+        read_only_fields = fields
+
+
+class FaceRecognitionStatsSerializer(serializers.ModelSerializer):
+    """Serializer for face recognition statistics"""
+
+    success_rate = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = FaceRecognitionStats
+        fields = [
+            'id',
+            'date',
+            'hour',
+            'total_attempts',
+            'successful_attempts',
+            'failed_attempts',
+            'failed_similarity',
+            'failed_liveness',
+            'failed_quality',
+            'failed_obstacles',
+            'failed_no_face',
+            'failed_multiple_faces',
+            'failed_system_error',
+            'avg_response_time',
+            'avg_similarity_score',
+            'avg_liveness_score',
+            'avg_quality_score',
+            'unique_users',
+            'new_enrollments',
+            'success_rate',
+            'created_at',
         ]
+        read_only_fields = fields
+
+
+class ModelPerformanceSerializer(serializers.ModelSerializer):
+    """Serializer for model performance metrics"""
+
+    model_name = serializers.CharField(source='model.name', read_only=True)
+
+    class Meta:
+        model = ModelPerformance
+        fields = [
+            'id',
+            'model',
+            'model_name',
+            'accuracy',
+            'precision',
+            'recall',
+            'f1_score',
+            'false_acceptance_rate',
+            'false_rejection_rate',
+            'test_set_size',
+            'test_conditions',
+            'environment',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+
+class DataQualityMetricsSerializer(serializers.ModelSerializer):
+    """Serializer for data quality metrics"""
+
+    quality_score = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = DataQualityMetrics
+        fields = [
+            'id',
+            'date',
+            'avg_image_quality',
+            'avg_face_size',
+            'avg_brightness',
+            'avg_contrast',
+            'avg_sharpness',
+            'high_quality_samples',
+            'medium_quality_samples',
+            'low_quality_samples',
+            'blurry_images',
+            'over_exposed',
+            'under_exposed',
+            'obstacles_present',
+            'total_samples',
+            'quality_score',
+            'created_at',
+        ]
+        read_only_fields = fields
 
 
 # Response Serializers for Swagger Documentation

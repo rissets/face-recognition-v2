@@ -1,19 +1,5 @@
 """
-Streaming views for WebRTC and real-@extend_schema(
-    tags=['WebRTC'],
-    summary='WebRTC Signaling',
-    description='Handle WebRTC signaling messages for video streaming',
-    request=WebRTCSignalSerializer,
-    responses={
-        200: OpenApiResponse(description='Signal processed successfully'),
-        400: OpenApiResponse(description='Invalid signal data'),
-        401: OpenApiResponse(description='Authentication required'),
-    }
-)
-class WebRTCSignalingView(APIView):
-    \"\"\"Handle WebRTC signaling messages\"\"\"
-    permission_classes = [IsAuthenticated]
-    serializer_class = WebRTCSignalSerializere communication
+Streaming views for WebRTC and real-time communication
 """
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
@@ -21,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.utils import timezone
+from auth_service.authentication import APIKeyAuthentication, JWTClientAuthentication
 from .models import StreamingSession, WebRTCSignal
 from .serializers import StreamingSessionSerializer, WebRTCSignalSerializer
 
@@ -28,6 +15,7 @@ from .serializers import StreamingSessionSerializer, WebRTCSignalSerializer
 class StreamingSessionListView(generics.ListAPIView):
     """List streaming sessions for the authenticated user"""
     serializer_class = StreamingSessionSerializer
+    authentication_classes = [APIKeyAuthentication, JWTClientAuthentication]
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
@@ -37,6 +25,7 @@ class StreamingSessionListView(generics.ListAPIView):
 class StreamingSessionDetailView(generics.RetrieveAPIView):
     """Get details of a specific streaming session"""
     serializer_class = StreamingSessionSerializer
+    authentication_classes = [APIKeyAuthentication, JWTClientAuthentication]
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
@@ -46,6 +35,7 @@ class StreamingSessionDetailView(generics.RetrieveAPIView):
 class StreamingSessionCreateView(generics.CreateAPIView):
     """Create a new streaming session"""
     serializer_class = StreamingSessionSerializer
+    authentication_classes = [APIKeyAuthentication, JWTClientAuthentication]
     permission_classes = [IsAuthenticated]
     
     def perform_create(self, serializer):
@@ -54,6 +44,7 @@ class StreamingSessionCreateView(generics.CreateAPIView):
 
 class WebRTCSignalingView(APIView):
     """Handle WebRTC signaling messages"""
+    authentication_classes = [APIKeyAuthentication, JWTClientAuthentication]
     permission_classes = [IsAuthenticated]
     
     def post(self, request):

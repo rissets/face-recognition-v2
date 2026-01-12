@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advanced Anti-Spoofing & Deepfake Analysis</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --secondary: #7e22ce;
+  --success: #22c55e;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-400: #9ca3af;
+  --gray-500: #6b7280;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --transition: all 0.3s ease;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+  color: var(--gray-800);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+.app-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+/* Header Styles */
+header {
+  background: linear-gradient(120deg, var(--primary) 0%, var(--secondary) 100%);
+  color: white;
+  border-radius: var(--radius);
+  padding: 1.5rem 2rem;
+  margin-bottom: 2rem;
+  box-shadow: var(--shadow);
+  animation: slideDown 0.5s ease;
+}
+
+.header-content {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.logo-icon {
+  font-size: 2rem;
+}
+
+.logo-text {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+/* Tabs Styles */
+.tabs {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  justify-content: center;
+  animation: fadeIn 0.5s ease;
+}
+
+.tab-btn {
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--gray-200);
+  color: var(--gray-600);
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  border: none;
+  box-shadow: var(--shadow-sm);
+}
+
+.tab-btn:hover {
+  background: var(--gray-300);
+  transform: translateY(-2px);
+}
+
+.tab-btn.active {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
+  transform: translateY(-2px);
+}
+
+.tab-content {
+  display: none;
+  animation: fadeIn 0.5s ease;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+/* Main Content */
+.dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+/* Deepfake Dashboard */
+.dashboard-deep {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.card {
+  background: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: var(--transition);
+  animation: fadeIn 0.5s ease;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-5px);
+}
+
+.card-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--gray-200);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--gray-800);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.card-icon {
+  color: var(--primary);
+  font-size: 1.25rem;
+}
+
+.card-body {
+  padding: 1.5rem;
+}
+
+/* Webcam Styles */
+.webcam-container {
+  position: relative;
+  width: 100%;
+  height: 350px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--gray-100);
+  margin-bottom: 1.5rem;
+}
+
+#videoFeed {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
+.webcam-button-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+/* Upload Styles (Shared) */
+.upload-area {
+  border: 2px dashed var(--gray-300);
+  border-radius: var(--radius-sm);
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: var(--transition);
+  margin-bottom: 1.5rem;
+  position: relative;
+  height: 300px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.upload-area:hover {
+  border-color: var(--primary);
+  background: rgba(37, 99, 235, 0.05);
+}
+
+.upload-icon {
+  font-size: 3rem;
+  color: var(--gray-400);
+  margin-bottom: 1rem;
+  transition: var(--transition);
+}
+
+.upload-area:hover .upload-icon {
+  color: var(--primary);
+}
+
+.upload-text {
+  color: var(--gray-600);
+  margin-bottom: 1rem;
+}
+
+#fileInputAnti, #fileInputDeep {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* Button Styles */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.875rem 1.75rem;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition);
+  border: none;
+  font-size: 1rem;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
+}
+
+.btn-primary:hover {
+  background: var(--primary-dark);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 10px rgba(37, 99, 235, 0.3);
+}
+
+.btn-outline {
+  background: white;
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-outline:hover {
+  background: var(--gray-100);
+  transform: translateY(-2px);
+}
+
+.btn-lg {
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+}
+
+/* Loading Animation */
+.loading {
+  text-align: center;
+  padding: 2rem;
+  display: none;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid rgba(37, 99, 235, 0.2);
+  border-radius: 50%;
+  border-top-color: var(--primary);
+  animation: spin 1s linear infinite;
+  margin: 0 auto 1rem;
+}
+
+.loading-text {
+  color: var(--gray-600);
+  font-weight: 500;
+}
+
+/* Result Styles (Shared) */
+.result {
+  padding: 1.5rem;
+  border-radius: var(--radius-sm);
+  margin-top: 1.5rem;
+  animation: fadeIn 0.5s ease;
+  display: none;
+}
+
+.result-real {
+  background: rgba(34, 197, 94, 0.1);
+  border-left: 4px solid var(--success);
+}
+
+.result-fake {
+  background: rgba(239, 68, 68, 0.1);
+  border-left: 4px solid var(--danger);
+}
+
+.result-error {
+  background: rgba(245, 158, 11, 0.1);
+  border-left: 4px solid var(--warning);
+}
+
+.result-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1rem;
+  gap: 0.75rem;
+}
+
+.result-icon {
+  font-size: 1.5rem;
+}
+
+.result-real .result-icon {
+  color: var(--success);
+}
+
+.result-fake .result-icon {
+  color: var(--danger);
+}
+
+.result-error .result-icon {
+  color: var(--warning);
+}
+
+.result-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.result-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.result-detail {
+  background: white;
+  padding: 1rem;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+.detail-label {
+  font-size: 0.875rem;
+  color: var(--gray-500);
+  margin-bottom: 0.25rem;
+}
+
+.detail-value {
+  font-weight: 600;
+  color: var(--gray-800);
+}
+
+/* Confidence Meter */
+.confidence-meter {
+  height: 8px;
+  background: var(--gray-200);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 1rem 0;
+}
+
+.confidence-level {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 1s ease;
+}
+
+.meter-real {
+  background: var(--success);
+}
+
+.meter-fake {
+  background: var(--danger);
+}
+
+/* Image Preview Styles */
+.image-preview {
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  display: none;
+  box-shadow: var(--shadow-md);
+  margin-bottom: 1.5rem;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.error-message {
+  color: var(--danger);
+  margin-top: 1rem;
+  display: none;
+  text-align: center;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+/* Responsive Design */
+@media (max-width: 1100px) {
+  .dashboard, .dashboard-deep {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .header-content {
+    flex-direction: column;
+    gap: 1rem;
+    text-align: center;
+  }
+
+  .card {
+    min-width: auto;
+  }
+
+  .webcam-container {
+    height: 280px;
+  }
+
+  .upload-area {
+    height: 250px;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-container {
+    padding: 0.75rem;
+  }
+
+  .card-body {
+    padding: 1rem;
+  }
+
+  .result-details {
+    grid-template-columns: 1fr;
+  }
+
+  .tabs {
+    flex-direction: column;
+  }
+}
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <header>
+      <div class="header-content">
+        <div class="logo">
+          <i class="fas fa-shield-alt logo-icon"></i>
+          <h1 class="logo-text">Advanced Anti-Spoofing & Deepfake Analysis</h1>
+        </div>
+      </div>
+    </header>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="anti">Anti-Spoofing Analysis</button>
+      <button class="tab-btn" data-tab="deep">Deepfake Analysis</button>
+    </div>
+
+    <main>
+      <!-- Anti-Spoofing Tab -->
+      <div id="anti-tab" class="tab-content active">
+        <div class="dashboard">
+          <!-- Webcam Card -->
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">
+                <i class="fas fa-video card-icon"></i>
+                Live Detection
+              </h2>
+              <div class="status-indicator">
+                <i class="fas fa-circle" style="color: var(--success);"></i>
+                <span>Camera Active</span>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="webcam-container">
+                <img id="videoFeed" src="/video_feed" alt="Webcam Feed">
+              </div>
+              <div class="webcam-button-container">
+                <button id="captureBtn" class="btn btn-primary btn-lg">
+                  <i class="fas fa-camera"></i>
+                  Capture & Analyze
+                </button>
+              </div>
+              <div class="loading" id="loadingCam">
+                <div class="spinner"></div>
+                <p class="loading-text">Analyzing face for spoofing attempts...</p>
+              </div>
+              <div class="result" id="camResult"></div>
+            </div>
+          </div>
+
+          <!-- Upload Card for Anti-Spoofing -->
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">
+                <i class="fas fa-cloud-upload-alt card-icon"></i>
+                Image Analysis
+              </h2>
+            </div>
+            <div class="card-body">
+              <div class="upload-area" id="uploadAreaAnti">
+                <i class="fas fa-file-upload upload-icon"></i>
+                <p class="upload-text">Drag & drop an image or click to browse</p>
+                <input type="file" id="fileInputAnti" accept="image/*">
+              </div>
+              <img id="uploadedImageAnti" class="image-preview" alt="Uploaded Image Preview">
+              <div class="action-buttons">
+                <button id="analyzeBtnAnti" class="btn btn-primary" disabled>
+                  <i class="fas fa-search"></i> Analyze Image
+                </button>
+                <button id="resetBtnAnti" class="btn btn-outline">
+                  <i class="fas fa-redo"></i> Reset
+                </button>
+              </div>
+              <div class="loading" id="loadingUploadAnti">
+                <div class="spinner"></div>
+                <p class="loading-text">Processing uploaded image...</p>
+              </div>
+              <div class="result" id="uploadResultAnti"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Deepfake Tab -->
+      <div id="deep-tab" class="tab-content">
+        <div class="dashboard-deep">
+          <!-- Upload Area -->
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">
+                <i class="fas fa-cloud-upload-alt card-icon"></i>
+                Image Upload
+              </h2>
+            </div>
+            <div class="card-body">
+              <div class="upload-area" id="uploadAreaDeep">
+                <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                <p class="upload-text">Drag & Drop your image here or click to browse</p>
+                <input type="file" id="imageInputDeep" accept="image/*" hidden>
+              </div>
+              <img id="uploadedImageDeep" class="image-preview" alt="Uploaded Image Preview">
+              <div class="action-buttons">
+                <button id="analyzeBtnDeep" class="btn btn-primary" disabled>
+                  <i class="fas fa-search"></i> Analyze Image
+                </button>
+                <button id="resetBtnDeep" class="btn btn-outline">
+                  <i class="fas fa-redo"></i> Reset
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Result Area -->
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">
+                <i class="fas fa-chart-bar card-icon"></i>
+                Analysis Results
+              </h2>
+            </div>
+            <div class="card-body">
+              <div class="loading" id="loadingDeep">
+                <div class="spinner"></div>
+                <p class="loading-text">Analyzing...</p>
+              </div>
+              <div class="error-message" id="errorMessageDeep"></div>
+              <div class="result" id="resultDeep"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // Tab Switching
+const tabBtns = document.querySelectorAll('.tab-btn');
+const tabContents = document.querySelectorAll('.tab-content');
+
+tabBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    tabBtns.forEach(b => b.classList.remove('active'));
+    tabContents.forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`${btn.dataset.tab}-tab`).classList.add('active');
+  });
+});
+
+// Anti-Spoofing Script
+const captureBtn = document.getElementById("captureBtn");
+const loadingCam = document.getElementById("loadingCam");
+const camResult = document.getElementById("camResult");
+const fileInputAnti = document.getElementById("fileInputAnti");
+const uploadAreaAnti = document.getElementById("uploadAreaAnti");
+const uploadedImageAnti = document.getElementById("uploadedImageAnti");
+const analyzeBtnAnti = document.getElementById("analyzeBtnAnti");
+const resetBtnAnti = document.getElementById("resetBtnAnti");
+const loadingUploadAnti = document.getElementById("loadingUploadAnti");
+const uploadResultAnti = document.getElementById("uploadResultAnti");
+
+// Capture from webcam
+captureBtn.addEventListener("click", () => {
+  loadingCam.style.display = "block";
+  camResult.style.display = "none";
+
+  captureBtn.style.animation = "pulse 0.5s";
+  setTimeout(() => {
+    captureBtn.style.animation = "";
+  }, 500);
+
+  fetch("/analyze_frame", { method: "POST" })
+    .then(response => response.json())
+    .then(data => {
+      loadingCam.style.display = "none";
+      showAntiResult(data, camResult);
+    })
+    .catch(err => {
+      loadingCam.style.display = "none";
+      showAntiError(err, camResult);
+    });
+});
+
+// Upload file handling for anti
+fileInputAnti.addEventListener("change", () => {
+  const file = fileInputAnti.files[0];
+  if (!file) return;
+
+  if (!file.type.match('image.*')) {
+    showAntiError('Please select a valid image file (JPEG, PNG, etc.)', uploadResultAnti);
+    return;
+  }
+
+  // Display preview
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    uploadedImageAnti.src = e.target.result;
+    uploadedImageAnti.style.display = 'block';
+    uploadAreaAnti.style.display = 'none';
+    analyzeBtnAnti.disabled = false;
+  };
+  reader.readAsDataURL(file);
+});
+
+// Analyze button for anti
+analyzeBtnAnti.addEventListener("click", () => {
+  const file = fileInputAnti.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  loadingUploadAnti.style.display = "block";
+  uploadResultAnti.style.display = "none";
+
+  fetch("/upload_anti", { method: "POST", body: formData })
+    .then(response => response.json())
+    .then(data => {
+      loadingUploadAnti.style.display = "none";
+      showAntiResult(data, uploadResultAnti);
+    })
+    .catch(err => {
+      loadingUploadAnti.style.display = "none";
+      showAntiError(err, uploadResultAnti);
+    });
+});
+
+// Reset button for anti
+resetBtnAnti.addEventListener("click", () => {
+  fileInputAnti.value = '';
+  uploadedImageAnti.style.display = 'none';
+  uploadAreaAnti.style.display = 'flex';
+  uploadResultAnti.style.display = 'none';
+  loadingUploadAnti.style.display = 'none';
+  analyzeBtnAnti.disabled = true;
+});
+
+// Drag and drop for anti
+uploadAreaAnti.addEventListener("dragover", (e) => {
+  e.preventDefault();
+  uploadAreaAnti.style.borderColor = "var(--primary)";
+  uploadAreaAnti.style.backgroundColor = "rgba(37, 99, 235, 0.1)";
+});
+
+uploadAreaAnti.addEventListener("dragleave", () => {
+  uploadAreaAnti.style.borderColor = "var(--gray-300)";
+  uploadAreaAnti.style.backgroundColor = "";
+});
+
+uploadAreaAnti.addEventListener("drop", (e) => {
+  e.preventDefault();
+  uploadAreaAnti.style.borderColor = "var(--gray-300)";
+  uploadAreaAnti.style.backgroundColor = "";
+
+  if (e.dataTransfer.files.length) {
+    fileInputAnti.files = e.dataTransfer.files;
+    const event = new Event("change", { bubbles: true });
+    fileInputAnti.dispatchEvent(event);
+  }
+});
+
+// Show anti results
+function showAntiResult(data, container) {
+  if (data.success) {
+    const isReal = data.is_real;
+    container.className = `result ${isReal ? "result-real" : "result-fake"}`;
+
+    container.innerHTML = `
+      <div class="result-header">
+        <i class="fas ${isReal ? "fa-check-circle" : "fa-exclamation-triangle"} result-icon"></i>
+        <h3 class="result-title">${isReal ? "Genuine Face Detected" : "Spoof Attempt Detected"}</h3>
+      </div>
+      <p>${isReal ? "The system has verified this as a real face." : "Warning: This appears to be a spoofing attempt."}</p>
+
+      <div class="confidence-meter">
+        <div class="confidence-level ${isReal ? "meter-real" : "meter-fake"}" style="width: 0%"></div>
+      </div>
+
+      <div class="result-details">
+        <div class="result-detail">
+          <div class="detail-label">Confidence</div>
+          <div class="detail-value">${(data.confidence * 100).toFixed(1)}%</div>
+        </div>
+        <div class="result-detail">
+          <div class="detail-label">Spoof Type</div>
+          <div class="detail-value">${data.spoof_type || "N/A"}</div>
+        </div>
+        <div class="result-detail">
+          <div class="detail-label">Processing Time</div>
+          <div class="detail-value">${data.processing_time}s</div>
+        </div>
+      </div>
+    `;
+
+    setTimeout(() => {
+      const meter = container.querySelector(".confidence-level");
+      meter.style.width = `${data.confidence * 100}%`;
+    }, 100);
+  } else {
+    showAntiError(data.error, container);
+  }
+  container.style.display = "block";
+}
+
+// Show anti error
+function showAntiError(error, container) {
+  container.className = "result result-error";
+  container.innerHTML = `
+    <div class="result-header">
+      <i class="fas fa-exclamation-circle result-icon"></i>
+      <h3 class="result-title">Analysis Error</h3>
+    </div>
+    <p>${error.message || error.error || "An unexpected error occurred"}</p>
+    <p>Please try again or use a different image.</p>
+  `;
+  container.style.display = "block";
+}
+
+// Deepfake Script
+const uploadAreaDeep = document.getElementById('uploadAreaDeep');
+const fileInputDeep = document.getElementById('imageInputDeep');
+const analyzeBtnDeep = document.getElementById('analyzeBtnDeep');
+const resetBtnDeep = document.getElementById('resetBtnDeep');
+const uploadedImageDeep = document.getElementById('uploadedImageDeep');
+const resultDeep = document.getElementById('resultDeep');
+const errorMessageDeep = document.getElementById('errorMessageDeep');
+const loadingDeep = document.getElementById('loadingDeep');
+
+// Upload area click handler for deep
+uploadAreaDeep.addEventListener('click', () => {
+  fileInputDeep.click();
+});
+
+// Drag and drop for deep
+uploadAreaDeep.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  uploadAreaDeep.style.borderColor = 'var(--primary)';
+  uploadAreaDeep.style.backgroundColor = 'rgba(37, 99, 235, 0.05)';
+});
+
+uploadAreaDeep.addEventListener('dragleave', () => {
+  uploadAreaDeep.style.borderColor = 'var(--gray-300)';
+  uploadAreaDeep.style.backgroundColor = 'transparent';
+});
+
+uploadAreaDeep.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadAreaDeep.style.borderColor = 'var(--gray-300)';
+  uploadAreaDeep.style.backgroundColor = 'transparent';
+
+  if (e.dataTransfer.files.length) {
+    fileInputDeep.files = e.dataTransfer.files;
+    handleDeepFileSelect();
+  }
+});
+
+// File input change handler for deep
+fileInputDeep.addEventListener('change', handleDeepFileSelect);
+
+// Analyze button click handler for deep
+analyzeBtnDeep.addEventListener('click', analyzeDeepImage);
+
+// Reset button click handler for deep
+resetBtnDeep.addEventListener('click', resetDeep);
+
+function handleDeepFileSelect() {
+  const file = fileInputDeep.files[0];
+  if (!file) return;
+
+  if (!file.type.match('image.*')) {
+    showDeepError('Please select a valid image file (JPEG, PNG, etc.)');
+    return;
+  }
+
+  // Display preview
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    uploadedImageDeep.src = e.target.result;
+    uploadedImageDeep.style.display = 'block';
+    uploadAreaDeep.style.display = 'none';
+    analyzeBtnDeep.disabled = false;
+    hideDeepError();
+  };
+  reader.readAsDataURL(file);
+}
+
+function analyzeDeepImage() {
+  const file = fileInputDeep.files[0];
+  errorMessageDeep.style.display = 'none';
+  loadingDeep.style.display = 'block';
+  analyzeBtnDeep.disabled = true;
+
+  const formData = new FormData();
+  formData.append('image', file);
+
+  fetch('http://localhost:5000/upload_deep', {
+    method: 'POST',
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    loadingDeep.style.display = 'none';
+
+    if (data.error) {
+      showDeepError(`Error: ${data.error}`);
+      return;
+    }
+
+    // Determine if real or fake based on dominant_spoof
+    const isReal = data.dominant_spoof === 'Real';
+    resultDeep.className = `result ${isReal ? "result-real" : "result-fake"}`;
+
+    resultDeep.innerHTML = `
+      <div class="result-header">
+        <i class="fas ${isReal ? "fa-check-circle" : "fa-exclamation-triangle"} result-icon"></i>
+        <h3 class="result-title">${isReal ? "Genuine Face Detected" : "Deepfake Detected"}</h3>
+      </div>
+      <p>${isReal ? "The system has verified this as a real face." : "Warning: This appears to be a deepfake."}</p>
+
+      <div class="confidence-meter">
+        <div class="confidence-level ${isReal ? "meter-real" : "meter-fake"}" style="width: ${data.spoof[data.dominant_spoof] * 100}%"></div>
+      </div>
+
+      <div class="result-details">
+        <div class="result-detail">
+          <div class="detail-label">Age</div>
+          <div class="detail-value">${data.age}</div>
+        </div>
+        <div class="result-detail">
+          <div class="detail-label">Dominant Gender</div>
+          <div class="detail-value">${data.dominant_gender}</div>
+        </div>
+        <div class="result-detail">
+          <div class="detail-label">Gender Confidence</div>
+          <div class="detail-value">${Math.round(data.gender[data.dominant_gender] * 100)}%</div>
+        </div>
+        <div class="result-detail">
+          <div class="detail-label">Face Type</div>
+          <div class="detail-value">${data.dominant_spoof}</div>
+        </div>
+        <div class="result-detail">
+          <div class="detail-label">Spoof Confidence</div>
+          <div class="detail-value">${Math.round(data.spoof[data.dominant_spoof] * 100)}%</div>
+        </div>
+        <div class="result-detail">
+          <div class="detail-label">Timestamp</div>
+          <div class="detail-value">${data.timestamp}</div>
+        </div>
+      </div>
+    `;
+
+    resultDeep.style.display = 'block';
+  })
+  .catch(err => {
+    loadingDeep.style.display = 'none';
+    showDeepError('An error occurred while processing the image');
+    console.error('Error:', err);
+  });
+}
+
+function resetDeep() {
+  fileInputDeep.value = '';
+  uploadedImageDeep.style.display = 'none';
+  uploadAreaDeep.style.display = 'flex';
+  resultDeep.style.display = 'none';
+  loadingDeep.style.display = 'none';
+  analyzeBtnDeep.disabled = true;
+  hideDeepError();
+}
+
+function showDeepError(message) {
+  errorMessageDeep.textContent = message;
+  errorMessageDeep.style.display = 'block';
+}
+
+function hideDeepError() {
+  errorMessageDeep.style.display = 'none';
+}
+
+// Initialize animations
+document.addEventListener("DOMContentLoaded", () => {
+  const cards = document.querySelectorAll(".card");
+  cards.forEach((card, index) => {
+    card.style.animationDelay = `${index * 0.1}s`;
+  });
+});
+  </script>
+</body>
+</html>

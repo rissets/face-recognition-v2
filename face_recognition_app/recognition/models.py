@@ -1,26 +1,28 @@
 """
-Face Recognition Models
+Face Recognition Models - Legacy (will be migrated to auth_service)
 """
 import uuid
 import numpy as np
 from django.db import models
-from django.contrib.auth import get_user_model
 from django.core.validators import MinValueValidator, MaxValueValidator
 from encrypted_model_fields.fields import EncryptedTextField, EncryptedCharField
 from PIL import Image
 import json
 import base64
 
-User = get_user_model()
-
 
 class FaceEmbedding(models.Model):
-    """Store face embeddings for users"""
+    """Store face embeddings for users - DEPRECATED: Use auth_service.FaceEnrollment"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey(
-        User, 
-        on_delete=models.CASCADE, 
-        related_name='face_embeddings'
+    
+    # Legacy field - will be migrated to client_user
+    # user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='face_embeddings')
+    client_user = models.ForeignKey(
+        'clients.ClientUser',
+        on_delete=models.CASCADE,
+        related_name='legacy_embeddings',
+        null=True,
+        blank=True
     )
     
     # Embedding data (encrypted)
@@ -91,7 +93,7 @@ class FaceEmbedding(models.Model):
         verbose_name_plural = "Face Embeddings"
         unique_together = ['enrollment_session', 'sample_number']
         indexes = [
-            models.Index(fields=['user', 'is_active']),
+            models.Index(fields=['client_user', 'is_active']),
             models.Index(fields=['embedding_hash']),
             models.Index(fields=['quality_score']),
             models.Index(fields=['created_at']),
@@ -99,7 +101,7 @@ class FaceEmbedding(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"Embedding #{self.sample_number} for {self.user.get_full_name()}"
+        return f"Embedding #{self.sample_number} for {self.client_user.display_name if self.client_user else 'Unknown'}"
 
     def set_embedding_vector(self, vector):
         """Set embedding vector from numpy array"""
@@ -145,12 +147,16 @@ class FaceEmbedding(models.Model):
 
 
 class EnrollmentSession(models.Model):
-    """Track face enrollment sessions"""
+    """Track face enrollment sessions - DEPRECATED: Use auth_service.AuthenticationSession"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey(
-        User, 
-        on_delete=models.CASCADE, 
-        related_name='enrollment_sessions'
+    
+    # Legacy - migrated to client_user
+    client_user = models.ForeignKey(
+        'clients.ClientUser',
+        on_delete=models.CASCADE,
+        related_name='legacy_enrollment_sessions',
+        null=True,
+        blank=True
     )
     
     # Session info
@@ -189,14 +195,14 @@ class EnrollmentSession(models.Model):
         verbose_name = "Enrollment Session"
         verbose_name_plural = "Enrollment Sessions"
         indexes = [
-            models.Index(fields=['user', 'status']),
+            models.Index(fields=['client_user', 'status']),
             models.Index(fields=['session_token']),
             models.Index(fields=['started_at']),
         ]
         ordering = ['-started_at']
 
     def __str__(self):
-        return f"Enrollment for {self.user.get_full_name()} - {self.status}"
+        return f"Enrollment for {self.client_user.display_name if self.client_user else 'Unknown'} - {self.status}"
 
     @property
     def progress_percentage(self):
@@ -230,12 +236,14 @@ class EnrollmentSession(models.Model):
 
 
 class AuthenticationAttempt(models.Model):
-    """Track face authentication attempts"""
+    """Track face authentication attempts - DEPRECATED: Use auth_service.FaceRecognitionAttempt"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey(
-        User, 
-        on_delete=models.CASCADE, 
-        related_name='auth_attempts',
+    
+    # Legacy - migrated to client_user
+    client_user = models.ForeignKey(
+        'clients.ClientUser',
+        on_delete=models.CASCADE,
+        related_name='legacy_auth_attempts',
         null=True,
         blank=True
     )
@@ -300,7 +308,7 @@ class AuthenticationAttempt(models.Model):
         verbose_name = "Authentication Attempt"
         verbose_name_plural = "Authentication Attempts"
         indexes = [
-            models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['client_user', 'created_at']),
             models.Index(fields=['session_id']),
             models.Index(fields=['result', 'created_at']),
             models.Index(fields=['ip_address', 'created_at']),
@@ -308,7 +316,7 @@ class AuthenticationAttempt(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        user_name = self.user.get_full_name() if self.user else 'Unknown'
+        user_name = self.client_user.display_name if self.client_user else 'Unknown'
         return f"Auth attempt by {user_name} - {self.result}"
 
     @property
@@ -449,8 +457,8 @@ class FaceRecognitionModel(models.Model):
     
     # Metadata
     description = models.TextField(blank=True)
-    created_by = models.ForeignKey(
-        User,
+    created_by_client = models.ForeignKey(
+        'clients.Client',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

@@ -26,10 +26,6 @@ const routes = [
     component: () => import('../views/LoginView.vue')
   },
   {
-    path: '/register',
-    component: () => import('../views/RegistrationFlowView.vue')
-  },
-  {
     path: '/dashboard',
     component: () => import('../views/DashboardView.vue'),
     meta: { requiresAuth: true }
@@ -49,11 +45,11 @@ const routes = [
     component: () => import('../views/FaceAuthenticationView.vue'),
     meta: { requiresAuth: true }
   },
-  {
-    path: '/recognition-data',
-    component: () => import('../views/RecognitionDataView.vue'),
-    meta: { requiresAuth: true }
-  },
+  // {
+  //   path: '/recognition-data',
+  //   component: () => import('../views/RecognitionDataView.vue'),
+  //   meta: { requiresAuth: true }
+  // },
   {
     path: '/streaming',
     component: () => import('../views/StreamingTestView.vue'),

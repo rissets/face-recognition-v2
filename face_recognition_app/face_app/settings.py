@@ -8,6 +8,24 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
+
+PERFORMANCE OPTIMIZATIONS:
+=========================
+1. Database Connection Pooling: CONN_MAX_AGE=600 for persistent connections
+2. ChromaDB Per-Client Collections: Isolates data per client for faster queries
+3. Redis Embedding Cache: Caches user embeddings with TTL for fast lookups
+4. Async Face Processing: Thread pool for CPU-intensive operations
+5. Cached Embeddings in PostgreSQL: Binary field for fast verification
+6. Bounded Thread Pool: Prevents "can't start new thread" errors
+
+ENV VARIABLES for tuning:
+- DB_CONN_MAX_AGE: Database connection reuse timeout (default: 600s)
+- CHROMA_CLIENT_COLLECTIONS: Enable per-client collections (default: true)
+- CHROMA_CACHE_TTL: Embedding cache TTL in seconds (default: 3600)
+- FACE_EMBEDDING_CACHE_TTL: Redis embedding cache TTL (default: 3600)
+- FACE_ENGINE_WORKER_THREADS: Thread pool size (default: 4)
+- DJANGO_MAX_THREADS: Max threads for sync_to_async (default: 32)
+- FACE_MESH_POOL_SIZE: FaceMesh instances per worker (default: 8)
 """
 
 import os
@@ -26,7 +44,6 @@ except ImportError:
 
 from datetime import timedelta
 
-from django.templatetags.static import static
 from django.urls import reverse_lazy
 from django.utils.translation import gettext_lazy as _
 
@@ -50,9 +67,15 @@ FIELD_ENCRYPTION_KEY = config(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", default=True, cast=bool)
 
+# Telegram Error Monitoring Configuration
+TELEGRAM_ERROR_LOGGING_ENABLED = config("TELEGRAM_ERROR_LOGGING_ENABLED", default=False, cast=bool)
+TELEGRAM_BOT_TOKEN = config("TELEGRAM_BOT_TOKEN", default="")
+TELEGRAM_CHAT_ID = config("TELEGRAM_CHAT_ID", default="")
+ENVIRONMENT = config("ENVIRONMENT", default="development")
+
 ALLOWED_HOSTS = config(
     "ALLOWED_HOSTS",
-    default="localhost,127.0.0.1",
+    default="localhost,127.0.0.1,192.168.83.16,face.ahu.go.id",
     cast=lambda v: [s.strip() for s in v.split(",")],
 )
 
@@ -89,8 +112,11 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     "core",
-    "users",
-    "recognition",
+    "users",  # Custom user model for admin authentication
+    "clients",
+    "webhooks",
+    "auth_service",
+    "recognition",  # Legacy - will be deprecated
     "analytics",
     "streaming",
 ]
@@ -106,6 +132,11 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "clients.middleware.ClientUsageLoggingMiddleware",
+    # Telegram Error Monitoring
+    "core.middleware.TelegramErrorMonitoringMiddleware",
+    "core.middleware.TelegramRequestMonitoringMiddleware",
+    "core.middleware.TelegramResponseMonitoringMiddleware",
 ]
 
 ROOT_URLCONF = "face_app.urls"
@@ -139,6 +170,13 @@ DATABASES = {
         "PASSWORD": config("DB_PASSWORD", default="password_rahasia"),
         "HOST": config("DB_HOST", default="localhost"),
         "PORT": config("DB_PORT", default="5433"),
+        # Connection pooling and performance optimizations
+        "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", default=600, cast=int),  # Keep connections for 10 minutes
+        "CONN_HEALTH_CHECKS": True,  # Check connection health before use
+        "OPTIONS": {
+            "connect_timeout": 10,
+            "options": "-c statement_timeout=30000",  # 30 second query timeout
+        },
     }
 }
 
@@ -147,6 +185,10 @@ CHROMA_DB_CONFIG = {
     "host": config("CHROMA_HOST", default="localhost"),
     "port": config("CHROMA_PORT", default=8000, cast=int),
     "collection_name": "face_embeddings",
+    # Performance tuning
+    "enable_client_collections": config("CHROMA_CLIENT_COLLECTIONS", default=True, cast=bool),
+    "embedding_cache_ttl": config("CHROMA_CACHE_TTL", default=3600, cast=int),  # 1 hour
+    "search_cache_ttl": config("CHROMA_SEARCH_CACHE_TTL", default=300, cast=int),  # 5 minutes
 }
 
 # Password validation
@@ -167,7 +209,8 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-# Custom User Model
+# Custom User Model for admin authentication
+# ClientUser model handles third-party client users
 AUTH_USER_MODEL = "users.CustomUser"
 
 # Internationalization
@@ -182,16 +225,52 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "static"
-STATICFILES_DIRS = [BASE_DIR / "staticfiles"]
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+STATIC_ROOT = BASE_DIR / "staticfiles" / "collected"
+STATICFILES_DIRS = [
+    BASE_DIR / "static",  # For admin dashboard files
+    BASE_DIR / "staticfiles",  # For other static files
+]
+# MinIO Configuration for Media Storage
+USE_MINIO = config("USE_MINIO", default=True, cast=bool)
+
+if USE_MINIO:
+    # MinIO Storage Settings
+    AWS_ACCESS_KEY_ID = config("MINIO_ACCESS_KEY", default="minioadmin")
+    AWS_SECRET_ACCESS_KEY = config("MINIO_SECRET_KEY", default="minioadmin123")
+    AWS_STORAGE_BUCKET_NAME = config("MINIO_BUCKET_NAME", default="face-recognition")
+    AWS_S3_ENDPOINT_URL = config("MINIO_ENDPOINT", default="http://127.0.0.1:9000")
+    AWS_S3_REGION_NAME = config("MINIO_REGION", default="us-east-1")
+    AWS_DEFAULT_ACL = None
+    AWS_S3_OBJECT_PARAMETERS = {
+        "CacheControl": "max-age=86400",
+    }
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_S3_CUSTOM_DOMAIN = None
+    AWS_S3_USE_SSL = config("MINIO_USE_SSL", default=False, cast=bool)
+    AWS_S3_VERIFY = config("MINIO_VERIFY_SSL", default=False, cast=bool)
+    AWS_LOCATION = "media"
+
+    # Custom storage classes for better MinIO compatibility
+    DEFAULT_FILE_STORAGE = "core.storage.MinIOMediaStorage"
+    STATICFILES_STORAGE = "core.storage.MinIOStaticStorage"
+
+    # Proper URL configuration for MinIO
+    if config("ENVIRONMENT", default="development") == "production":
+        MEDIA_URL = f"https://{config('DOMAIN', default="localhost:9000")}/media/"
+    else:
+        MEDIA_URL = f"{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/{AWS_LOCATION}/"
+else:
+    # Local file storage (development)
+    MEDIA_URL = "/media/"
+    MEDIA_ROOT = BASE_DIR / "media"
 
 # Django REST Framework Configuration
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-        "rest_framework.authentication.SessionAuthentication",
+        "auth_service.authentication.APIKeyAuthentication",
+        "auth_service.authentication.JWTClientAuthentication",
+        "auth_service.authentication.WebhookSignatureAuthentication",
+        "rest_framework.authentication.SessionAuthentication",  # For admin interface
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -202,11 +281,11 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_THROTTLE_CLASSES": [
-        "rest_framework.throttling.AnonRateThrottle",
-        "rest_framework.throttling.UserRateThrottle",
-    ],
-    "DEFAULT_THROTTLE_RATES": {"anon": "100/hour", "user": "1000/hour"},
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+        "core.throttling.SafeAnonRateThrottle",
+        "core.throttling.SafeUserRateThrottle",
+    ] if not config("DISABLE_THROTTLING", default=False, cast=bool) else [],
+    "DEFAULT_THROTTLE_RATES": {"anon": "100000/hour", "user": "10000000/hour"},
+    "DEFAULT_SCHEMA_CLASS": "core.schema.FaceRecognitionAutoSchema",
 }
 
 # JWT Configuration
@@ -225,26 +304,108 @@ SIMPLE_JWT = {
     "USER_ID_CLAIM": "user_id",
 }
 
+# Redis Configuration
+# Build Redis URL with password if provided
+REDIS_PASSWORD = config("REDIS_PASSWORD", default="")
+REDIS_HOST = config("REDIS_HOST", default="127.0.0.1")
+REDIS_PORT = config("REDIS_PORT", default=6379, cast=int)
+
+# Build Redis URL with optional password
+if REDIS_PASSWORD:
+    REDIS_BASE_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}"
+else:
+    REDIS_BASE_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}"
+
+# Redis connection options for better error handling
+REDIS_CONNECTION_KWARGS = {
+    "socket_timeout": 5,
+    "socket_connect_timeout": 5,
+    "health_check_interval": 30,
+    "retry_on_timeout": True,
+}
+
 # Channels Configuration
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [
-                (
-                    config("REDIS_HOST", default="127.0.0.1"),
-                    config("REDIS_PORT", default=6379, cast=int),
-                )
-            ],
+            "hosts": [config("REDIS_CHANNELS_URL", default=f"{REDIS_BASE_URL}/3")],
+            "capacity": 1500,
+            "expiry": 60,
         },
     },
 }
 
+# Cache Configuration (Redis)
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": config("REDIS_URL", default=f"{REDIS_BASE_URL}/1"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "IGNORE_EXCEPTIONS": True,  # Don't fail silently on Redis errors
+            "CONNECTION_POOL_KWARGS": {
+                "max_connections": 50,
+                "retry_on_timeout": True,
+                "socket_connect_timeout": 5,
+                "socket_timeout": 5,
+            },
+        },
+        "KEY_PREFIX": "face_recognition",
+    },
+    "sessions": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": config("REDIS_CACHE_URL", default=f"{REDIS_BASE_URL}/2"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "IGNORE_EXCEPTIONS": True,
+            "CONNECTION_POOL_KWARGS": {
+                "max_connections": 50,
+                "retry_on_timeout": True,
+                "socket_connect_timeout": 5,
+                "socket_timeout": 5,
+            },
+        },
+        "TIMEOUT": 1800,  # 30 minutes for face recognition sessions
+        "KEY_PREFIX": "face_sessions",
+    },
+    # Dedicated cache for face embeddings - high capacity, longer TTL
+    "embeddings": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": config("REDIS_EMBEDDINGS_URL", default=f"{REDIS_BASE_URL}/4"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "IGNORE_EXCEPTIONS": True,
+            "CONNECTION_POOL_KWARGS": {
+                "max_connections": 100,  # Higher capacity for embeddings
+                "retry_on_timeout": True,
+                "socket_connect_timeout": 5,
+                "socket_timeout": 5,
+            },
+            "SERIALIZER": "django_redis.serializers.json.JSONSerializer",  # Better for numpy arrays
+        },
+        "TIMEOUT": 3600,  # 1 hour for embeddings
+        "KEY_PREFIX": "face_emb",
+    },
+}
+
+# Use Redis for session caching
+CACHE_TTL = 60 * 30  # 30 minutes default cache timeout
+
+# Face Recognition Performance Settings
+FACE_EMBEDDING_CACHE_TTL = config("FACE_EMBEDDING_CACHE_TTL", default=3600, cast=int)  # 1 hour
+FACE_SEARCH_CACHE_TTL = config("FACE_SEARCH_CACHE_TTL", default=300, cast=int)  # 5 minutes
+FACE_MAX_FRAMES_PER_SESSION = config("FACE_MAX_FRAMES_PER_SESSION", default=20, cast=int)
+FACE_ENGINE_WORKER_THREADS = config("FACE_ENGINE_WORKER_THREADS", default=5, cast=int)
+
+# Performance Optimization Toggles (can be set via environment variables)
+OBSTACLE_DETECTION_ENABLED = config("OBSTACLE_DETECTION_ENABLED", default=False, cast=bool)
+MEDIAPIPE_SKIP_REINIT = config("MEDIAPIPE_SKIP_REINIT", default=True, cast=bool)
+
 # Celery Configuration
-CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://localhost:6379/0")
-CELERY_RESULT_BACKEND = config(
-    "CELERY_RESULT_BACKEND", default="redis://localhost:6379/0"
-)
+CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=f"{REDIS_BASE_URL}/0")
+CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=f"{REDIS_BASE_URL}/0")
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
@@ -252,18 +413,20 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 # CORS Configuration
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://localhost:3000",
-    "http://localhost:8080",    # Frontend test app
-    "http://127.0.0.1:8080",
-    "http://localhost:8081",    # Alternative port
-    "http://127.0.0.1:8081",
-    "http://127.0.0.1:5173",
-]
+CORS_ALLOWED_ORIGINS = config(
+    "CORS_ALLOWED_ORIGINS",
+    default="http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:5500,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,https://face.ahu.go.id",
+    cast=lambda v: [s.strip() for s in v.split(",")],
+)
 
 CORS_ALLOW_CREDENTIALS = True
+
+# CSRF Configuration
+CSRF_TRUSTED_ORIGINS = config(
+    "CSRF_TRUSTED_ORIGINS",
+    default="http://localhost:3000,http://127.0.0.1:3000, http://127.0.0.1:5500 ,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5173,https://face.ahu.go.id",
+    cast=lambda v: [s.strip() for s in v.split(",")],
+)
 
 CORS_ALLOW_HEADERS = [
     "accept",
@@ -275,6 +438,12 @@ CORS_ALLOW_HEADERS = [
     "user-agent",
     "x-csrftoken",
     "x-requested-with",
+    # Third-party service headers
+    "x-api-key",
+    "x-client-id",
+    "x-fr-signature",
+    "x-fr-timestamp",
+    "x-fr-event",
 ]
 
 # Security Settings
@@ -285,17 +454,148 @@ SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 
+# SSL/HTTPS Settings for Production
+if not DEBUG:
+    SECURE_SSL_REDIRECT = config("SECURE_SSL_REDIRECT", default=True, cast=bool)
+    SECURE_PROXY_SSL_HEADER = (
+        config("SECURE_PROXY_SSL_HEADER_NAME", default="HTTP_X_FORWARDED_PROTO"),
+        config("SECURE_PROXY_SSL_HEADER_VALUE", default="https"),
+    )
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_SECURE = True
+
 # Face Recognition Settings
 FACE_RECOGNITION_CONFIG = {
     "MODEL_NAME": "buffalo_l",
     "DET_SIZE": (640, 640),
-    "VERIFICATION_THRESHOLD": 0.4,
-    "LIVENESS_THRESHOLD": 2,
+    "VERIFICATION_THRESHOLD": 0.3,  # Lower threshold for easier matching
+    "LIVENESS_THRESHOLD": 1,  # Min blinks required for liveness (lowered)
+    # Min blinks required for liveness (lowered)
+    "LIVENESS_BLINK_THRESHOLD": 1,
+    "LIVENESS_MOTION_THRESHOLD": 0.2,  # Motion threshold for liveness
+    "LIVENESS_MOTION_EVENTS": 1,  # Min motion events required
+    "LIVENESS_MOTION_SCORE": 0.2,  # Min motion score required
+    "ANTI_SPOOFING_THRESHOLD": 0.7,  # Anti-spoofing detection
     "EMBEDDING_DIMENSION": 512,
     "MAX_ENROLLMENT_SAMPLES": 5,
+    "MIN_ENROLLMENT_FRAMES": 3,  # Minimum frames for enrollment averaging
     "MIN_FACE_SIZE": 100,
     "MAX_FACE_SIZE": 800,
     "CAPTURE_QUALITY_THRESHOLD": 0.7,
+    "AUTH_QUALITY_THRESHOLD": 0.4,  # Lower threshold for authentication
+    "QUALITY_TOLERANCE": 0.12,
+    "FALLBACK_VERIFICATION_THRESHOLD": 0.28,
+    "HEAD_POSE_THRESHOLD": 20,  # Max head pose angle in degrees
+    "LIVENESS_METHODS": ["blink_detection", "motion_detection", "head_pose_validation"],
+    "USE_EMBEDDING_AVERAGING": True,  # Use embedding averaging for enrollment
+    "SESSION_TIMEOUT_MINUTES": 1,  # Session timeout in minutes
+    
+    # OBSTACLE DETECTION SETTINGS - Toggle on/off via env var for performance
+    # Set OBSTACLE_DETECTION_ENABLED=true in environment to enable
+    "OBSTACLE_DETECTION_ENABLED": OBSTACLE_DETECTION_ENABLED,  # Uses env var, default False
+    "BLOCKING_OBSTACLES": ["mask", "hand_covering"],  # Only these block enrollment
+    "NON_BLOCKING_OBSTACLES": ["glasses", "hat"],  # These are allowed
+    
+    # MEDIAPIPE OPTIMIZATION SETTINGS - Toggle via env var
+    # Set MEDIAPIPE_SKIP_REINIT=false to disable (enables reinit on session restore)
+    "MEDIAPIPE_STATIC_MODE": True,  # True = no timestamp tracking (safer for concurrent sessions)
+    "MEDIAPIPE_REUSE_DETECTOR": True,  # Reuse detector within same session (avoid reinit)
+    "SKIP_MEDIAPIPE_REINIT": MEDIAPIPE_SKIP_REINIT,  # Uses env var, default True
+}
+
+# FaceMesh Pool Settings (per worker process)
+# Total FaceMesh instances = FACE_MESH_POOL_SIZE * number_of_workers
+FACE_MESH_POOL_SIZE = int(os.environ.get('FACE_MESH_POOL_SIZE', 8))
+
+# Third-Party Service Configuration
+THIRD_PARTY_SERVICE_CONFIG = {
+    "DEFAULT_SESSION_TIMEOUT": 600,  # 10 minutes
+    "MAX_API_CALLS_PER_HOUR": 10000,
+    "MAX_API_CALLS_PER_DAY": 100000,
+    "RATE_LIMIT_WINDOW": 3600,  # 1 hour in seconds
+    "MAX_WEBHOOK_RETRIES": 3,
+    "WEBHOOK_TIMEOUT": 30,  # seconds
+    "WEBHOOK_RETRY_DELAYS": [60, 300, 900],  # 1min, 5min, 15min
+    "API_KEY_EXPIRY_DAYS": 365,
+    "SECRET_KEY_ROTATION_DAYS": 90,
+}
+
+# Client Feature Tiers
+CLIENT_FEATURE_TIERS = {
+    "basic": {
+        "max_users": 1000,
+        "max_api_calls_per_hour": 1000,
+        "max_api_calls_per_day": 10000,
+        "features": ["enrollment", "recognition"],
+        "webhook_events": [
+            "enrollment.completed",
+            "recognition.success",
+            "recognition.failed",
+        ],
+        "analytics": False,
+        "liveness_detection": False,
+        "anti_spoofing": False,
+        "priority_support": False,
+    },
+    "premium": {
+        "max_users": 10000,
+        "max_api_calls_per_hour": 5000,
+        "max_api_calls_per_day": 50000,
+        "features": ["enrollment", "recognition", "liveness_detection", "analytics"],
+        "webhook_events": [
+            "enrollment.completed",
+            "enrollment.failed",
+            "recognition.success",
+            "recognition.failed",
+            "recognition.attempt",
+            "liveness.failed",
+        ],
+        "analytics": True,
+        "liveness_detection": True,
+        "anti_spoofing": False,
+        "priority_support": True,
+    },
+    "enterprise": {
+        "max_users": 100000,
+        "max_api_calls_per_hour": 20000,
+        "max_api_calls_per_day": 200000,
+        "features": [
+            "enrollment",
+            "recognition",
+            "liveness_detection",
+            "anti_spoofing",
+            "batch_processing",
+            "analytics",
+        ],
+        "webhook_events": [
+            "enrollment.started",
+            "enrollment.completed",
+            "enrollment.failed",
+            "recognition.success",
+            "recognition.failed",
+            "recognition.attempt",
+            "liveness.failed",
+            "spoofing.detected",
+            "system.alert",
+        ],
+        "analytics": True,
+        "liveness_detection": True,
+        "anti_spoofing": True,
+        "priority_support": True,
+        "dedicated_support": True,
+        "custom_integrations": True,
+    },
+}
+
+# Webhook Configuration
+WEBHOOK_CONFIG = {
+    "DEFAULT_TIMEOUT": 30,
+    "MAX_RETRIES": 3,
+    "RETRY_DELAYS": [60, 300, 900],  # 1min, 5min, 15min
+    "SIGNATURE_HEADER": "X-FR-Signature",
+    "TIMESTAMP_HEADER": "X-FR-Timestamp",
+    "EVENT_HEADER": "X-FR-Event",
+    "MAX_PAYLOAD_SIZE": 1048576,  # 1MB
 }
 
 # WebRTC Configuration
@@ -310,12 +610,13 @@ WEBRTC_CONFIG = {
 
 # Streaming / Face Session Limits & Thresholds
 FACE_STREAMING_LIMITS = {
-    "MAX_ACTIVE_STREAMING_SESSIONS_PER_USER": 3,           # Active (initiating/connecting/connected/processing)
-    "MAX_CREATES_PER_MINUTE": 8,                           # Burst control per user
-    "AUTH_FRAME_BUDGET": 120,                              # WS frame budget before fail
-    "MAX_WS_FPS": 11,                                      # Throttle WS ingestion
-    "MAX_LOW_QUALITY_CONSECUTIVE": 25,                     # Future use for abort on low quality
-    "FAIL_LOW_QUALITY_THRESHOLD": 0.30,                    # If implemented for early abort
+    # Active (initiating/connecting/connected/processing)
+    "MAX_ACTIVE_STREAMING_SESSIONS_PER_USER": 3,
+    "MAX_CREATES_PER_MINUTE": 8,  # Burst control per user
+    "AUTH_FRAME_BUDGET": 120,  # WS frame budget before fail
+    "MAX_WS_FPS": 30,  # Throttle WS ingestion
+    "MAX_LOW_QUALITY_CONSECUTIVE": 25,  # Future use for abort on low quality
+    "FAIL_LOW_QUALITY_THRESHOLD": 0.30,  # If implemented for early abort
 }
 
 # DRF Spectacular Configuration
@@ -344,56 +645,54 @@ SPECTACULAR_SETTINGS = {
     },
     "SERVERS": [
         {
-            "url": "http://127.0.0.1:8000",
+            "url": "http://127.0.0.1:8003",
             "description": "Development Server",
         },
         {
-            "url": "https://api.facerecognition.com",
+            "url": "https://human-face.hellodigi.id",
             "description": "Production Server",
         },
     ],
     "TAGS": [
         {
             "name": "Authentication",
-            "description": "User authentication and JWT token management",
+            "description": "Endpoints for creating authentication and enrollment sessions, and processing face images.",
         },
         {
-            "name": "Face Enrollment",
-            "description": "Face enrollment and embedding management",
-        },
-        {
-            "name": "Face Recognition",
-            "description": "Real-time face authentication and verification",
-        },
-        {
-            "name": "WebRTC",
-            "description": "WebRTC signaling and streaming sessions",
+            "name": "Client Management",
+            "description": "Endpoints for managing clients and their users.",
         },
         {
             "name": "Analytics",
-            "description": "System analytics and security monitoring",
-        },
-        {
-            "name": "User Management",
-            "description": "User profile and device management",
+            "description": "Endpoints for retrieving analytics and system metrics.",
         },
         {
             "name": "System",
-            "description": "System status and health checks",
+            "description": "Endpoints for checking system status and health.",
+        },
+        {
+            "name": "Webhooks",
+            "description": "Endpoints related to webhook management and logs.",
+        },
+        {
+            "name": "Streaming",
+            "description": "Endpoints for managing WebRTC streaming sessions.",
         },
     ],
-    "SECURITY": [
-        {
-            "BearerAuth": {
-                "type": "http",
-                "scheme": "bearer",
-                "bearerFormat": "JWT",
-                "description": "JWT token obtained from /api/v1/auth/token/ endpoint",
-            }
-        }
+    "AUTHENTICATION_WHITELIST": [
+        "auth_service.authentication.APIKeyAuthentication",
+        "auth_service.authentication.JWTClientAuthentication",
+        "auth_service.authentication.WebhookSignatureAuthentication",
     ],
     "SORT_OPERATIONS": False,
     "DISABLE_ERRORS_AND_WARNINGS": True,
+    "AUTO_SCHEMA_CLASS": "core.schema.FaceRecognitionAutoSchema",
+    "PREPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.preprocess_exclude_path_format",
+    ],
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+    ],
 }
 
 # Logging Configuration
@@ -418,7 +717,7 @@ LOGGING = {
             "formatter": "verbose",
         },
         "console": {
-            "level": "DEBUG",
+            "level": "INFO",  # Changed from DEBUG to INFO to reduce log spam
             "class": "logging.StreamHandler",
             "formatter": "simple",
         },
@@ -431,31 +730,50 @@ LOGGING = {
         "django": {
             "handlers": ["console", "file"],
             "level": "INFO",
-            "propagate": True,
+            "propagate": False,  # FIXED: Prevent duplicate logs
         },
         "face_recognition": {
             "handlers": ["console", "file"],
-            "level": "DEBUG",
-            "propagate": True,
+            "level": "INFO",  # Changed from DEBUG to INFO
+            "propagate": False,  # FIXED: Prevent duplicate logs
+        },
+        "auth_service": {
+            "handlers": ["console", "file"],
+            "level": "INFO",  # Set to INFO to reduce spam
+            "propagate": False,  # FIXED: Prevent duplicate logs
+        },
+        "core": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        # Suppress noisy third-party loggers
+        "httpcore": {
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "httpx": {
+            "level": "WARNING", 
+            "propagate": False,
+        },
+        "chromadb": {
+            "level": "WARNING",
+            "propagate": False,
         },
     },
 }
 
 # Unfold Admin Configuration
 UNFOLD = {
-    "SITE_TITLE": "Face Recognition Admin",
-    "SITE_HEADER": "Face Recognition System",
+    "SITE_TITLE": "Third-Party Face Recognition API",
+    "SITE_HEADER": "Face Recognition Service Admin",
     "SITE_URL": "/",
-    "SITE_ICON": {
-        "light": lambda request: static("icon-light.svg"),  # light mode
-        "dark": lambda request: static("icon-dark.svg"),  # dark mode
-    },
     "SIDEBAR": {
         "show_search": True,
         "show_all_applications": True,
         "navigation": [
             {
-                "title": _("Overview"),
+                "title": _("Dashboard"),
                 "separator": True,
                 "items": [
                     {
@@ -463,163 +781,205 @@ UNFOLD = {
                         "icon": "dashboard",
                         "link": reverse_lazy("admin:index"),
                     },
-                    {
-                        "title": _("System Configuration"),
-                        "icon": "settings",
-                        "link": reverse_lazy("admin:core_systemconfiguration_changelist"),
-                    },
-                    {
-                        "title": _("Health Checks"),
-                        "icon": "favorite",
-                        "link": reverse_lazy("admin:core_healthcheck_changelist"),
-                    },
-                    {
-                        "title": _("System Metrics"),
-                        "icon": "analytics",
-                        "link": reverse_lazy("admin:analytics_systemmetrics_changelist"),
-                    },
                 ],
             },
             {
-                "title": _("Users & Enrollment"),
+                "title": _("Third-Party Clients"),
                 "separator": True,
                 "collapsible": True,
                 "items": [
                     {
-                        "title": _("Users"),
+                        "title": _("Clients"),
+                        "icon": "business",
+                        "link": reverse_lazy("admin:clients_client_changelist"),
+                    },
+                    {
+                        "title": _("Client Users"),
                         "icon": "people",
-                        "link": reverse_lazy("admin:users_customuser_changelist"),
+                        "link": reverse_lazy("admin:clients_clientuser_changelist"),
                     },
                     {
-                        "title": _("Profiles"),
-                        "icon": "person",
-                        "link": reverse_lazy("admin:users_userprofile_changelist"),
+                        "title": _("API Usage"),
+                        "icon": "api",
+                        "link": reverse_lazy("admin:clients_clientapiusage_changelist"),
                     },
                     {
-                        "title": _("Devices"),
-                        "icon": "devices",
-                        "link": reverse_lazy("admin:users_userdevice_changelist"),
-                    },
-                    {
-                        "title": _("Enrollment Sessions"),
-                        "icon": "how_to_reg",
-                        "link": reverse_lazy("admin:recognition_enrollmentsession_changelist"),
+                        "title": _("Webhook Logs"),
+                        "icon": "webhook",
+                        "link": reverse_lazy(
+                            "admin:clients_clientwebhooklog_changelist"
+                        ),
                     },
                 ],
             },
             {
-                "title": _("Face Recognition"),
+                "title": _("Authentication Service"),
                 "separator": True,
                 "collapsible": True,
                 "items": [
                     {
-                        "title": _("Face Recognition"),
+                        "title": _("Auth Sessions"),
+                        "icon": "lock",
+                        "link": reverse_lazy(
+                            "admin:auth_service_authenticationsession_changelist"
+                        ),
+                    },
+                    {
+                        "title": _("Face Enrollments"),
                         "icon": "face",
-                        "link": reverse_lazy("admin:recognition_faceembedding_changelist"),
-                    },
-                    {
-                        "title": _("Authentication Attempts"),
-                        "icon": "verified_user",
-                        "link": reverse_lazy("admin:recognition_authenticationattempt_changelist"),
-                    },
-                    {
-                        "title": _("Liveness Detections"),
-                        "icon": "visibility",
-                        "link": reverse_lazy("admin:recognition_livenessdetection_changelist"),
-                    },
-                    {
-                        "title": _("Obstacle Detections"),
-                        "icon": "warning",
-                        "link": reverse_lazy("admin:recognition_obstacledetection_changelist"),
-                    },
-                    {
-                        "title": _("Models"),
-                        "icon": "science",
-                        "link": reverse_lazy("admin:recognition_facerecognitionmodel_changelist"),
+                        "link": reverse_lazy(
+                            "admin:auth_service_faceenrollment_changelist"
+                        ),
                     },
                 ],
             },
             {
-                "title": _("Analytics"),
+                "title": _("Webhooks"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Webhook Events"),
+                        "icon": "event",
+                        "link": reverse_lazy("admin:webhooks_webhookevent_changelist"),
+                    },
+                    {
+                        "title": _("Webhook Endpoints"),
+                        "icon": "link",
+                        "link": reverse_lazy(
+                            "admin:webhooks_webhookendpoint_changelist"
+                        ),
+                    },
+                    {
+                        "title": _("Webhook Deliveries"),
+                        "icon": "send",
+                        "link": reverse_lazy(
+                            "admin:webhooks_webhookdelivery_changelist"
+                        ),
+                    },
+                ],
+            },
+            {
+                "title": _("Analytics & Monitoring"),
                 "separator": True,
                 "collapsible": True,
                 "items": [
                     {
                         "title": _("Authentication Logs"),
                         "icon": "analytics",
-                        "link": reverse_lazy("admin:analytics_authenticationlog_changelist"),
+                        "link": reverse_lazy(
+                            "admin:analytics_authenticationlog_changelist"
+                        ),
                     },
                     {
-                        "title": _("Behavior Analytics"),
-                        "icon": "insights",
-                        "link": reverse_lazy("admin:analytics_userbehavioranalytics_changelist"),
+                        "title": _("System Metrics"),
+                        "icon": "monitoring",
+                        "link": reverse_lazy(
+                            "admin:analytics_systemmetrics_changelist"
+                        ),
+                    },
+                    {
+                        "title": _("User Behavior Analytics"),
+                        "icon": "psychology",
+                        "link": reverse_lazy(
+                            "admin:analytics_userbehavioranalytics_changelist"
+                        ),
+                    },
+                    {
+                        "title": _("Security Alerts"),
+                        "icon": "security",
+                        "link": reverse_lazy(
+                            "admin:analytics_securityalert_changelist"
+                        ),
                     },
                     {
                         "title": _("Face Recognition Stats"),
-                        "icon": "leaderboard",
-                        "link": reverse_lazy("admin:analytics_facerecognitionstats_changelist"),
+                        "icon": "face",
+                        "link": reverse_lazy(
+                            "admin:analytics_facerecognitionstats_changelist"
+                        ),
                     },
                     {
                         "title": _("Model Performance"),
-                        "icon": "timeline",
-                        "link": reverse_lazy("admin:analytics_modelperformance_changelist"),
-                    },
-                    {
-                        "title": _("Data Quality Metrics"),
-                        "icon": "data_usage",
-                        "link": reverse_lazy("admin:analytics_dataqualitymetrics_changelist"),
+                        "icon": "model_training",
+                        "link": reverse_lazy(
+                            "admin:analytics_modelperformance_changelist"
+                        ),
                     },
                 ],
             },
             {
-                "title": _("Security & Streaming"),
+                "title": _("System & Core"),
                 "separator": True,
                 "collapsible": True,
                 "items": [
                     {
-                        "title": _("Security Alerts"),
-                        "icon": "shield",
-                        "link": reverse_lazy("admin:analytics_securityalert_changelist"),
+                        "title": _("System Configuration"),
+                        "icon": "settings",
+                        "link": reverse_lazy(
+                            "admin:core_systemconfiguration_changelist"
+                        ),
+                    },
+                    {
+                        "title": _("Audit Logs"),
+                        "icon": "assignment",
+                        "link": reverse_lazy("admin:core_auditlog_changelist"),
                     },
                     {
                         "title": _("Security Events"),
-                        "icon": "report",
+                        "icon": "shield",
                         "link": reverse_lazy("admin:core_securityevent_changelist"),
                     },
                     {
+                        "title": _("Health Checks"),
+                        "icon": "health_and_safety",
+                        "link": reverse_lazy("admin:core_healthcheck_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": _("Streaming & Sessions"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
                         "title": _("Streaming Sessions"),
                         "icon": "videocam",
-                        "link": reverse_lazy("admin:streaming_streamingsession_changelist"),
+                        "link": reverse_lazy(
+                            "admin:streaming_streamingsession_changelist"
+                        ),
                     },
                     {
                         "title": _("WebRTC Signals"),
-                        "icon": "rss_feed",
+                        "icon": "signal_cellular_alt",
                         "link": reverse_lazy("admin:streaming_webrtcsignal_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": _("Admin Users"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Admin Users"),
+                        "icon": "admin_panel_settings",
+                        "link": reverse_lazy("admin:users_customuser_changelist"),
+                    },
+                    {
+                        "title": _("User Profiles"),
+                        "icon": "person",
+                        "link": reverse_lazy("admin:users_userprofile_changelist"),
+                    },
+                    {
+                        "title": _("User Devices"),
+                        "icon": "devices",
+                        "link": reverse_lazy("admin:users_userdevice_changelist"),
                     },
                 ],
             },
         ],
     },
-    "QUICK_ACTIONS": [
-        {
-            "title": _("Start Enrollment Session"),
-            "description": _("Create a new enrollment session for a user."),
-            "icon": "fiber_new",
-            "link": reverse_lazy("admin:recognition_enrollmentsession_add"),
-        },
-        {
-            "title": _("Log Security Alert"),
-            "description": _("Record a manual security alert for follow-up."),
-            "icon": "add_alert",
-            "link": reverse_lazy("admin:analytics_securityalert_add"),
-        },
-        {
-            "title": _("Capture Health Check"),
-            "description": _("Add the latest health status for a critical service."),
-            "icon": "favorite",
-            "link": reverse_lazy("admin:core_healthcheck_add"),
-        },
-    ],
 }
 
 # Default primary key field type

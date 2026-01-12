@@ -356,3 +356,322 @@ def health_check():
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         return {'error': str(e), 'status': 'unhealthy'}
+
+
+@shared_task
+def preload_client_embeddings(client_id: str = None):
+    """
+    Preload face embeddings into Redis cache for a client.
+    This improves authentication performance by avoiding ChromaDB queries.
+    
+    Args:
+        client_id: Specific client ID to preload, or None for all clients
+    """
+    try:
+        from clients.models import Client, ClientUser
+        from core.optimized_embedding_store import OptimizedChromaEmbeddingStore, EmbeddingCacheManager
+        
+        if client_id:
+            clients = Client.objects.filter(client_id=client_id, status='active')
+        else:
+            clients = Client.objects.filter(status='active')
+        
+        total_cached = 0
+        
+        for client in clients:
+            try:
+                store = OptimizedChromaEmbeddingStore(client_id=client.client_id)
+                count = EmbeddingCacheManager.preload_client_embeddings(client.client_id, store)
+                total_cached += count
+                logger.info(f"Preloaded {count} embeddings for client {client.client_id}")
+            except Exception as e:
+                logger.error(f"Failed to preload for client {client.client_id}: {e}")
+        
+        logger.info(f"Total embeddings preloaded: {total_cached}")
+        return {'success': True, 'total_cached': total_cached}
+        
+    except Exception as e:
+        logger.error(f"Failed to preload embeddings: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+@shared_task
+def cache_user_embedding(client_id: str, external_user_id: str):
+    """
+    Cache a specific user's embedding from ChromaDB to Redis and database.
+    Called after enrollment or when cache is invalidated.
+    
+    Args:
+        client_id: Client identifier
+        external_user_id: User's external identifier
+    """
+    try:
+        from clients.models import ClientUser
+        from core.optimized_embedding_store import OptimizedChromaEmbeddingStore, EmbeddingCacheManager
+        import numpy as np
+        
+        # Get the user
+        user = ClientUser.objects.get(
+            client__client_id=client_id,
+            external_user_id=external_user_id
+        )
+        
+        if not user.is_enrolled:
+            logger.warning(f"User {external_user_id} is not enrolled, skipping cache")
+            return {'success': False, 'error': 'User not enrolled'}
+        
+        # Get embedding from ChromaDB
+        engine_user_id = f"{client_id}:{external_user_id}"
+        store = OptimizedChromaEmbeddingStore(client_id=client_id)
+        user_data = store.get_user_embedding(engine_user_id, client_id)
+        
+        if not user_data:
+            logger.warning(f"No embedding found for user {external_user_id}")
+            return {'success': False, 'error': 'Embedding not found'}
+        
+        embedding = user_data.get('embedding')
+        if embedding is None:
+            return {'success': False, 'error': 'Empty embedding'}
+        
+        if not isinstance(embedding, np.ndarray):
+            embedding = np.array(embedding, dtype=np.float32)
+        
+        # Cache in database
+        user.cache_embedding(embedding)
+        
+        # Cache in Redis
+        EmbeddingCacheManager.cache_user_embedding(
+            client_id,
+            external_user_id,
+            embedding,
+            user_data.get('metadata', {})
+        )
+        
+        logger.info(f"Cached embedding for user {external_user_id}")
+        return {'success': True, 'user_id': external_user_id}
+        
+    except ClientUser.DoesNotExist:
+        logger.error(f"User not found: {client_id}:{external_user_id}")
+        return {'success': False, 'error': 'User not found'}
+    except Exception as e:
+        logger.error(f"Failed to cache embedding: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+@shared_task
+def warm_up_face_engine():
+    """
+    Warm up face recognition engine by pre-loading models.
+    This reduces cold-start latency for the first request.
+    """
+    try:
+        from core.face_recognition_engine import FaceRecognitionEngine
+        import numpy as np
+        
+        # Initialize engine (this loads InsightFace models)
+        engine = FaceRecognitionEngine()
+        
+        # Create dummy image for warm-up
+        dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        
+        # Run detection to warm up GPU/CPU caches
+        _ = engine.detect_faces(dummy_frame)
+        
+        logger.info("Face recognition engine warmed up successfully")
+        return {'success': True, 'message': 'Engine warmed up'}
+        
+    except Exception as e:
+        logger.error(f"Failed to warm up engine: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+# =============================================================================
+# OLD PHOTO EMBEDDING EXTRACTION TASKS
+# These tasks run in the background to extract embeddings from old_profile_photo
+# when a ClientUser is created or updated with a new photo.
+# =============================================================================
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=60, name='core.tasks.extract_old_photo_embedding_task')
+def extract_old_photo_embedding_task(self, client_user_id: str):
+    """
+    Background task to extract face embedding from a user's old_profile_photo.
+    This task runs asynchronously when a user is created/updated with an old_profile_photo.
+    
+    The extracted embedding is cached in the database for fast lookup during enrollment.
+    
+    NOTE: This task uses InsightFace which is not fork-safe. Run Celery with:
+        celery -A face_app worker --pool=solo --loglevel=info
+    Or:
+        celery -A face_app worker --pool=threads --loglevel=info
+    
+    Args:
+        client_user_id: UUID of the ClientUser to process
+    """
+    try:
+        from clients.models import ClientUser
+        
+        # Get the user
+        user = ClientUser.objects.get(id=client_user_id)
+        
+        # Check if old_profile_photo exists
+        if not user.old_profile_photo:
+            logger.info(f"No old_profile_photo for user {user.external_user_id}, skipping extraction")
+            return {'success': True, 'message': 'No old photo to extract'}
+        
+        # Check if already cached - skip InsightFace if not needed
+        existing = user.get_cached_old_photo_embedding()
+        if existing is not None:
+            logger.info(f"Old photo embedding already cached for user {user.external_user_id}")
+            return {'success': True, 'message': 'Already cached'}
+        
+        # Only import and use InsightFace when actually needed
+        # This lazy import helps avoid fork-safety issues
+        from core.old_photo_extractor import get_old_photo_extractor
+        
+        # Extract embedding using the optimized extractor
+        extractor = get_old_photo_extractor()
+        embedding = extractor.extract_from_client_user(user)
+        
+        if embedding is not None:
+            logger.info(f"✅ Successfully extracted old photo embedding for user {user.external_user_id}")
+            return {'success': True, 'user_id': str(user.id)}
+        else:
+            logger.warning(f"⚠️ No face detected in old_profile_photo for user {user.external_user_id}")
+            return {'success': False, 'message': 'No face detected'}
+        
+    except ClientUser.DoesNotExist:
+        logger.error(f"ClientUser {client_user_id} not found")
+        return {'success': False, 'error': 'User not found'}
+    except Exception as e:
+        logger.error(f"Error extracting old photo embedding: {e}")
+        # Retry on transient errors
+        try:
+            self.retry(exc=e)
+        except self.MaxRetriesExceededError:
+            logger.error(f"Max retries exceeded for user {client_user_id}")
+            return {'success': False, 'error': str(e)}
+
+
+@shared_task(name='core.tasks.bulk_extract_old_photo_embeddings')
+def bulk_extract_old_photo_embeddings(client_id: str = None, batch_size: int = 50):
+    """
+    Bulk extract old_profile_photo embeddings for users who don't have cached embeddings.
+    
+    This can be run as a one-time migration or scheduled periodically.
+    
+    NOTE: This task uses InsightFace which is not fork-safe. Run Celery with:
+        celery -A face_app worker --pool=solo --loglevel=info
+    
+    Args:
+        client_id: Optional client ID to limit extraction to specific client
+        batch_size: Number of users to process in each batch
+    """
+    try:
+        from clients.models import ClientUser
+        # Lazy import to avoid fork issues
+        from core.old_photo_extractor import get_old_photo_extractor
+        
+        # Build query for users with old_profile_photo but no cached embedding
+        users_query = ClientUser.objects.filter(
+            old_profile_photo__isnull=False,
+            cached_old_photo_embedding__isnull=True
+        ).exclude(old_profile_photo='')
+        
+        if client_id:
+            users_query = users_query.filter(client__client_id=client_id)
+        
+        total_users = users_query.count()
+        logger.info(f"Found {total_users} users needing old photo embedding extraction")
+        
+        if total_users == 0:
+            return {'success': True, 'processed': 0, 'message': 'No users to process'}
+        
+        # Process in batches
+        extractor = get_old_photo_extractor()
+        processed = 0
+        succeeded = 0
+        failed = 0
+        
+        for user in users_query.iterator():
+            try:
+                embedding = extractor.extract_from_client_user(user)
+                if embedding is not None:
+                    succeeded += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                logger.warning(f"Failed to extract for user {user.external_user_id}: {e}")
+                failed += 1
+            
+            processed += 1
+            
+            # Log progress every batch_size
+            if processed % batch_size == 0:
+                logger.info(f"Progress: {processed}/{total_users} (success: {succeeded}, failed: {failed})")
+        
+        logger.info(f"✅ Bulk extraction complete: {processed} processed, {succeeded} succeeded, {failed} failed")
+        return {
+            'success': True,
+            'total': total_users,
+            'processed': processed,
+            'succeeded': succeeded,
+            'failed': failed
+        }
+        
+    except Exception as e:
+        logger.error(f"Bulk extraction failed: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+@shared_task(name='core.tasks.preload_enrollment_user')
+def preload_enrollment_user(client_id: str, external_user_id: str):
+    """
+    Preload a user's data before enrollment starts.
+    This extracts old_photo embedding in advance to minimize latency during enrollment.
+    
+    Call this when creating enrollment session or immediately after user registration.
+    
+    NOTE: This task uses InsightFace which is not fork-safe. Run Celery with:
+        celery -A face_app worker --pool=solo --loglevel=info
+    
+    Args:
+        client_id: Client identifier
+        external_user_id: User's external identifier
+    """
+    try:
+        from clients.models import ClientUser
+        
+        user = ClientUser.objects.get(
+            client__client_id=client_id,
+            external_user_id=external_user_id
+        )
+        
+        # Check cache first to avoid unnecessary InsightFace loading
+        if not user.old_profile_photo:
+            logger.info(f"ℹ️ User {external_user_id} has no old photo")
+            return {'success': True, 'old_photo_extracted': False}
+        
+        if user.get_cached_old_photo_embedding() is not None:
+            logger.info(f"ℹ️ User {external_user_id} already has cached embedding")
+            return {'success': True, 'old_photo_extracted': False, 'cached': True}
+        
+        # Only import InsightFace when actually needed
+        from core.old_photo_extractor import get_old_photo_extractor
+        
+        # Extract old photo embedding
+        extractor = get_old_photo_extractor()
+        embedding = extractor.extract_from_client_user(user)
+        
+        if embedding is not None:
+            logger.info(f"✅ Preloaded old photo embedding for user {external_user_id}")
+            return {'success': True, 'old_photo_extracted': True}
+        else:
+            logger.info(f"ℹ️ No face detected in old photo for user {external_user_id}")
+            return {'success': True, 'old_photo_extracted': False}
+        
+    except ClientUser.DoesNotExist:
+        logger.error(f"User not found: {client_id}:{external_user_id}")
+        return {'success': False, 'error': 'User not found'}
+    except Exception as e:
+        logger.error(f"Preload failed: {e}")
+        return {'success': False, 'error': str(e)}

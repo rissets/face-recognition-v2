@@ -1,546 +1,497 @@
 """
-Custom admin dashboard integration using django-unfold.
+Custom admin dashboard context and view registration.
 """
-from __future__ import annotations
 from datetime import timedelta
-from typing import Dict, Any
+from types import MethodType
 
 from django.contrib import admin
-from django.db.models import Count, Avg, Q, Case, When, IntegerField
-from django.db.models.functions import TruncDate
+from django.db.models import Avg, Count, Q
+from django.db.models.functions import TruncDay
+from django.template.response import TemplateResponse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from analytics.models import (
     AuthenticationLog,
-    FaceRecognitionStats,
     SecurityAlert,
-    SystemMetrics,
     UserBehaviorAnalytics,
+    SystemMetrics as AnalyticsSystemMetric,
 )
-from recognition.models import (
-    AuthenticationAttempt,
-    EnrollmentSession,
-    FaceEmbedding,
+from auth_service.models import (
+    AuthenticationSession,
+    FaceEnrollment,
+    FaceRecognitionAttempt,
+    LivenessDetectionResult,
 )
-from streaming.models import StreamingSession
-from users.models import CustomUser, UserDevice
+from clients.models import Client, ClientAPIUsage, ClientUser
+from users.models import UserDevice
 
 
-def _safe_percentage(part: int, whole: int) -> float:
-    """Return rounded percentage or 0 when denominator is 0."""
-    if not whole:
-        return 0.0
-    return round((part / whole) * 100, 1)
+def _format_number(value):
+    return f"{value:,}" if isinstance(value, int) else f"{value:.2f}"
 
 
-def _get_auth_result_labels() -> Dict[str, str]:
-    """Map authentication result codes to human readable labels."""
-    return dict(AuthenticationAttempt.SUCCESS_STATUS)
+def _format_delta(value):
+    if value > 0:
+        return f"+{value}"
+    if value < 0:
+        return str(value)
+    return "0"
 
 
-def get_dashboard_context() -> Dict[str, Any]:
-    """Collect metrics for the admin dashboard."""
-    now = timezone.now()
-    last_24h = now - timedelta(hours=24)
-    previous_24h_start = last_24h - timedelta(hours=24)
-    last_7d = now - timedelta(days=7)
-    last_30d = now - timedelta(days=30)
+def _chart_payload(title, subtitle, canvas_id, labels, dataset, y_max=None):
+    return {
+        "title": title,
+        "subtitle": subtitle,
+        "canvas_id": canvas_id,
+        "data": {
+            "labels": labels,
+            "datasets": [dataset],
+            **({"y_max": y_max} if y_max is not None else {}),
+        },
+    }
 
-    # User metrics
-    total_users = CustomUser.objects.count()
-    face_enrolled = CustomUser.objects.filter(face_enrolled=True).count()
-    face_enabled = CustomUser.objects.filter(face_auth_enabled=True).count()
-    active_users = CustomUser.objects.filter(last_login__gte=last_7d).count()
-    new_users = CustomUser.objects.filter(created_at__gte=last_7d).count()
 
-    # Enrollment and embeddings
-    total_embeddings = FaceEmbedding.objects.count()
-    active_embeddings = FaceEmbedding.objects.filter(is_active=True).count()
-    enrollments_completed = EnrollmentSession.objects.filter(
-        status="completed"
+def _build_dashboard_cards(now, seven_days_ago):
+    this_week = Client.objects.filter(created_at__gte=seven_days_ago).count()
+    last_week = Client.objects.filter(
+        created_at__lt=seven_days_ago, created_at__gte=seven_days_ago - timedelta(days=7)
     ).count()
-    enrollments_active = EnrollmentSession.objects.filter(
-        status__in=["pending", "in_progress"]
+    active_clients = Client.objects.filter(status="active").count()
+
+    calls_today = ClientAPIUsage.objects.filter(created_at__gte=now - timedelta(days=1)).count()
+    calls_yesterday = ClientAPIUsage.objects.filter(
+        created_at__lt=now - timedelta(days=1),
+        created_at__gte=now - timedelta(days=2),
     ).count()
 
-    # Authentication metrics
-    attempts_24h = AuthenticationAttempt.objects.filter(created_at__gte=last_24h)
-    auth_success_24h = attempts_24h.filter(result="success").count()
-    auth_total_24h = attempts_24h.count()
+    attempts_week = FaceRecognitionAttempt.objects.filter(created_at__gte=seven_days_ago)
+    total_attempts = attempts_week.count()
+    success_attempts = attempts_week.filter(result="success").count()
+    success_rate = round((success_attempts / total_attempts) * 100, 2) if total_attempts else 0.0
 
-    previous_window = AuthenticationAttempt.objects.filter(
-        created_at__gte=previous_24h_start, created_at__lt=last_24h
+    liveness_week = LivenessDetectionResult.objects.filter(created_at__gte=seven_days_ago)
+    live_results = liveness_week.filter(status="live").count()
+    liveness_rate = round((live_results / liveness_week.count()) * 100, 2) if liveness_week.exists() else 0.0
+
+    return [
+        {
+            "title": _("Active clients"),
+            "icon": "👥",
+            "display": _format_number(active_clients),
+            "description": _("Tenant with status aktif"),
+            "delta": {
+                "value": this_week - last_week,
+                "display": _format_delta(this_week - last_week),
+                "label": _("vs 7 hari lalu"),
+            },
+        },
+        {
+            "title": _("API calls (24h)"),
+            "icon": "⚡️",
+            "display": _format_number(calls_today),
+            "description": _("Permintaan yang tercatat dalam 24 jam"),
+            "delta": {
+                "value": calls_today - calls_yesterday,
+                "display": _format_delta(calls_today - calls_yesterday),
+                "label": _("dibanding hari sebelumnya"),
+            },
+        },
+        {
+            "title": _("Auth success rate"),
+            "icon": "✅",
+            "display": f"{success_rate:.1f}%",
+            "description": _("Rasio keberhasilan autentikasi 7 hari"),
+            "delta": {
+                "value": success_rate,
+                "display": _("Stabil") if success_rate else _("Belum ada data"),
+                "label": _("agregasi mingguan"),
+            },
+        },
+        {
+            "title": _("Liveness pass rate"),
+            "icon": "🛡️",
+            "display": f"{liveness_rate:.1f}%",
+            "description": _("Persentase deteksi hidup berhasil"),
+            "delta": {
+                "value": liveness_rate,
+                "display": _("Stabil") if liveness_rate else _("Belum ada data"),
+                "label": _("agregasi mingguan"),
+            },
+        },
+    ]
+
+
+def _build_success_rate_chart(seven_days_ago):
+    attempts = (
+        FaceRecognitionAttempt.objects.filter(created_at__gte=seven_days_ago)
+        .annotate(day=TruncDay("created_at"))
+        .values("day")
+        .annotate(
+            total=Count("id"),
+            success=Count("id", filter=Q(result="success")),
+        )
+        .order_by("day")
     )
-    previous_success = previous_window.filter(result="success").count()
-    previous_total = previous_window.count()
-    previous_rate = _safe_percentage(previous_success, previous_total)
-    current_rate = _safe_percentage(auth_success_24h, auth_total_24h)
-    success_rate_delta = round(current_rate - previous_rate, 1)
+    labels, values = [], []
+    for entry in attempts:
+        labels.append(entry["day"].strftime("%d %b"))
+        total = entry["total"]
+        success = entry["success"]
+        values.append(round((success / total) * 100, 2) if total else 0)
 
-    # Aggregated summary for the last 7 days
-    summary_window = AuthenticationAttempt.objects.filter(created_at__gte=last_7d)
-    summary_stats = summary_window.aggregate(
-        total=Count("id"),
-        success=Count("id", filter=Q(result="success")),
-        avg_similarity=Avg("similarity_score"),
-        avg_liveness=Avg("liveness_score"),
-        avg_quality=Avg("quality_score"),
+    dataset = {
+        "label": _("Success rate"),
+        "data": values,
+        "color": "#22c55e",
+        "fill": True,
+    }
+    return _chart_payload(
+        _("Authentication success rate"),
+        _("Rasio harian dalam 7 hari terakhir"),
+        "chart-success-rate",
+        labels,
+        dataset,
+        y_max=100,
     )
 
-    summary_total = summary_stats["total"] or 0
-    summary_success = summary_stats["success"] or 0
 
-    # Failure breakdown
-    result_labels = _get_auth_result_labels()
-    failure_breakdown = (
-        summary_window.exclude(result="success")
+def _build_failure_chart(seven_days_ago):
+    attempts = (
+        FaceRecognitionAttempt.objects.filter(created_at__gte=seven_days_ago)
         .values("result")
-        .annotate(total=Count("id"))
-        .order_by("-total")[:5]
+        .annotate(count=Count("id"))
+        .exclude(result="success")
+        .order_by("-count")[:6]
     )
-    failure_data = [
-        {
-            "label": result_labels.get(item["result"], item["result"]),
-            "code": item["result"],
-            "value": item["total"],
-        }
-        for item in failure_breakdown
-    ]
-
-    # Authentication method mix (last 7 days)
-    auth_method_breakdown = list(
-        AuthenticationLog.objects.filter(created_at__gte=last_7d)
-        .values("auth_method")
-        .annotate(total=Count("id"))
-        .order_by("-total")
-    )
-    auth_method_labels = [
-        (item["auth_method"] or _("Unknown")).title() for item in auth_method_breakdown
-    ]
-    auth_method_values = [item["total"] for item in auth_method_breakdown]
-
-    # Device mix
-    device_breakdown = list(
-        UserDevice.objects.values("device_type")
-        .annotate(total=Count("id"))
-        .order_by("-total")[:6]
-    )
-    device_labels = [
-        (item["device_type"] or _("Unknown")).title() for item in device_breakdown
-    ]
-    device_values = [item["total"] for item in device_breakdown]
-
-    # Risk distribution
-    risk_distribution_qs = list(
-        UserBehaviorAnalytics.objects.values("risk_level")
-        .annotate(total=Count("id"))
-        .order_by()
-    )
-    risk_level_map = dict(UserBehaviorAnalytics._meta.get_field("risk_level").choices)
-    risk_labels = [
-        risk_level_map.get(item["risk_level"], item["risk_level"]) for item in risk_distribution_qs
-    ]
-    risk_values = [item["total"] for item in risk_distribution_qs]
-
-    risk_priority = Case(
-        When(risk_level="critical", then=0),
-        When(risk_level="high", then=1),
-        When(risk_level="medium", then=2),
-        default=3,
-        output_field=IntegerField(),
-    )
-    top_risk_profiles_qs = (
-        UserBehaviorAnalytics.objects.select_related("user")
-        .annotate(priority=risk_priority)
-        .order_by("priority", "-suspicious_activity_count", "-auth_success_rate")[:5]
-    )
-    top_risk_profiles = [
-        {
-            "user": analytics.user.get_full_name() or analytics.user.email,
-            "email": analytics.user.email,
-            "risk_level": analytics.get_risk_level_display(),
-            "suspicious_activity_count": analytics.suspicious_activity_count,
-            "auth_success_rate": (analytics.auth_success_rate or 0.0) * 100,
-            "last_assessed": analytics.last_risk_assessment,
-        }
-        for analytics in top_risk_profiles_qs
-        if analytics.user
-    ]
-
-    # Success rate trend based on daily aggregates (fallback to attempts when missing)
-    stats_window_qs = FaceRecognitionStats.objects.filter(
-        date__gte=now.date() - timedelta(days=6), hour__isnull=True
-    ).order_by("date")
-    stats_window = list(stats_window_qs)
-    if stats_window:
-        labels = [stat.date.strftime("%d %b") for stat in stats_window]
-        success_points = [round(stat.success_rate, 1) for stat in stats_window]
-    else:
-        fallback_stats_qs = (
-            summary_window.annotate(day=TruncDate("created_at"))
-            .values("day")
-            .annotate(
-                total=Count("id"),
-                success=Count("id", filter=Q(result="success")),
-            )
-            .order_by("day")
-        )
-        fallback_stats = list(fallback_stats_qs)
-        labels = [item["day"].strftime("%d %b") for item in fallback_stats]
-        success_points = [
-            _safe_percentage(item["success"], item["total"]) for item in fallback_stats
-        ]
-
-    # Streaming sessions
-    streaming_active = StreamingSession.objects.filter(
-        status__in=["connecting", "connected", "processing"]
-    ).count()
-    streaming_total_24h = StreamingSession.objects.filter(
-        created_at__gte=last_24h
-    ).count()
-
-    # Security alerts
-    open_alerts = SecurityAlert.objects.filter(resolved=False).count()
-    high_alerts = SecurityAlert.objects.filter(
-        resolved=False, severity__in=["high", "critical"]
-    ).count()
-    recent_alerts = list(
-        SecurityAlert.objects.select_related("user")
-        .order_by("-created_at")[:6]
-        .values(
-            "id",
-            "title",
-            "severity",
-            "alert_type",
-            "created_at",
-            "acknowledged",
-            "resolved",
-            "user__email",
-        )
+    result_labels = dict(FaceRecognitionAttempt.RESULT_CHOICES)
+    labels = [result_labels.get(entry["result"], entry["result"]) for entry in attempts]
+    values = [entry["count"] for entry in attempts]
+    dataset = {
+        "label": _("Failure count"),
+        "data": values,
+        "color": "#ef4444",
+    }
+    return _chart_payload(
+        _("Dominant failure reasons"),
+        _("Distribusi kegagalan autentikasi"),
+        "chart-failures",
+        labels,
+        dataset,
     )
 
-    # Recent authentication attempts timeline
-    recent_attempts_qs = (
-        AuthenticationAttempt.objects.select_related("user")
-        .order_by("-created_at")[:8]
-        .values(
-            "id",
-            "user__email",
-            "result",
-            "similarity_score",
-            "quality_score",
-            "liveness_score",
-            "created_at",
-        )
-    )
-    recent_attempts = [
-        {
-            "id": attempt["id"],
-            "user": attempt["user__email"] or _("Anonymous"),
-            "result": attempt["result"],
-            "result_label": result_labels.get(attempt["result"], attempt["result"]),
-            "similarity": round(attempt["similarity_score"] or 0.0, 2),
-            "quality": round(attempt["quality_score"] or 0.0, 2),
-            "liveness": round(attempt["liveness_score"] or 0.0, 2),
-            "created_at": attempt["created_at"],
-        }
-        for attempt in recent_attempts_qs
-    ]
 
-    # Streaming session timeline
-    recent_sessions = list(
-        StreamingSession.objects.select_related("user")
-        .order_by("-created_at")[:5]
-        .values(
-            "session_token",
-            "session_type",
-            "status",
-            "user__email",
-            "created_at",
-            "completed_at",
-        )
-    )
-
-    # System metrics overview
-    latest_metrics = list(
-        SystemMetrics.objects.order_by("-timestamp")
-        .values("metric_name", "metric_type", "value", "unit", "timestamp")[:5]
-    )
-
-    # Authentication log trends (request volume)
-    log_trail_qs = (
-        AuthenticationLog.objects.filter(created_at__gte=last_30d)
-        .annotate(day=TruncDate("created_at"))
+def _build_request_chart(seven_days_ago):
+    usage = (
+        ClientAPIUsage.objects.filter(created_at__gte=seven_days_ago)
+        .annotate(day=TruncDay("created_at"))
         .values("day")
         .annotate(count=Count("id"))
         .order_by("day")
     )
-    log_trail = list(log_trail_qs)
-    log_labels = [item["day"].strftime("%d %b") for item in log_trail]
-    log_values = [item["count"] for item in log_trail]
+    labels = [entry["day"].strftime("%d %b") for entry in usage]
+    values = [entry["count"] for entry in usage]
+    dataset = {
+        "label": _("API calls"),
+        "data": values,
+        "color": "#2563eb",
+        "fill": True,
+    }
+    return _chart_payload(
+        _("API request volume"),
+        _("Jumlah permintaan per hari"),
+        "chart-request-volume",
+        labels,
+        dataset,
+    )
 
-    # Derive medians for gauges
-    gauge_similarity = round(summary_stats["avg_similarity"] or 0.0, 2)
-    gauge_liveness = round(summary_stats["avg_liveness"] or 0.0, 2)
-    gauge_quality = round(summary_stats["avg_quality"] or 0.0, 2)
 
-    cards = [
+def _build_auth_method_chart(thirty_days_ago):
+    logs = (
+        AuthenticationLog.objects.filter(created_at__gte=thirty_days_ago)
+        .values("auth_method")
+        .annotate(count=Count("id"))
+        .order_by("-count")[:6]
+    )
+    method_labels = dict(AuthenticationLog._meta.get_field("auth_method").choices)
+    labels = [method_labels.get(entry["auth_method"], entry["auth_method"]) for entry in logs]
+    values = [entry["count"] for entry in logs]
+    dataset = {
+        "label": _("Authentications"),
+        "data": values,
+        "color": "#f97316",
+    }
+    return _chart_payload(
+        _("Authentication methods"),
+        _("Sebaran metode autentikasi 30 hari"),
+        "chart-auth-methods",
+        labels,
+        dataset,
+    )
+
+
+def _build_device_chart(thirty_days_ago):
+    devices = (
+        UserDevice.objects.filter(last_seen__gte=thirty_days_ago, device_type__isnull=False)
+        .exclude(device_type="")
+        .values("device_type")
+        .annotate(count=Count("id"))
+        .order_by("-count")[:6]
+    )
+    labels = [entry["device_type"].title() for entry in devices]
+    values = [entry["count"] for entry in devices]
+    dataset = {
+        "label": _("Devices"),
+        "data": values,
+        "color": "#0ea5e9",
+    }
+    return _chart_payload(
+        _("Device distribution"),
+        _("Perangkat admin yang terdaftar"),
+        "chart-device-types",
+        labels,
+        dataset,
+    )
+
+
+def _build_risk_chart(thirty_days_ago):
+    analytics = (
+        UserBehaviorAnalytics.objects.filter(updated_at__gte=thirty_days_ago)
+        .values("risk_level")
+        .annotate(count=Count("id"))
+        .order_by("risk_level")
+    )
+    labels = [entry["risk_level"].title() for entry in analytics]
+    values = [entry["count"] for entry in analytics]
+    dataset = {
+        "label": _("Profiles"),
+        "data": values,
+        "color": "#a855f7",
+    }
+    return _chart_payload(
+        _("Risk level distribution"),
+        _("Profil perilaku pengguna"),
+        "chart-risk-levels",
+        labels,
+        dataset,
+    )
+
+
+def _build_gauges(seven_days_ago):
+    attempts = FaceRecognitionAttempt.objects.filter(created_at__gte=seven_days_ago)
+    total = attempts.count()
+    success_count = attempts.filter(result="success").count()
+    success_rate = (success_count / total) * 100 if total else 0
+
+    averages = attempts.aggregate(
+        avg_liveness=Avg("liveness_score"),
+        avg_quality=Avg("face_quality_score"),
+        avg_similarity=Avg("similarity_score"),
+    )
+
+    return [
         {
-            "title": _("Registered Users"),
-            "value": total_users,
-            "display": f"{total_users:,}",
-            "icon": "👥",
-            "delta": {
-                "value": new_users,
-                "is_positive": new_users >= 0,
-                "label": _("joined in last 7 days"),
-                "display": "0"
-                if new_users == 0
-                else f"{'+' if new_users > 0 else ''}{new_users:,}",
-            },
-            "description": _(
-                "{enrolled}/{total} enrolled · {active} active this week"
-            ).format(
-                enrolled=face_enrolled,
-                total=total_users,
-                active=active_users,
-            ),
+            "label": _("Authentication success"),
+            "percentage": round(success_rate, 2),
+            "value": success_rate,
         },
         {
-            "title": _("Face Authentication Success"),
-            "value": current_rate,
-            "display": f"{current_rate:.1f}%",
-            "icon": "✅",
-            "delta": {
-                "value": success_rate_delta,
-                "is_positive": success_rate_delta >= 0,
-                "label": _("vs previous 24h"),
-                "display": f"{success_rate_delta:+.1f} pp"
-                if success_rate_delta
-                else "0.0 pp",
-            },
-            "description": _("{success}/{total} attempts").format(
-                success=auth_success_24h, total=auth_total_24h
-            ),
+            "label": _("Average liveness score"),
+            "percentage": round((averages["avg_liveness"] or 0) * 100, 2),
+            "value": averages["avg_liveness"] or 0,
         },
         {
-            "title": _("Active Streaming Sessions"),
-            "value": streaming_active,
-            "display": f"{streaming_active:,}",
-            "icon": "📹",
-            "delta": {
-                "value": streaming_total_24h,
-                "is_positive": streaming_total_24h >= 0,
-                "label": _("started in last 24h"),
-                "display": "0"
-                if streaming_total_24h == 0
-                else f"{'+' if streaming_total_24h > 0 else ''}{streaming_total_24h:,}",
-            },
-            "description": _("Latest session status updates in real-time."),
-        },
-        {
-            "title": _("Security Alerts"),
-            "value": open_alerts,
-            "display": f"{open_alerts:,}",
-            "icon": "🛡️",
-            "delta": {
-                "value": high_alerts,
-                "is_positive": False,
-                "label": _("high priority open"),
-                "display": f"{high_alerts:,}",
-            },
-            "description": _("Stay ahead of suspicious activity."),
+            "label": _("Average face quality"),
+            "percentage": round((averages["avg_quality"] or 0) * 100, 2),
+            "value": averages["avg_quality"] or 0,
         },
     ]
 
-    chart_success_rate = {
-        "title": _("Success rate (rolling 7 days)"),
-        "subtitle": _("How consistently users pass face verification."),
-        "canvas_id": "chart-success-rate",
-        "data": {
-            "labels": labels,
-            "datasets": [
-                {
-                    "label": _("Success rate"),
-                    "data": success_points,
-                    "color": "#2563eb",
-                    "fill": True,
-                }
-            ],
-            "y_max": 100,
-            "y_suffix": "%",
-        },
-    }
 
-    chart_failures = {
-        "title": _("Top failure reasons"),
-        "subtitle": _("Focus remediation where users struggle the most."),
-        "canvas_id": "chart-failures",
-        "data": {
-            "labels": [item["label"] for item in failure_data],
-            "datasets": [
-                {
-                    "label": _("Attempts"),
-                    "data": [item["value"] for item in failure_data],
-                    "color": "#f97316",
-                }
-            ],
-            "y_max": max([item["value"] for item in failure_data] + [1]),
-            "y_suffix": "",
-        },
-    }
+def _build_auth_summary(seven_days_ago):
+    attempts = FaceRecognitionAttempt.objects.filter(created_at__gte=seven_days_ago)
+    total = attempts.count()
+    success = attempts.filter(result="success").count()
 
-    chart_requests = {
-        "title": _("Authentication request volume"),
-        "subtitle": _("Total API requests reaching the authentication pipeline."),
-        "canvas_id": "chart-request-volume",
-        "data": {
-            "labels": log_labels,
-            "datasets": [
-                {
-                    "label": _("Requests"),
-                    "data": log_values,
-                    "color": "#0ea5e9",
-                    "fill": False,
-                }
-            ],
-            "y_max": max(log_values + [1]),
-            "y_suffix": "",
-        },
-    }
+    averages = attempts.aggregate(
+        avg_similarity=Avg("similarity_score"),
+        avg_liveness=Avg("liveness_score"),
+        avg_quality=Avg("face_quality_score"),
+    )
 
-    chart_auth_methods = {
-        "title": _("Authentication methods"),
-        "subtitle": _("Login attempts split by verification channel (7 days)."),
-        "canvas_id": "chart-auth-methods",
-        "data": {
-            "labels": auth_method_labels or [_("No data")],
-            "datasets": [
-                {
-                    "label": _("Attempts"),
-                    "data": auth_method_values or [0],
-                    "color": "#14b8a6",
-                }
-            ],
-            "y_max": max((auth_method_values or [0]) + [1]),
-            "y_suffix": "",
-        },
-    }
-
-    chart_device_types = {
-        "title": _("Trusted device mix"),
-        "subtitle": _("Top devices recently used for login."),
-        "canvas_id": "chart-device-types",
-        "data": {
-            "labels": device_labels or [_("No data")],
-            "datasets": [
-                {
-                    "label": _("Devices"),
-                    "data": device_values or [0],
-                    "color": "#6366f1",
-                }
-            ],
-            "y_max": max((device_values or [0]) + [1]),
-            "y_suffix": "",
-        },
-    }
-
-    chart_risk_levels = {
-        "title": _("Risk distribution"),
-        "subtitle": _("Current behavioral risk assessment across users."),
-        "canvas_id": "chart-risk-levels",
-        "data": {
-            "labels": risk_labels or [_("No data")],
-            "datasets": [
-                {
-                    "label": _("Profiles"),
-                    "data": risk_values or [0],
-                    "color": "#f97316",
-                }
-            ],
-            "y_max": max((risk_values or [0]) + [1]),
-            "y_suffix": "",
-        },
-    }
-
-    gauges = [
-        {
-            "label": _("Avg similarity"),
-            "value": gauge_similarity,
-            "max": 1.0,
-            "percentage": round(min(max(gauge_similarity / 1.0, 0.0), 1.0) * 100, 1),
-        },
-        {
-            "label": _("Avg liveness"),
-            "value": gauge_liveness,
-            "max": 1.0,
-            "percentage": round(min(max(gauge_liveness / 1.0, 0.0), 1.0) * 100, 1),
-        },
-        {
-            "label": _("Avg quality"),
-            "value": gauge_quality,
-            "max": 1.0,
-            "percentage": round(min(max(gauge_quality / 1.0, 0.0), 1.0) * 100, 1),
-        },
+    failures = (
+        attempts.values("result")
+        .annotate(count=Count("id"))
+        .exclude(result="success")
+        .order_by("-count")[:5]
+    )
+    result_labels = dict(FaceRecognitionAttempt.RESULT_CHOICES)
+    failure_data = [
+        {"label": result_labels.get(entry["result"], entry["result"]), "value": entry["count"]}
+        for entry in failures
     ]
 
-    engine_overview = {
-        "enrolled_users": face_enrolled,
-        "face_enabled": face_enabled,
-        "active_embeddings": active_embeddings,
-        "total_embeddings": total_embeddings,
-        "enrollments_active": enrollments_active,
-        "enrollments_completed": enrollments_completed,
-        "recent_metrics": latest_metrics,
-    }
+    success_rate = (success / total) * 100 if total else 0
 
     return {
-        "dashboard_cards": cards,
-        "chart_success_rate": chart_success_rate,
-        "chart_failures": chart_failures,
-        "chart_requests": chart_requests,
-        "chart_auth_methods": chart_auth_methods,
-        "chart_device_types": chart_device_types,
-        "chart_risk_levels": chart_risk_levels,
-        "gauges": gauges,
-        "auth_summary": {
-            "total_attempts": summary_total,
-            "success_rate": _safe_percentage(summary_success, summary_total),
-            "average_similarity": gauge_similarity,
-            "average_liveness": gauge_liveness,
-            "average_quality": gauge_quality,
-            "failures": failure_data,
-        },
-        "recent_attempts": recent_attempts,
-        "recent_sessions": recent_sessions,
-        "recent_alerts": recent_alerts,
-        "engine_overview": engine_overview,
-        "top_risk_profiles": top_risk_profiles,
+        "total_attempts": total,
+        "success_rate": round(success_rate, 2),
+        "average_similarity": averages["avg_similarity"] or 0,
+        "average_liveness": averages["avg_liveness"] or 0,
+        "average_quality": averages["avg_quality"] or 0,
+        "failures": failure_data,
     }
 
 
-def _inject_dashboard_context(request, extra_context=None):
-    """Wrap the default admin index view with additional context."""
-    if extra_context is None:
-        extra_context = {}
-    extra_context.update(get_dashboard_context())
-    return extra_context
+def _build_engine_overview(seven_days_ago):
+    return {
+        "enrolled_users": ClientUser.objects.filter(is_enrolled=True).count(),
+        "face_enabled": ClientUser.objects.filter(face_auth_enabled=True).count(),
+        "active_embeddings": FaceEnrollment.objects.filter(status="active").count(),
+        "total_embeddings": FaceEnrollment.objects.count(),
+        "enrollments_active": AuthenticationSession.objects.filter(
+            session_type="enrollment", status="active"
+        ).count(),
+        "enrollments_completed": AuthenticationSession.objects.filter(
+            session_type="enrollment", status="completed"
+        ).count(),
+        "recent_metrics": list(
+            AnalyticsSystemMetric.objects.order_by("-timestamp")
+            .values("metric_name", "value", "unit", "timestamp")[:5]
+        ),
+    }
 
 
-def _wrap_admin_index():
-    """Attach the dashboard template and context builder to the default admin site."""
-    original_index = admin.site.index
+def _build_recent_attempts():
+    result_labels = dict(FaceRecognitionAttempt.RESULT_CHOICES)
+    attempts = (
+        FaceRecognitionAttempt.objects.select_related("matched_user")
+        .order_by("-created_at")[:5]
+    )
+    data = []
+    for attempt in attempts:
+        matched = attempt.matched_user
+        data.append(
+            {
+                "user": matched.display_name if matched else _("Unknown user"),
+                "result": attempt.result,
+                "result_label": result_labels.get(attempt.result, attempt.result),
+                "similarity": attempt.similarity_score or 0,
+                "quality": attempt.face_quality_score or 0,
+                "liveness": attempt.liveness_score or 0,
+                "created_at": attempt.created_at,
+            }
+        )
+    return data
 
-    def custom_index(request, extra_context=None):
-        context = _inject_dashboard_context(request, extra_context)
-        return original_index(request, extra_context=context)
 
-    custom_index.__name__ = original_index.__name__
-    custom_index.__doc__ = original_index.__doc__
-    admin.site.index = custom_index
+def _build_recent_sessions():
+    sessions = (
+        AuthenticationSession.objects.select_related("client_user")
+        .order_by("-created_at")[:5]
+    )
+    data = []
+    for session in sessions:
+        client_user = session.client_user
+        data.append(
+            {
+                "session_token": session.session_token,
+                "session_type": session.session_type,
+                "status": session.status,
+                "user__email": (
+                    client_user.display_name
+                    if client_user
+                    else _("Anonymous")
+                ),
+                "created_at": session.created_at,
+                "completed_at": session.completed_at,
+            }
+        )
+    return data
+
+
+def _build_risk_profiles(seven_days_ago):
+    profiles = (
+        UserBehaviorAnalytics.objects.filter(
+            updated_at__gte=seven_days_ago,
+            risk_level__in=["high", "critical"],
+        )
+        .select_related("user")
+        .order_by("-risk_level", "-suspicious_activity_count")[:5]
+    )
+    data = []
+    for profile in profiles:
+        user = profile.user
+        data.append(
+            {
+                "user": user.get_full_name() or user.email,
+                "email": user.email,
+                "risk_level": profile.risk_level.title(),
+                "suspicious_activity_count": profile.suspicious_activity_count,
+                "auth_success_rate": (profile.auth_success_rate or 0) * 100,
+                "last_assessed": profile.last_risk_assessment,
+            }
+        )
+    return data
+
+
+def _build_security_alerts():
+    alerts = (
+        SecurityAlert.objects.filter(resolved=False)
+        .select_related("user")
+        .order_by("-created_at")[:5]
+    )
+    data = []
+    for alert in alerts:
+        data.append(
+            {
+                "severity": alert.severity,
+                "created_at": alert.created_at,
+                "title": alert.title,
+                "alert_type": alert.alert_type,
+                "user__email": alert.user.email if alert.user else None,
+                "acknowledged": alert.acknowledged,
+                "resolved": alert.resolved,
+            }
+        )
+    return data
+
+
+def build_dashboard_context():
+    now = timezone.now()
+    seven_days_ago = now - timedelta(days=7)
+    thirty_days_ago = now - timedelta(days=30)
+
+    return {
+        "dashboard_cards": _build_dashboard_cards(now, seven_days_ago),
+        "chart_success_rate": _build_success_rate_chart(seven_days_ago),
+        "chart_failures": _build_failure_chart(seven_days_ago),
+        "chart_requests": _build_request_chart(seven_days_ago),
+        "chart_auth_methods": _build_auth_method_chart(thirty_days_ago),
+        "chart_device_types": _build_device_chart(thirty_days_ago),
+        "chart_risk_levels": _build_risk_chart(thirty_days_ago),
+        "gauges": _build_gauges(seven_days_ago),
+        "auth_summary": _build_auth_summary(seven_days_ago),
+        "engine_overview": _build_engine_overview(seven_days_ago),
+        "recent_attempts": _build_recent_attempts(),
+        "recent_sessions": _build_recent_sessions(),
+        "top_risk_profiles": _build_risk_profiles(seven_days_ago),
+        "recent_alerts": _build_security_alerts(),
+    }
+
+
+def _dashboard_index(self, request, extra_context=None):
+    context = self.each_context(request)
+    context.update({"title": _("Dashboard"), "app_list": self.get_app_list(request)})
+    if extra_context:
+        context.update(extra_context)
+    context.update(build_dashboard_context())
+    return TemplateResponse(request, "admin/dashboard.html", context)
+
+
+def register_dashboard():
     admin.site.index_template = "admin/dashboard.html"
+    admin.site.index = MethodType(_dashboard_index, admin.site)
 
 
-# Perform the patch as soon as the module is imported.
-_wrap_admin_index()
+register_dashboard()

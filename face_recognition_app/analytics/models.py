@@ -14,6 +14,14 @@ User = get_user_model()
 class AuthenticationLog(models.Model):
     """Comprehensive authentication logging"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    client = models.ForeignKey(
+        'clients.Client',
+        on_delete=models.CASCADE,
+        related_name='authentication_logs',
+        null=True,
+        blank=True,
+        help_text="Client tenant associated with the authentication attempt",
+    )
     
     # User information
     user = models.ForeignKey(
@@ -91,6 +99,7 @@ class AuthenticationLog(models.Model):
         verbose_name = "Authentication Log"
         verbose_name_plural = "Authentication Logs"
         indexes = [
+            models.Index(fields=['client', 'created_at']),
             models.Index(fields=['user', 'created_at']),
             models.Index(fields=['success', 'created_at']),
             models.Index(fields=['auth_method', 'created_at']),
@@ -107,6 +116,14 @@ class AuthenticationLog(models.Model):
 class SystemMetrics(models.Model):
     """System-wide performance metrics"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    client = models.ForeignKey(
+        'clients.Client',
+        on_delete=models.CASCADE,
+        related_name='system_metrics',
+        null=True,
+        blank=True,
+        help_text="Client tenant for the recorded metric",
+    )
     
     # Metric information
     metric_name = models.CharField(max_length=100)
@@ -134,6 +151,7 @@ class SystemMetrics(models.Model):
         verbose_name = "System Metric"
         verbose_name_plural = "System Metrics"
         indexes = [
+            models.Index(fields=['client', 'timestamp']),
             models.Index(fields=['metric_name', 'timestamp']),
             models.Index(fields=['metric_type', 'timestamp']),
         ]
@@ -146,6 +164,14 @@ class SystemMetrics(models.Model):
 class UserBehaviorAnalytics(models.Model):
     """Track user behavior patterns"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    client = models.ForeignKey(
+        'clients.Client',
+        on_delete=models.CASCADE,
+        related_name='behavior_analytics',
+        null=True,
+        blank=True,
+        help_text="Client tenant associated with this behavioral profile",
+    )
     user = models.ForeignKey(
         User, 
         on_delete=models.CASCADE, 
@@ -199,6 +225,15 @@ class UserBehaviorAnalytics(models.Model):
 class SecurityAlert(models.Model):
     """Security alerts and notifications"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    client = models.ForeignKey(
+        'clients.Client',
+        on_delete=models.CASCADE,
+        related_name='security_alerts',
+        null=True,
+        blank=True,
+        help_text="Client tenant that owns this alert",
+    )
     
     # Alert information
     alert_type = models.CharField(
@@ -269,6 +304,7 @@ class SecurityAlert(models.Model):
         verbose_name = "Security Alert"
         verbose_name_plural = "Security Alerts"
         indexes = [
+            models.Index(fields=['client', 'created_at']),
             models.Index(fields=['severity', 'created_at']),
             models.Index(fields=['user', 'created_at']),
             models.Index(fields=['acknowledged', 'resolved']),
@@ -282,6 +318,14 @@ class SecurityAlert(models.Model):
 class FaceRecognitionStats(models.Model):
     """Aggregated face recognition statistics"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    client = models.ForeignKey(
+        'clients.Client',
+        on_delete=models.CASCADE,
+        related_name='recognition_stats',
+        null=True,
+        blank=True,
+        help_text="Client tenant for aggregated recognition statistics",
+    )
     
     # Time period
     date = models.DateField()
@@ -316,8 +360,9 @@ class FaceRecognitionStats(models.Model):
     class Meta:
         verbose_name = "Face Recognition Stats"
         verbose_name_plural = "Face Recognition Stats"
-        unique_together = ['date', 'hour']
+        unique_together = ['client', 'date', 'hour']
         indexes = [
+            models.Index(fields=['client', 'date']),
             models.Index(fields=['date']),
             models.Index(fields=['date', 'hour']),
         ]

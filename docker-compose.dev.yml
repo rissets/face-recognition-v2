@@ -1,0 +1,156 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: face_recognition_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: face_recognition
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password_rahasia
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - face_recognition_dev_network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: face_recognition_redis_dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_dev_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - face_recognition_dev_network
+
+  # MinIO Object Storage
+  minio:
+    image: minio/minio:latest
+    container_name: face_recognition_minio_dev
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_dev_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - face_recognition_dev_network
+
+  # MinIO Setup
+  minio-setup:
+    image: minio/mc:latest
+    container_name: face_recognition_minio_setup_dev
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 10;
+      /usr/bin/mc alias set minio http://minio:9000 minioadmin minioadmin123;
+      /usr/bin/mc mb minio/face-recognition --ignore-existing;
+      /usr/bin/mc policy set public minio/face-recognition;
+      /usr/bin/mc mb minio/static --ignore-existing;
+      /usr/bin/mc policy set public minio/static;
+      "
+    networks:
+      - face_recognition_dev_network
+
+  # ChromaDB
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: face_recognition_chroma_dev
+    restart: unless-stopped
+    environment:
+      CHROMA_SERVER_HOST: 0.0.0.0
+      CHROMA_SERVER_PORT: 8000
+    volumes:
+      - chroma_dev_data:/chroma/chroma
+    ports:
+      - "8000:8000"
+    networks:
+      - face_recognition_dev_network
+
+  # Django Development
+  django-dev:
+    build:
+      context: ./face_recognition_app
+      target: development
+    container_name: face_recognition_django_dev
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+      # - minio
+      - chromadb
+      - minio-setup
+    environment:
+      DEBUG: "true"
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: face_recognition
+      DB_USER: postgres
+      DB_PASSWORD: password_rahasia
+      DB_HOST: postgres
+      DB_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      USE_MINIO: "true"
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_BUCKET_NAME: face-recognition
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: 8000
+      ALLOWED_HOSTS: "localhost,127.0.0.1,django-dev,frontend-dev"
+    volumes:
+      - ./face_recognition_app:/app
+      - django_dev_media:/app/media
+      - django_dev_logs:/app/logs
+    ports:
+      - "8003:8000"
+    networks:
+      - face_recognition_dev_network
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             uvicorn face_app.asgi:application --host 0.0.0.0 --port 8000 --reload --ws websockets"
+
+  # Frontend Development
+  frontend-dev:
+    build:
+      context: ./frontend_test
+      target: development
+    container_name: face_recognition_frontend_dev
+    restart: unless-stopped
+    volumes:
+      - ./frontend_test:/app
+      - /app/node_modules
+    ports:
+      - "8005:8080"
+    networks:
+      - face_recognition_dev_network
+    environment:
+      NODE_ENV: development
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:
+  minio_dev_data:
+  chroma_dev_data:
+  django_dev_media:
+  django_dev_logs:
+
+networks:
+  face_recognition_dev_network:
+    driver: bridge

@@ -1,0 +1,21 @@
+# Requirements untuk Passive Liveness Detection System
+
+# Computer Vision
+opencv-python>=4.8.0
+opencv-contrib-python>=4.8.0
+
+# Deep Learning & Face Analysis
+mediapipe>=0.10.0
+insightface>=0.7.3
+onnxruntime>=1.16.0
+
+# YOLO untuk object detection
+ultralytics>=8.0.0
+
+# Scientific Computing
+numpy>=1.24.0
+scipy>=1.11.0
+scikit-learn>=1.3.0
+
+# Optional: GPU acceleration
+# onnxruntime-gpu>=1.16.0  # Uncomment jika punya NVIDIA GPU

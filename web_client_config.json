@@ -1,0 +1,100 @@
+{
+  "servers": [
+    {
+      "name": "Local Development",
+      "url": "http://localhost:8000",
+      "description": "Local Django development server"
+    },
+    {
+      "name": "Production",
+      "url": "https://face.ahu.go.id",
+      "description": "Production Face Recognition API"
+    },
+    {
+      "name": "Staging",
+      "url": "https://staging-face.ahu.go.id",
+      "description": "Staging environment"
+    }
+  ],
+  "webServer": {
+    "description": "Web Server Configuration",
+    "defaults": {
+      "host": "127.0.0.1",
+      "port": 8080
+    },
+    "examples": {
+      "local": "python web_server.py",
+      "network": "python web_server.py --public --port 8080",
+      "custom": "python web_server.py --host 0.0.0.0 --port 5000"
+    }
+  },
+  "modes": [
+    {
+      "name": "enrollment",
+      "description": "Mendaftarkan wajah user baru",
+      "required_params": ["user_id"],
+      "optional_params": ["old_photo_path"],
+      "features": [
+        "Multi-frame capture",
+        "Face quality validation",
+        "Liveness detection",
+        "Similarity with old photo",
+        "Obstacle detection"
+      ]
+    },
+    {
+      "name": "authentication",
+      "description": "Verifikasi atau identifikasi wajah",
+      "required_params": [],
+      "optional_params": ["user_id"],
+      "features": [
+        "Verification (dengan user_id)",
+        "Identification (tanpa user_id)",
+        "Confidence scoring",
+        "Liveness requirement",
+        "Real-time feedback"
+      ]
+    }
+  ],
+  "camera": {
+    "resolution": "640x480",
+    "framerate": "10 FPS",
+    "supported_devices": [0, 1, 2]
+  },
+  "liveness_checks": {
+    "blink_detection": {
+      "required_blinks": 1,
+      "description": "Minimum blinks required for liveness"
+    },
+    "motion_detection": {
+      "required_motion": 1,
+      "description": "Minimum motion events required"
+    },
+    "eye_aspect_ratio": {
+      "threshold": 0.15,
+      "description": "Eye aspect ratio for blink detection"
+    },
+    "quality_threshold": {
+      "value": 0.65,
+      "description": "Minimum face quality score"
+    }
+  },
+  "response_metrics": {
+    "enrollment": [
+      "enrollment_id",
+      "frames_processed",
+      "blinks_detected",
+      "motion_verified",
+      "quality_score",
+      "similarity_with_old_photo"
+    ],
+    "authentication": [
+      "authenticated",
+      "user_id",
+      "confidence",
+      "frames_processed",
+      "blinks_detected",
+      "motion_verified"
+    ]
+  }
+}

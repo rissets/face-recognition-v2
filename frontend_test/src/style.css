@@ -221,6 +221,90 @@ nav {
   gap: 1.5rem;
 }
 
+.section-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.section-subtitle {
+  margin: 0;
+  color: #475569;
+  font-size: 0.95rem;
+}
+
+.client-overview {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.client-identity {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.client-identity h3 {
+  margin: 0 0 0.35rem 0;
+}
+
+.client-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.badge-tier {
+  background: rgba(59, 130, 246, 0.15);
+  color: #1d4ed8;
+}
+
+.info-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.info-card__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.stat-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.stat-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.stat-card__label {
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.stat-card strong {
+  font-size: 1.35rem;
+  color: #0f172a;
+}
+
+.stat-card small {
+  color: #64748b;
+}
+
 .layout-split {
   display: grid;
   gap: 1.5rem;
@@ -246,9 +330,185 @@ nav {
   color: #b45309;
 }
 
+.status-warning {
+  color: #b45309;
+  font-weight: 600;
+}
+
 .status-pill.danger {
   background: rgba(248, 113, 113, 0.18);
   color: #b91c1c;
+}
+
+.info-panel {
+  background: #f9fafb;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.info-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.info-panel__header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.info-panel__body {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.feature-meta {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.feature-meta__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+  color: #1f2933;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chip {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.chip-list--muted .chip,
+.chip--muted {
+  background: rgba(15, 23, 42, 0.06);
+  color: #0f172a;
+}
+
+.bullet-list {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.95rem;
+  color: #1f2933;
+}
+
+.summary-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.summary-label {
+  display: block;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #64748b;
+  letter-spacing: 0.04em;
+}
+
+.webhook-summary {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.mini-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.mini-table th,
+.mini-table td {
+  padding: 0.55rem 0.4rem;
+  text-align: left;
+}
+
+.mini-table tbody tr:nth-child(even) {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.insight-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.insight-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  color: #0f172a;
+  background: rgba(37, 99, 235, 0.08);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+}
+
+.form-grid--two-column {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.field--textarea textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.checkbox-field input {
+  margin-right: 0.5rem;
+}
+
+.table-responsive {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+  padding: 0.75rem 0.65rem;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.data-table tbody tr:hover {
+  background: rgba(37, 99, 235, 0.07);
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .log-panel {

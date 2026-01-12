@@ -24,21 +24,30 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 from face_app import admin_dashboard  # noqa: F401
+from core.views import health_check
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    
+    # Health check endpoint
+    path("health/", health_check, name="health_check"),
     
     # API Documentation
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
     
-    # API Endpoints
+    # API Endpoints - New Third-Party Service Architecture
+    path('api/core/', include(('core.urls', 'core'), namespace='core-prefixed')),
+    path('api/clients/', include('clients.urls')),
+    path('api/auth/', include('auth_service.urls')),
+    path('api/webhooks/', include('webhooks.urls')),
+    
+    # Legacy endpoints (temporarily maintained for backward compatibility)
     path('api/', include('core.urls')),
     path('api/recognition/', include('recognition.urls')),
     path('api/analytics/', include('analytics.urls')),
     path('api/streaming/', include('streaming.urls')),
-    path('api/users/', include('users.urls')),
     
     # Test Interface
     # path('test/', include('core.test_urls')),
@@ -48,4 +57,3 @@ urlpatterns = [
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
-

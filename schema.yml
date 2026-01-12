@@ -1,0 +1,6237 @@
+openapi: 3.0.3
+info:
+  title: Face Recognition API
+  version: 1.0.0
+  description: Advanced Face Recognition System with real-time authentication, enrollment,
+    and analytics capabilities. Built with Django REST Framework, WebRTC, and AI-powered
+    face detection.
+  contact:
+    name: Face Recognition API Support
+    email: support@facerecognition.com
+  license:
+    name: MIT License
+    url: https://opensource.org/licenses/MIT
+paths:
+  /health/:
+    get:
+      operationId: health_retrieve
+      description: A lightweight endpoint for load balancers and uptime monitoring
+        to quickly check if the service is operational.
+      summary: Health Check
+      tags:
+      - System
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      - WebhookAuth: []
+      - {}
+      responses:
+        '200':
+          description: Service is healthy
+        '503':
+          description: Service is unhealthy
+  /api/schema/:
+    get:
+      operationId: api_schema_retrieve
+      description: |-
+        OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+        - YAML: application/vnd.oai.openapi
+        - JSON: application/vnd.oai.openapi+json
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - yaml
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - af
+          - ar
+          - ar-dz
+          - ast
+          - az
+          - be
+          - bg
+          - bn
+          - br
+          - bs
+          - ca
+          - ckb
+          - cs
+          - cy
+          - da
+          - de
+          - dsb
+          - el
+          - en
+          - en-au
+          - en-gb
+          - eo
+          - es
+          - es-ar
+          - es-co
+          - es-mx
+          - es-ni
+          - es-ve
+          - et
+          - eu
+          - fa
+          - fi
+          - fr
+          - fy
+          - ga
+          - gd
+          - gl
+          - he
+          - hi
+          - hr
+          - hsb
+          - hu
+          - hy
+          - ia
+          - id
+          - ig
+          - io
+          - is
+          - it
+          - ja
+          - ka
+          - kab
+          - kk
+          - km
+          - kn
+          - ko
+          - ky
+          - lb
+          - lt
+          - lv
+          - mk
+          - ml
+          - mn
+          - mr
+          - ms
+          - my
+          - nb
+          - ne
+          - nl
+          - nn
+          - os
+          - pa
+          - pl
+          - pt
+          - pt-br
+          - ro
+          - ru
+          - sk
+          - sl
+          - sq
+          - sr
+          - sr-latn
+          - sv
+          - sw
+          - ta
+          - te
+          - tg
+          - th
+          - tk
+          - tr
+          - tt
+          - udm
+          - ug
+          - uk
+          - ur
+          - uz
+          - vi
+          - zh-hans
+          - zh-hant
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      - WebhookAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/vnd.oai.openapi:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/yaml:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/vnd.oai.openapi+json:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/core/config/:
+    get:
+      operationId: api_core_config_list
+      description: Retrieve a list of system configuration settings. (Admin only)
+      summary: List System Configurations
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - System
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSystemConfigurationList'
+          description: ''
+  /api/core/config/{id}/:
+    get:
+      operationId: api_core_config_retrieve
+      description: Get details of a specific system configuration setting. (Admin
+        only)
+      summary: Retrieve a System Configuration
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this System Configuration.
+        required: true
+      tags:
+      - System
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemConfiguration'
+          description: ''
+  /api/core/audit-logs/:
+    get:
+      operationId: api_core_audit_logs_list
+      description: Retrieve a list of audit log entries for the authenticated client.
+      summary: List Audit Logs
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - System
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditLogList'
+          description: ''
+  /api/core/audit-logs/{id}/:
+    get:
+      operationId: api_core_audit_logs_retrieve
+      description: Get details of a specific audit log entry.
+      summary: Retrieve an Audit Log
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Audit Log.
+        required: true
+      tags:
+      - System
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLog'
+          description: ''
+  /api/core/security-events/:
+    get:
+      operationId: api_core_security_events_list
+      description: Retrieve a list of security events for the authenticated client.
+      summary: List Security Events
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - System
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSecurityEventList'
+          description: ''
+  /api/core/security-events/{id}/:
+    get:
+      operationId: api_core_security_events_retrieve
+      description: Get details of a specific security event.
+      summary: Retrieve a Security Event
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Security Event.
+        required: true
+      tags:
+      - System
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityEvent'
+          description: ''
+  /api/core/auth/client/:
+    post:
+      operationId: api_core_auth_client_create
+      description: Authenticates a client using their API Key and Secret to obtain
+        a short-lived JWT for subsequent API calls. This is the first step in the
+        authentication flow.
+      summary: Authenticate Client
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientTokenRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientTokenRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientTokenRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      - WebhookAuth: []
+      - {}
+      responses:
+        '200':
+          description: JWT Token Response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid credentials
+  /api/core/auth/user/:
+    post:
+      operationId: api_core_auth_user_create
+      description: Authenticates a specific user belonging to the client. This is
+        a secondary authentication step and its usage depends on the application's
+        security model.
+      summary: Authenticate Client User
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientUserAuthRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientUserAuthRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientUserAuthRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      - WebhookAuth: []
+      responses:
+        '200':
+          description: User authentication success response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid credentials or user not found
+  /api/core/status/:
+    get:
+      operationId: api_core_status_retrieve
+      description: Provides a comprehensive overview of the system's health, including
+        database connectivity, service status, and key operational statistics.
+      summary: Get System Status
+      tags:
+      - System
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      - WebhookAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatus'
+          description: ''
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal Server Error
+  /api/core/health/:
+    get:
+      operationId: api_core_health_retrieve
+      description: A lightweight endpoint for load balancers and uptime monitoring
+        to quickly check if the service is operational.
+      summary: Health Check
+      tags:
+      - System
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      - WebhookAuth: []
+      - {}
+      responses:
+        '200':
+          description: Service is healthy
+        '503':
+          description: Service is unhealthy
+  /api/core/info/:
+    get:
+      operationId: api_core_info_retrieve
+      description: Retrieves detailed information about the currently authenticated
+        client, including configuration, rate limits, features, and usage analytics.
+      summary: Get Client Information
+      tags:
+      - Client Management
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Client information response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unauthorized
+  /api/core/security/event/:
+    post:
+      operationId: api_core_security_event_create
+      description: Allows authenticated clients to log custom security-related events
+        from their applications into the system for centralized monitoring and auditing.
+      summary: Log a Security Event
+      tags:
+      - System
+      - Analytics
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecurityEventRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SecurityEventRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SecurityEventRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Bad Request
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unauthorized
+  /api/clients/clients/:
+    get:
+      operationId: api_clients_clients_list
+      description: Retrieve the client record for the authenticated API key. Non-admin
+        keys can only see their own client.
+      summary: List Clients
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Client Management
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedClientList'
+          description: ''
+    post:
+      operationId: api_clients_clients_create
+      description: Create a new client. This endpoint is typically restricted to system
+        administrators.
+      summary: Create a Client (Admin Only)
+      tags:
+      - Client Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+          description: ''
+  /api/clients/clients/{id}/:
+    patch:
+      operationId: api_clients_clients_partial_update
+      description: Partially update the configuration of the authenticated client.
+      summary: Partially Update Client Details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client.
+        required: true
+      tags:
+      - Client Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedClientRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedClientRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedClientRequest'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+          description: ''
+    delete:
+      operationId: api_clients_clients_destroy
+      description: Permanently delete a client. This is a destructive action and typically
+        restricted.
+      summary: Delete a Client (Admin Only)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client.
+        required: true
+      tags:
+      - Client Management
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
+    get:
+      operationId: api_clients_clients_retrieve
+      description: Get detailed information about the authenticated client.
+      summary: Retrieve Client Details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client.
+        required: true
+      tags:
+      - Client Management
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+          description: ''
+    put:
+      operationId: api_clients_clients_update
+      description: Update the configuration of the authenticated client.
+      summary: Update Client Details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client.
+        required: true
+      tags:
+      - Client Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+          description: ''
+  /api/clients/clients/{id}/reset_credentials/:
+    post:
+      operationId: api_clients_clients_reset_credentials_create
+      description: Rotate API keys, secret keys, or webhook secrets for the authenticated
+        client. The old credentials will be invalidated.
+      summary: Reset Client Credentials
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client.
+        required: true
+      tags:
+      - Client Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientCredentialsResetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientCredentialsResetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientCredentialsResetRequest'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientCredentialsResetResponse'
+          description: ''
+  /api/clients/clients/{id}/stats/:
+    get:
+      operationId: api_clients_clients_stats_retrieve
+      description: Retrieve aggregated usage metrics and statistics for the authenticated
+        client, such as user counts, authentication attempts, and API call volume.
+      summary: Get Client Statistics
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client.
+        required: true
+      tags:
+      - Client Management
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientStats'
+          description: ''
+  /api/clients/users/:
+    get:
+      operationId: api_clients_users_list
+      description: Retrieve a paginated list of users associated with the authenticated
+        client.
+      summary: List Client Users
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Client Management
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedClientUserList'
+          description: ''
+    post:
+      operationId: api_clients_users_create
+      description: Create a new user associated with the authenticated client.
+      summary: Create a Client User
+      tags:
+      - Client Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientUserWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientUserWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientUserWriteRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientUser'
+          description: ''
+  /api/clients/users/{id}/:
+    patch:
+      operationId: api_clients_users_partial_update
+      description: Partially update the details of an existing client user.
+      summary: Partially Update a Client User
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client User.
+        required: true
+      tags:
+      - Client Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedClientUserWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedClientUserWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedClientUserWriteRequest'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientUser'
+          description: ''
+    delete:
+      operationId: api_clients_users_destroy
+      description: Permanently delete a client user and all their associated data,
+        including enrollments.
+      summary: Delete a Client User
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client User.
+        required: true
+      tags:
+      - Client Management
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
+    get:
+      operationId: api_clients_users_retrieve
+      description: Get detailed information about a specific user by their ID.
+      summary: Retrieve a Client User
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client User.
+        required: true
+      tags:
+      - Client Management
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientUser'
+          description: ''
+    put:
+      operationId: api_clients_users_update
+      description: Update the details of an existing client user.
+      summary: Update a Client User
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client User.
+        required: true
+      tags:
+      - Client Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientUserWriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientUserWriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientUserWriteRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientUser'
+          description: ''
+  /api/clients/users/{id}/activate/:
+    post:
+      operationId: api_clients_users_activate_create
+      description: Enable the face authentication feature for a specific client user.
+      summary: Activate Face Authentication
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client User.
+        required: true
+      tags:
+      - Client Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientUserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientUserRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientUserToggleResponse'
+          description: ''
+  /api/clients/users/{id}/deactivate/:
+    post:
+      operationId: api_clients_users_deactivate_create
+      description: Disable the face authentication feature for a specific client user.
+      summary: Deactivate Face Authentication
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client User.
+        required: true
+      tags:
+      - Client Management
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientUserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientUserRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientUserToggleResponse'
+          description: ''
+  /api/clients/users/{id}/enrollments/:
+    get:
+      operationId: api_clients_users_enrollments_retrieve
+      description: Retrieve a list of all face enrollment records for a specific client
+        user.
+      summary: List User Enrollments
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Client User.
+        required: true
+      tags:
+      - Client Management
+      - Face Enrollment
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientUserEnrollmentList'
+          description: ''
+  /api/clients/usage/:
+    get:
+      operationId: api_clients_usage_list
+      description: Retrieve a paginated list of API usage logs for the authenticated
+        client.
+      summary: List API Usage Logs
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Client Management
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedClientAPIUsageList'
+          description: ''
+  /api/clients/usage/{id}/:
+    get:
+      operationId: api_clients_usage_retrieve
+      description: Get detailed information about a specific API usage log entry.
+      summary: Retrieve API Usage Log
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this API Usage.
+        required: true
+      tags:
+      - Client Management
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientAPIUsage'
+          description: ''
+  /api/clients/webhook-logs/:
+    get:
+      operationId: api_clients_webhook_logs_list
+      description: Retrieve a paginated list of webhook delivery logs for the authenticated
+        client.
+      summary: List Webhook Logs
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Client Management
+      - Webhooks
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedClientWebhookLogList'
+          description: ''
+  /api/clients/webhook-logs/failed/:
+    get:
+      operationId: api_clients_webhook_logs_failed_retrieve
+      description: Shortcut to inspect failed deliveries.
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientWebhookLog'
+          description: ''
+  /api/clients/webhook-logs/{id}/:
+    get:
+      operationId: api_clients_webhook_logs_retrieve
+      description: Get detailed information about a specific webhook delivery log
+        entry.
+      summary: Retrieve Webhook Log
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Log.
+        required: true
+      tags:
+      - Client Management
+      - Webhooks
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientWebhookLog'
+          description: ''
+  /api/auth/sessions/:
+    get:
+      operationId: api_auth_sessions_list
+      description: Retrieve a paginated list of authentication sessions for the authenticated
+        client.
+      summary: List Authentication Sessions
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Session Management
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuthenticationSessionList'
+          description: ''
+  /api/auth/sessions/{id}/:
+    get:
+      operationId: api_auth_sessions_retrieve
+      description: Get detailed information about a specific authentication session
+        by its ID.
+      summary: Retrieve an Authentication Session
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Authentication Session.
+        required: true
+      tags:
+      - Session Management
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticationSession'
+          description: ''
+  /api/auth/sessions/{id}/status/:
+    get:
+      operationId: api_auth_sessions_status_retrieve
+      description: Check the current status of an authentication or enrollment session.
+      summary: Get Session Status
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Authentication Session.
+        required: true
+      tags:
+      - Session Management
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionStatus'
+          description: ''
+        '404':
+          description: Not Found
+  /api/auth/enrollments/:
+    get:
+      operationId: api_auth_enrollments_list
+      description: Retrieve a list of all face enrollments associated with the client.
+      summary: List Face Enrollments
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Face Enrollment
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedFaceEnrollmentList'
+          description: ''
+    post:
+      operationId: api_auth_enrollments_create
+      description: Manually create a face enrollment record. This is typically handled
+        by the session-based enrollment flow.
+      summary: Create a Face Enrollment (Manual)
+      tags:
+      - Face Enrollment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FaceEnrollmentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FaceEnrollmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FaceEnrollmentRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FaceEnrollment'
+          description: ''
+  /api/auth/enrollments/{id}/:
+    patch:
+      operationId: api_auth_enrollments_partial_update
+      description: Partially update the details of an existing face enrollment.
+      summary: Partially Update a Face Enrollment
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Face Enrollment.
+        required: true
+      tags:
+      - Face Enrollment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedFaceEnrollmentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedFaceEnrollmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedFaceEnrollmentRequest'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FaceEnrollment'
+          description: ''
+    delete:
+      operationId: api_auth_enrollments_destroy
+      description: Permanently delete a face enrollment record.
+      summary: Delete a Face Enrollment
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Face Enrollment.
+        required: true
+      tags:
+      - Face Enrollment
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
+    get:
+      operationId: api_auth_enrollments_retrieve
+      description: Get detailed information about a specific face enrollment by its
+        ID.
+      summary: Retrieve a Face Enrollment
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Face Enrollment.
+        required: true
+      tags:
+      - Face Enrollment
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FaceEnrollment'
+          description: ''
+    put:
+      operationId: api_auth_enrollments_update
+      description: Update the details of an existing face enrollment.
+      summary: Update a Face Enrollment
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Face Enrollment.
+        required: true
+      tags:
+      - Face Enrollment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FaceEnrollmentRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FaceEnrollmentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FaceEnrollmentRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FaceEnrollment'
+          description: ''
+  /api/auth/enrollment/:
+    post:
+      operationId: api_auth_enrollment_create
+      description: Initializes a session to enroll a new user by capturing face frames.
+        A `session_token` is returned, which must be used for subsequent frame uploads.
+      summary: Create Enrollment Session
+      tags:
+      - Face Enrollment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EnrollmentRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EnrollmentRequestRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentCreateResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Bad Request - Invalid input or user not found.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unauthorized - Invalid API key.
+  /api/auth/authentication/:
+    post:
+      operationId: api_auth_authentication_create
+      description: Initializes a session to authenticate a user. For verification,
+        provide a `user_id`. For identification, omit the `user_id`. A `session_token`
+        is returned for use in frame processing.
+      summary: Create Authentication Session
+      tags:
+      - Face Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthenticationRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthenticationRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AuthenticationRequestRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionCreateResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Bad Request - Invalid input.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unauthorized - Invalid API key.
+  /api/auth/process-image/:
+    post:
+      operationId: api_auth_process_image_create
+      description: Upload a single frame (image) for an active enrollment or authentication
+        session. The server processes the frame for face detection, quality checks,
+        and liveness, returning immediate feedback.
+      summary: Process Face Image Frame
+      tags:
+      - Face Authentication
+      - Face Enrollment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FaceImageUploadRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FaceImageUploadRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FaceImageUploadRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FaceFrameResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Bad Request - Invalid image, expired session, or other processing
+            error.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unauthorized - Invalid API key.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Not Found - Session token not found.
+  /api/webhooks/events/:
+    get:
+      operationId: api_webhooks_events_list
+      description: Retrieve a list of all possible webhook events that can be subscribed
+        to.
+      summary: List Webhook Events
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Webhooks
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedWebhookEventList'
+          description: ''
+  /api/webhooks/events/{id}/:
+    get:
+      operationId: api_webhooks_events_retrieve
+      description: Get details of a specific webhook event.
+      summary: Retrieve a Webhook Event
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Event.
+        required: true
+      tags:
+      - Webhooks
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEvent'
+          description: ''
+  /api/webhooks/endpoints/:
+    get:
+      operationId: api_webhooks_endpoints_list
+      description: Retrieve a list of all webhook endpoints configured for the client.
+      summary: List Webhook Endpoints
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Webhooks
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedWebhookEndpointList'
+          description: ''
+    post:
+      operationId: api_webhooks_endpoints_create
+      description: Create a new endpoint to receive webhook notifications.
+      summary: Create a Webhook Endpoint
+      tags:
+      - Webhooks
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+          description: ''
+  /api/webhooks/endpoints/{id}/:
+    patch:
+      operationId: api_webhooks_endpoints_partial_update
+      description: Partially update the configuration of an existing webhook endpoint.
+      summary: Partially Update a Webhook Endpoint
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Endpoint.
+        required: true
+      tags:
+      - Webhooks
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedWebhookEndpointRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedWebhookEndpointRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedWebhookEndpointRequest'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+          description: ''
+    delete:
+      operationId: api_webhooks_endpoints_destroy
+      description: Permanently delete a webhook endpoint.
+      summary: Delete a Webhook Endpoint
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Endpoint.
+        required: true
+      tags:
+      - Webhooks
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
+    get:
+      operationId: api_webhooks_endpoints_retrieve
+      description: Get detailed information about a specific webhook endpoint.
+      summary: Retrieve a Webhook Endpoint
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Endpoint.
+        required: true
+      tags:
+      - Webhooks
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+          description: ''
+    put:
+      operationId: api_webhooks_endpoints_update
+      description: Update the configuration of an existing webhook endpoint.
+      summary: Update a Webhook Endpoint
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Endpoint.
+        required: true
+      tags:
+      - Webhooks
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+          description: ''
+  /api/webhooks/endpoints/{id}/regenerate_secret/:
+    post:
+      operationId: api_webhooks_endpoints_regenerate_secret_create
+      description: Generates a new secret token for a webhook endpoint, invalidating
+        the old one. This is used to sign outgoing webhook payloads.
+      summary: Regenerate Webhook Secret
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Endpoint.
+        required: true
+      tags:
+      - Webhooks
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+          description: ''
+  /api/webhooks/endpoints/{id}/stats/:
+    get:
+      operationId: api_webhooks_endpoints_stats_retrieve
+      description: Retrieve delivery statistics for a specific webhook endpoint, including
+        success rate and average delivery time.
+      summary: Get Endpoint Statistics
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Endpoint.
+        required: true
+      tags:
+      - Webhooks
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+          description: ''
+  /api/webhooks/endpoints/{id}/test/:
+    post:
+      operationId: api_webhooks_endpoints_test_create
+      description: Sends a test event to the specified webhook endpoint to verify
+        its configuration and connectivity.
+      summary: Test a Webhook Endpoint
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Endpoint.
+        required: true
+      tags:
+      - Webhooks
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+          description: ''
+  /api/webhooks/deliveries/:
+    get:
+      operationId: api_webhooks_deliveries_list
+      description: Retrieve a list of all webhook delivery attempts for the client.
+      summary: List Webhook Deliveries
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Webhooks
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedWebhookDeliveryList'
+          description: ''
+  /api/webhooks/deliveries/failed/:
+    get:
+      operationId: api_webhooks_deliveries_failed_retrieve
+      description: A convenient shortcut to retrieve a list of the 100 most recent
+        failed webhook deliveries.
+      summary: List Failed Deliveries
+      tags:
+      - Webhooks
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDelivery'
+          description: ''
+  /api/webhooks/deliveries/{id}/:
+    get:
+      operationId: api_webhooks_deliveries_retrieve
+      description: Get detailed information about a specific webhook delivery attempt.
+      summary: Retrieve a Webhook Delivery
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Delivery.
+        required: true
+      tags:
+      - Webhooks
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDelivery'
+          description: ''
+  /api/webhooks/deliveries/{id}/retry/:
+    post:
+      operationId: api_webhooks_deliveries_retry_create
+      description: Schedules a retry for a single failed webhook delivery.
+      summary: Retry a Webhook Delivery
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Delivery.
+        required: true
+      tags:
+      - Webhooks
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookDeliveryRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/WebhookDeliveryRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WebhookDeliveryRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDelivery'
+          description: ''
+  /api/webhooks/event-logs/:
+    get:
+      operationId: api_webhooks_event_logs_list
+      description: Retrieve a list of historical webhook event logs for the client.
+      summary: List Webhook Event Logs
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Webhooks
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedWebhookEventLogList'
+          description: ''
+  /api/webhooks/event-logs/{id}/:
+    get:
+      operationId: api_webhooks_event_logs_retrieve
+      description: Get detailed information about a specific webhook event log.
+      summary: Retrieve a Webhook Event Log
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Webhook Event Log.
+        required: true
+      tags:
+      - Webhooks
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEventLog'
+          description: ''
+  /api/webhooks/stats/:
+    get:
+      operationId: api_webhooks_stats_retrieve
+      description: Retrieve aggregate webhook statistics for the client over a specified
+        time period (default is 30 days).
+      summary: Get Webhook Statistics
+      tags:
+      - Webhooks
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/webhooks/retry-failed/:
+    post:
+      operationId: api_webhooks_retry_failed_create
+      description: Initiates a retry process for the 50 oldest failed webhook deliveries
+        for the client.
+      summary: Retry All Failed Webhooks
+      tags:
+      - Webhooks
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/webhooks/clear-logs/:
+    delete:
+      operationId: api_webhooks_clear_logs_destroy
+      description: Permanently deletes webhook event and delivery logs older than
+        a specified number of days (default is 90).
+      summary: Clear Old Webhook Logs
+      tags:
+      - Webhooks
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/config/:
+    get:
+      operationId: api_config_list
+      description: Retrieve a list of system configuration settings. (Admin only)
+      summary: List System Configurations
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - System
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSystemConfigurationList'
+          description: ''
+  /api/config/{id}/:
+    get:
+      operationId: api_config_retrieve
+      description: Get details of a specific system configuration setting. (Admin
+        only)
+      summary: Retrieve a System Configuration
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this System Configuration.
+        required: true
+      tags:
+      - System
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemConfiguration'
+          description: ''
+  /api/audit-logs/:
+    get:
+      operationId: api_audit_logs_list
+      description: Retrieve a list of audit log entries for the authenticated client.
+      summary: List Audit Logs
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - System
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditLogList'
+          description: ''
+  /api/audit-logs/{id}/:
+    get:
+      operationId: api_audit_logs_retrieve
+      description: Get details of a specific audit log entry.
+      summary: Retrieve an Audit Log
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Audit Log.
+        required: true
+      tags:
+      - System
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLog'
+          description: ''
+  /api/security-events/:
+    get:
+      operationId: api_security_events_list
+      description: Retrieve a list of security events for the authenticated client.
+      summary: List Security Events
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - System
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSecurityEventList'
+          description: ''
+  /api/security-events/{id}/:
+    get:
+      operationId: api_security_events_retrieve
+      description: Get details of a specific security event.
+      summary: Retrieve a Security Event
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Security Event.
+        required: true
+      tags:
+      - System
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityEvent'
+          description: ''
+  /api/auth/client/:
+    post:
+      operationId: api_auth_client_create
+      description: Authenticates a client using their API Key and Secret to obtain
+        a short-lived JWT for subsequent API calls. This is the first step in the
+        authentication flow.
+      summary: Authenticate Client
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientTokenRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientTokenRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientTokenRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      - WebhookAuth: []
+      - {}
+      responses:
+        '200':
+          description: JWT Token Response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid credentials
+  /api/auth/user/:
+    post:
+      operationId: api_auth_user_create
+      description: Authenticates a specific user belonging to the client. This is
+        a secondary authentication step and its usage depends on the application's
+        security model.
+      summary: Authenticate Client User
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientUserAuthRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientUserAuthRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientUserAuthRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      - WebhookAuth: []
+      responses:
+        '200':
+          description: User authentication success response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid credentials or user not found
+  /api/status/:
+    get:
+      operationId: api_status_retrieve
+      description: Provides a comprehensive overview of the system's health, including
+        database connectivity, service status, and key operational statistics.
+      summary: Get System Status
+      tags:
+      - System
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      - WebhookAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemStatus'
+          description: ''
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Internal Server Error
+  /api/health/:
+    get:
+      operationId: api_health_retrieve
+      description: A lightweight endpoint for load balancers and uptime monitoring
+        to quickly check if the service is operational.
+      summary: Health Check
+      tags:
+      - System
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      - WebhookAuth: []
+      - {}
+      responses:
+        '200':
+          description: Service is healthy
+        '503':
+          description: Service is unhealthy
+  /api/info/:
+    get:
+      operationId: api_info_retrieve
+      description: Retrieves detailed information about the currently authenticated
+        client, including configuration, rate limits, features, and usage analytics.
+      summary: Get Client Information
+      tags:
+      - Client Management
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: Client information response
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unauthorized
+  /api/security/event/:
+    post:
+      operationId: api_security_event_create
+      description: Allows authenticated clients to log custom security-related events
+        from their applications into the system for centralized monitoring and auditing.
+      summary: Log a Security Event
+      tags:
+      - System
+      - Analytics
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecurityEventRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SecurityEventRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SecurityEventRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Bad Request
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unauthorized
+  /api/recognition/embeddings/:
+    get:
+      operationId: api_recognition_embeddings_list
+      description: This endpoint is deprecated. Use the 'Face Enrollment' endpoints
+        instead. It retrieves a list of face enrollments (embeddings).
+      summary: List Face Embeddings (Legacy)
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Legacy Recognition
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      deprecated: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedFaceEnrollmentSummaryList'
+          description: ''
+  /api/recognition/embeddings/{id}/:
+    get:
+      operationId: api_recognition_embeddings_retrieve
+      description: This endpoint is deprecated. Use the 'Face Enrollment' endpoints
+        instead. It retrieves a specific face enrollment (embedding).
+      summary: Retrieve Face Embedding (Legacy)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Legacy Recognition
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      deprecated: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FaceEnrollmentSummary'
+          description: ''
+  /api/recognition/sessions/:
+    get:
+      operationId: api_recognition_sessions_list
+      description: This endpoint is deprecated. Use the 'Session Management' endpoints
+        instead. It retrieves a list of authentication sessions.
+      summary: List Enrollment Sessions (Legacy)
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Legacy Recognition
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      deprecated: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuthenticationSessionSummaryList'
+          description: ''
+  /api/recognition/sessions/{id}/:
+    get:
+      operationId: api_recognition_sessions_retrieve
+      description: This endpoint is deprecated. Use the 'Session Management' endpoints
+        instead. It retrieves a specific authentication session.
+      summary: Retrieve Enrollment Session (Legacy)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Legacy Recognition
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      deprecated: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticationSessionSummary'
+          description: ''
+  /api/recognition/attempts/:
+    get:
+      operationId: api_recognition_attempts_list
+      description: This endpoint is deprecated. Use analytics or session status endpoints
+        instead. It retrieves a list of face recognition attempts.
+      summary: List Authentication Attempts (Legacy)
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - Legacy Recognition
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      deprecated: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedFaceRecognitionAttemptSummaryList'
+          description: ''
+  /api/recognition/attempts/{id}/:
+    get:
+      operationId: api_recognition_attempts_retrieve
+      description: This endpoint is deprecated. Use analytics or session status endpoints
+        instead. It retrieves a specific face recognition attempt.
+      summary: Retrieve Authentication Attempt (Legacy)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Legacy Recognition
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      deprecated: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FaceRecognitionAttemptSummary'
+          description: ''
+  /api/analytics/auth-logs/:
+    get:
+      operationId: api_analytics_auth_logs_list
+      description: Retrieve a paginated list of authentication logs for the authenticated
+        user. Includes filtering capabilities.
+      summary: List Authentication Logs
+      parameters:
+      - in: query
+        name: auth_method
+        schema:
+          type: string
+          enum:
+          - 2fa
+          - face
+          - password
+          - social
+        description: Filter by authentication method
+      - in: query
+        name: date_from
+        schema:
+          type: string
+          format: date
+        description: Filter logs from this date (YYYY-MM-DD)
+      - in: query
+        name: date_to
+        schema:
+          type: string
+          format: date
+        description: Filter logs to this date (YYYY-MM-DD)
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: success
+        schema:
+          type: boolean
+        description: Filter by success status (true/false)
+      tags:
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuthenticationLogList'
+          description: List of authentication logs
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+  /api/analytics/auth-logs/{id}/:
+    get:
+      operationId: api_analytics_auth_logs_retrieve
+      description: Retrieve detailed information about a specific authentication log
+        entry.
+      summary: Get Authentication Log Details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticationLog'
+          description: Authentication log details
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Authentication log not found
+  /api/analytics/security-alerts/:
+    get:
+      operationId: api_analytics_security_alerts_list
+      description: Retrieve a paginated list of security alerts for the authenticated
+        user with filtering capabilities.
+      summary: List Security Alerts
+      parameters:
+      - in: query
+        name: alert_type
+        schema:
+          type: string
+          enum:
+          - brute_force
+          - device_change
+          - face_mismatch
+          - suspicious_login
+          - unusual_activity
+        description: Filter by alert type
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - in: query
+        name: resolved
+        schema:
+          type: boolean
+        description: Filter by resolution status
+      - in: query
+        name: severity
+        schema:
+          type: string
+          enum:
+          - critical
+          - high
+          - low
+          - medium
+        description: Filter by alert severity
+      tags:
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSecurityAlertList'
+          description: List of security alerts
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+  /api/analytics/security-alerts/{id}/:
+    get:
+      operationId: api_analytics_security_alerts_retrieve
+      description: Retrieve detailed information about a specific security alert.
+      summary: Get Security Alert Details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityAlert'
+          description: Security alert details
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+        '404':
+          description: Security alert not found
+  /api/analytics/dashboard/:
+    get:
+      operationId: api_analytics_dashboard_retrieve
+      description: Get comprehensive analytics dashboard data including authentication
+        statistics, security alerts, and performance metrics for the last 30 days.
+      summary: Analytics Dashboard
+      parameters:
+      - in: query
+        name: period
+        schema:
+          type: string
+          enum:
+          - 1_year
+          - 30_days
+          - 7_days
+          - 90_days
+          default: 30_days
+        description: Time period for analytics
+      tags:
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardResponse'
+          description: Dashboard analytics data
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+  /api/analytics/statistics/:
+    get:
+      operationId: api_analytics_statistics_retrieve
+      description: Get comprehensive user statistics including authentication attempts,
+        success rates, and user profile information.
+      summary: User Statistics
+      tags:
+      - Analytics
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsResponse'
+          description: User statistics
+        '401':
+          description: Authentication required
+        '403':
+          description: Permission denied
+  /api/analytics/system-metrics/:
+    get:
+      operationId: api_analytics_system_metrics_list
+      description: Expose collected system metrics with optional filtering.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedSystemMetricsList'
+          description: ''
+  /api/analytics/user-behavior/:
+    get:
+      operationId: api_analytics_user_behavior_retrieve
+      description: Return behavioural analytics for the authenticated client.
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/analytics/face-recognition-stats/:
+    get:
+      operationId: api_analytics_face_recognition_stats_retrieve
+      description: Return aggregated face recognition statistics.
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/analytics/model-performance/:
+    get:
+      operationId: api_analytics_model_performance_list
+      description: List model performance metrics across environments.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedModelPerformanceList'
+          description: ''
+  /api/analytics/data-quality/:
+    get:
+      operationId: api_analytics_data_quality_list
+      description: Expose captured data quality metrics.
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedDataQualityMetricsList'
+          description: ''
+  /api/analytics/monitoring/overview/:
+    get:
+      operationId: api_analytics_monitoring_overview_retrieve
+      description: Provide consolidated monitoring data for dashboards.
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/analytics/api/daily/:
+    get:
+      operationId: api_analytics_api_daily_retrieve
+      description: Get daily analytics report for the authenticated client
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/analytics/api/summary/:
+    get:
+      operationId: api_analytics_api_summary_retrieve
+      description: Get summary analytics for the authenticated client
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/analytics/api/overview/:
+    get:
+      operationId: api_analytics_api_overview_retrieve
+      description: Get analytics overview with multiple time periods
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/streaming/sessions/:
+    get:
+      operationId: api_streaming_sessions_list
+      description: List streaming sessions for the authenticated user
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStreamingSessionList'
+          description: ''
+  /api/streaming/sessions/{id}/:
+    get:
+      operationId: api_streaming_sessions_retrieve
+      description: Get details of a specific streaming session
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamingSession'
+          description: ''
+  /api/streaming/sessions/create/:
+    post:
+      operationId: api_streaming_sessions_create_create
+      description: Create a new streaming session
+      tags:
+      - api
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StreamingSessionRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/StreamingSessionRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StreamingSessionRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamingSession'
+          description: ''
+  /api/streaming/signaling/:
+    get:
+      operationId: api_streaming_signaling_retrieve
+      description: Get recent signaling messages for the user
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: api_streaming_signaling_create
+      description: Handle WebRTC signaling (offer, answer, ICE candidates)
+      tags:
+      - api
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      responses:
+        '200':
+          description: No response body
+components:
+  schemas:
+    AlertTypeEnum:
+      enum:
+      - failed_attempts
+      - new_device
+      - location_anomaly
+      - time_anomaly
+      - quality_degradation
+      - system_breach
+      - data_anomaly
+      type: string
+      description: |-
+        * `failed_attempts` - Multiple Failed Attempts
+        * `new_device` - New Device Login
+        * `location_anomaly` - Unusual Location
+        * `time_anomaly` - Unusual Time
+        * `quality_degradation` - Quality Degradation
+        * `system_breach` - System Breach Attempt
+        * `data_anomaly` - Data Anomaly
+    AuditLog:
+      type: object
+      description: Tenant-aware audit log serialisation.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        client:
+          type: string
+          format: uuid
+          nullable: true
+        client_user:
+          type: string
+          format: uuid
+          nullable: true
+        client_name:
+          type: string
+          readOnly: true
+        client_user_name:
+          type: string
+          readOnly: true
+        action:
+          type: string
+          maxLength: 100
+        resource_type:
+          type: string
+          maxLength: 50
+        resource_id:
+          type: string
+          nullable: true
+          maxLength: 100
+        ip_address:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+        details: {}
+        success:
+          type: boolean
+        error_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - action
+      - resource_type
+    AuthMethodEnum:
+      enum:
+      - face
+      - password
+      - 2fa
+      - social
+      type: string
+      description: |-
+        * `face` - Face Recognition
+        * `password` - Password
+        * `2fa` - Two Factor
+        * `social` - Social Login
+    AuthSessionCreateResponse:
+      type: object
+      description: Serializer for the response after creating an authentication session.
+      properties:
+        session_token:
+          type: string
+          description: The token for the created authentication session.
+        status:
+          type: string
+          description: The initial status of the session, typically 'active'.
+        expires_at:
+          type: string
+          format: date-time
+          description: The timestamp when the session will expire.
+        session_type:
+          type: string
+          description: The type of session, either 'verification' or 'identification'.
+        message:
+          type: string
+          description: A human-readable message providing guidance for the next steps.
+      required:
+      - expires_at
+      - message
+      - session_token
+      - session_type
+      - status
+    AuthStats:
+      type: object
+      description: Authentication statistics serializer
+      properties:
+        total_attempts:
+          type: integer
+          description: Total authentication attempts
+        successful_attempts:
+          type: integer
+          description: Number of successful attempts
+        avg_similarity:
+          type: number
+          format: double
+          nullable: true
+          description: Average similarity score
+        avg_liveness:
+          type: number
+          format: double
+          nullable: true
+          description: Average liveness score
+        avg_quality:
+          type: number
+          format: double
+          nullable: true
+          description: Average quality score
+        success_rate:
+          type: number
+          format: double
+          description: Success rate percentage
+      required:
+      - avg_liveness
+      - avg_quality
+      - avg_similarity
+      - success_rate
+      - successful_attempts
+      - total_attempts
+    AuthenticationLog:
+      type: object
+      description: Comprehensive serializer for AuthenticationLog model with detailed
+        field documentation
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Unique identifier for the authentication log
+        user:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+          description: User who attempted authentication
+        user_email:
+          type: string
+          readOnly: true
+          description: User's email address
+        user_full_name:
+          type: string
+          readOnly: true
+          description: User's full name
+        attempted_email:
+          type: string
+          format: email
+          nullable: true
+          description: Email used in authentication attempt
+          maxLength: 254
+        auth_method:
+          allOf:
+          - $ref: '#/components/schemas/AuthMethodEnum'
+          description: |-
+            Authentication method used (face, password, 2fa, social)
+
+            * `face` - Face Recognition
+            * `password` - Password
+            * `2fa` - Two Factor
+            * `social` - Social Login
+        success:
+          type: boolean
+          description: Whether the authentication was successful
+        failure_reason:
+          description: |-
+            Reason for authentication failure
+
+            * `invalid_credentials` - Invalid Credentials
+            * `face_not_recognized` - Face Not Recognized
+            * `liveness_failed` - Liveness Check Failed
+            * `quality_too_low` - Image Quality Too Low
+            * `multiple_faces` - Multiple Faces Detected
+            * `no_face_detected` - No Face Detected
+            * `obstacles_detected` - Obstacles Detected
+            * `account_disabled` - Account Disabled
+            * `rate_limited` - Rate Limited
+            * `system_error` - System Error
+          oneOf:
+          - $ref: '#/components/schemas/FailureReasonEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        similarity_score:
+          type: number
+          format: double
+          nullable: true
+          description: Face similarity score (0.0-1.0)
+        liveness_score:
+          type: number
+          format: double
+          nullable: true
+          description: Liveness detection score (0.0-1.0)
+        quality_score:
+          type: number
+          format: double
+          nullable: true
+          description: Image quality score (0.0-1.0)
+        response_time:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+          description: Authentication response time in milliseconds
+        ip_address:
+          type: string
+          nullable: true
+          description: IP address of the authentication attempt
+        user_agent:
+          type: string
+          description: Browser/client user agent string
+        device_fingerprint:
+          type: string
+          description: Unique device fingerprint
+          maxLength: 255
+        location:
+          type: string
+          description: Geographic location (City, Country)
+          maxLength: 100
+        risk_score:
+          type: number
+          format: double
+          description: Calculated risk score (0.0-1.0)
+        risk_factors:
+          description: List of identified risk factors
+        session_id:
+          type: string
+          description: Associated session identifier
+          maxLength: 255
+        timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the authentication occurred
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+    AuthenticationRequestRequest:
+      type: object
+      description: Serializer for authentication request
+      properties:
+        user_id:
+          type: string
+          minLength: 1
+          maxLength: 100
+        session_type:
+          $ref: '#/components/schemas/SessionType1dfEnum'
+        require_liveness:
+          type: boolean
+          default: true
+        metadata: {}
+      required:
+      - session_type
+    AuthenticationSession:
+      type: object
+      description: Serializer for authentication sessions
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        session_token:
+          type: string
+          readOnly: true
+        client:
+          type: string
+          format: uuid
+        session_type:
+          $ref: '#/components/schemas/SessionType414Enum'
+        status:
+          $ref: '#/components/schemas/Status95aEnum'
+        ip_address:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+        metadata: {}
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        expires_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - client
+      - expires_at
+      - session_type
+    AuthenticationSessionSummary:
+      type: object
+      description: Expose key details about authentication/enrollment sessions.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        session_token:
+          type: string
+          readOnly: true
+        session_type:
+          allOf:
+          - $ref: '#/components/schemas/SessionType414Enum'
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/Status95aEnum'
+          readOnly: true
+        client_user_id:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        external_user_id:
+          type: string
+          readOnly: true
+        ip_address:
+          type: string
+          readOnly: true
+          nullable: true
+        user_agent:
+          type: string
+          readOnly: true
+        metadata:
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+    AvgScores:
+      type: object
+      description: Average scores serializer
+      properties:
+        similarity:
+          type: number
+          format: double
+          description: Average similarity score
+        liveness:
+          type: number
+          format: double
+          description: Average liveness score
+        quality:
+          type: number
+          format: double
+          description: Average quality score
+      required:
+      - liveness
+      - quality
+      - similarity
+    BlankEnum:
+      enum:
+      - ''
+    Client:
+      type: object
+      description: Expose client configuration without leaking sensitive secrets.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        client_id:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        domain:
+          type: string
+          format: uri
+          description: Primary domain for CORS and webhook validation
+          maxLength: 200
+        api_key:
+          type: string
+          readOnly: true
+        secret_key:
+          type: string
+          readOnly: true
+        status:
+          $ref: '#/components/schemas/ClientStatusEnum'
+        tier:
+          $ref: '#/components/schemas/TierEnum'
+        webhook_url:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 200
+        allowed_domains:
+          type: array
+          items:
+            type: string
+            maxLength: 100
+          description: Allowed domains for CORS
+        rate_limit_per_hour:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        rate_limit_per_day:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        features:
+          description: 'Feature configuration: enrollment, recognition, liveness,
+            etc.'
+        metadata: {}
+        contact_email:
+          type: string
+          format: email
+          maxLength: 254
+        contact_name:
+          type: string
+          maxLength: 100
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_activity:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - contact_email
+      - contact_name
+      - domain
+      - name
+    ClientAPIUsage:
+      type: object
+      description: Expose granular API usage entries.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        client:
+          type: string
+          format: uuid
+          readOnly: true
+        endpoint:
+          allOf:
+          - $ref: '#/components/schemas/EndpointEnum'
+          readOnly: true
+        method:
+          type: string
+          readOnly: true
+        status_code:
+          type: integer
+          readOnly: true
+        ip_address:
+          type: string
+          readOnly: true
+        user_agent:
+          type: string
+          readOnly: true
+        response_time_ms:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        metadata:
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+    ClientCredentialsResetRequest:
+      type: object
+      description: Payload for credential rotation.
+      properties:
+        reset_api_key:
+          type: boolean
+          default: false
+        reset_secret_key:
+          type: boolean
+          default: false
+        reset_webhook_secret:
+          type: boolean
+          default: false
+    ClientCredentialsResetResponse:
+      type: object
+      description: Response body when credentials are rotated.
+      properties:
+        message:
+          type: string
+        credentials:
+          type: object
+          additionalProperties:
+            type: string
+          description: Map of rotated credential identifiers to their new values.
+      required:
+      - message
+    ClientRequest:
+      type: object
+      description: Expose client configuration without leaking sensitive secrets.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+        domain:
+          type: string
+          format: uri
+          minLength: 1
+          description: Primary domain for CORS and webhook validation
+          maxLength: 200
+        api_secret:
+          type: string
+          writeOnly: true
+          minLength: 1
+        status:
+          $ref: '#/components/schemas/ClientStatusEnum'
+        tier:
+          $ref: '#/components/schemas/TierEnum'
+        webhook_url:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 200
+        webhook_secret:
+          type: string
+          writeOnly: true
+        allowed_domains:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: Allowed domains for CORS
+        rate_limit_per_hour:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        rate_limit_per_day:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        features:
+          description: 'Feature configuration: enrollment, recognition, liveness,
+            etc.'
+        metadata: {}
+        contact_email:
+          type: string
+          format: email
+          minLength: 1
+          maxLength: 254
+        contact_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+      required:
+      - contact_email
+      - contact_name
+      - domain
+      - name
+    ClientStats:
+      type: object
+      description: Embed aggregated client statistics.
+      properties:
+        total_users:
+          type: integer
+        enrolled_users:
+          type: integer
+        active_face_auth:
+          type: integer
+        total_enrollments:
+          type: integer
+        successful_authentications:
+          type: integer
+        failed_authentications:
+          type: integer
+        api_calls_last_24h:
+          type: integer
+        api_calls_last_7d:
+          type: integer
+        webhook_success_rate:
+          type: number
+          format: double
+      required:
+      - active_face_auth
+      - api_calls_last_24h
+      - api_calls_last_7d
+      - enrolled_users
+      - failed_authentications
+      - successful_authentications
+      - total_enrollments
+      - total_users
+      - webhook_success_rate
+    ClientStatusEnum:
+      enum:
+      - active
+      - suspended
+      - inactive
+      - trial
+      type: string
+      description: |-
+        * `active` - Active
+        * `suspended` - Suspended
+        * `inactive` - Inactive
+        * `trial` - Trial
+    ClientTokenRequest:
+      type: object
+      description: Validate credentials when clients request API tokens.
+      properties:
+        api_key:
+          type: string
+          minLength: 1
+        client_id:
+          type: string
+          minLength: 1
+        api_secret:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - api_secret
+    ClientUser:
+      type: object
+      description: Serialise client user profiles from upstream systems.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        client:
+          type: string
+          format: uuid
+          readOnly: true
+        external_user_id:
+          type: string
+          maxLength: 100
+        external_user_uuid:
+          type: string
+          format: uuid
+          nullable: true
+        profile:
+          description: User profile from client system
+        is_enrolled:
+          type: boolean
+          readOnly: true
+        enrollment_completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        face_auth_enabled:
+          type: boolean
+        metadata: {}
+        last_recognition_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        display_name:
+          type: string
+          readOnly: true
+      required:
+      - external_user_id
+    ClientUserAuthRequest:
+      type: object
+      description: Validate client-side user references for face workflows.
+      properties:
+        client_id:
+          type: string
+          minLength: 1
+        external_user_id:
+          type: string
+          minLength: 1
+      required:
+      - client_id
+      - external_user_id
+    ClientUserEnrollment:
+      type: object
+      description: Minimal enrollment summary for a client user.
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        quality_score:
+          type: number
+          format: double
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - id
+      - quality_score
+      - status
+    ClientUserEnrollmentList:
+      type: object
+      description: Response payload for listing user enrollments.
+      properties:
+        count:
+          type: integer
+        enrollments:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClientUserEnrollment'
+      required:
+      - count
+      - enrollments
+    ClientUserRequest:
+      type: object
+      description: Serialise client user profiles from upstream systems.
+      properties:
+        external_user_id:
+          type: string
+          minLength: 1
+          maxLength: 100
+        external_user_uuid:
+          type: string
+          format: uuid
+          nullable: true
+        profile:
+          description: User profile from client system
+        face_auth_enabled:
+          type: boolean
+        metadata: {}
+      required:
+      - external_user_id
+    ClientUserToggleResponse:
+      type: object
+      description: Response envelope after toggling face authentication.
+      properties:
+        message:
+          type: string
+        user:
+          $ref: '#/components/schemas/ClientUser'
+      required:
+      - message
+      - user
+    ClientUserWriteRequest:
+      type: object
+      description: Request payload for creating or updating client users.
+      properties:
+        external_user_id:
+          type: string
+          minLength: 1
+          maxLength: 100
+        external_user_uuid:
+          type: string
+          format: uuid
+          nullable: true
+        profile: {}
+        metadata: {}
+        face_auth_enabled:
+          type: boolean
+          default: true
+      required:
+      - external_user_id
+    ClientWebhookLog:
+      type: object
+      description: Serialise webhook delivery attempts and states.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        client:
+          type: string
+          format: uuid
+          readOnly: true
+        event_type:
+          type: string
+          readOnly: true
+        payload:
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ClientWebhookLogStatusEnum'
+          readOnly: true
+        response_status_code:
+          type: integer
+          readOnly: true
+          nullable: true
+        response_body:
+          type: string
+          readOnly: true
+        error_message:
+          type: string
+          readOnly: true
+        attempt_count:
+          type: integer
+          readOnly: true
+        max_attempts:
+          type: integer
+          readOnly: true
+        next_retry_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        delivered_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+    ClientWebhookLogStatusEnum:
+      enum:
+      - pending
+      - success
+      - failed
+      - retrying
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `success` - Success
+        * `failed` - Failed
+        * `retrying` - Retrying
+    DashboardResponse:
+      type: object
+      description: Dashboard response serializer for comprehensive analytics data
+      properties:
+        auth_stats:
+          allOf:
+          - $ref: '#/components/schemas/AuthStats'
+          description: Authentication statistics
+        alert_count:
+          type: integer
+          description: Number of security alerts in the period
+        recent_activities:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecentActivity'
+          description: Recent authentication activities
+        performance_metrics:
+          allOf:
+          - $ref: '#/components/schemas/PerformanceMetrics'
+          description: System performance metrics
+        risk_analysis:
+          allOf:
+          - $ref: '#/components/schemas/RiskAnalysis'
+          description: Risk analysis data
+        period:
+          type: string
+          description: Time period for the analytics
+        date_range:
+          allOf:
+          - $ref: '#/components/schemas/DateRange'
+          description: Date range of the analytics period
+      required:
+      - alert_count
+      - auth_stats
+      - date_range
+      - performance_metrics
+      - period
+      - recent_activities
+      - risk_analysis
+    DataQualityMetrics:
+      type: object
+      description: Serializer for data quality metrics
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        date:
+          type: string
+          format: date
+          readOnly: true
+        avg_image_quality:
+          type: number
+          format: double
+          readOnly: true
+        avg_face_size:
+          type: number
+          format: double
+          readOnly: true
+        avg_brightness:
+          type: number
+          format: double
+          readOnly: true
+        avg_contrast:
+          type: number
+          format: double
+          readOnly: true
+        avg_sharpness:
+          type: number
+          format: double
+          readOnly: true
+        high_quality_samples:
+          type: integer
+          readOnly: true
+        medium_quality_samples:
+          type: integer
+          readOnly: true
+        low_quality_samples:
+          type: integer
+          readOnly: true
+        blurry_images:
+          type: integer
+          readOnly: true
+        over_exposed:
+          type: integer
+          readOnly: true
+        under_exposed:
+          type: integer
+          readOnly: true
+        obstacles_present:
+          type: integer
+          readOnly: true
+        total_samples:
+          type: integer
+          readOnly: true
+        quality_score:
+          type: number
+          format: double
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+    DateRange:
+      type: object
+      description: Date range serializer
+      properties:
+        from_date:
+          type: string
+          format: date
+          description: Start date of the period
+        to_date:
+          type: string
+          format: date
+          description: End date of the period
+      required:
+      - from_date
+      - to_date
+    EndpointEnum:
+      enum:
+      - enrollment
+      - recognition
+      - liveness
+      - webhook
+      - analytics
+      type: string
+      description: |-
+        * `enrollment` - Enrollment
+        * `recognition` - Recognition
+        * `liveness` - Liveness Detection
+        * `webhook` - Webhook
+        * `analytics` - Analytics
+    EnrollmentCreateResponse:
+      type: object
+      description: Serializer for the response after creating an enrollment session.
+      properties:
+        session_token:
+          type: string
+          description: The token for the created enrollment session.
+        enrollment_id:
+          type: string
+          description: The unique identifier for the new enrollment record.
+        status:
+          type: string
+          description: The initial status of the enrollment, typically 'pending'.
+        target_samples:
+          type: integer
+          description: The number of successful frames required to complete the enrollment.
+        expires_at:
+          type: string
+          format: date-time
+          description: The timestamp when the session will expire.
+        message:
+          type: string
+          description: A human-readable message providing guidance for the next steps.
+      required:
+      - enrollment_id
+      - expires_at
+      - message
+      - session_token
+      - status
+      - target_samples
+    EnrollmentRequestRequest:
+      type: object
+      description: Serializer for enrollment request
+      properties:
+        user_id:
+          type: string
+          minLength: 1
+          maxLength: 100
+        session_type:
+          $ref: '#/components/schemas/SessionType1dfEnum'
+        metadata: {}
+      required:
+      - session_type
+      - user_id
+    EnvironmentEnum:
+      enum:
+      - development
+      - staging
+      - production
+      type: string
+      description: |-
+        * `development` - Development
+        * `staging` - Staging
+        * `production` - Production
+    ErrorResponse:
+      type: object
+      description: Canonical error envelope.
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        code:
+          type: string
+        details: {}
+        timestamp:
+          type: string
+          format: date-time
+      required:
+      - error
+      - message
+      - timestamp
+    EventTypeEnum:
+      enum:
+      - login_attempt
+      - failed_authentication
+      - multiple_faces_detected
+      - liveness_check_failed
+      - obstacle_detected
+      - spoofing_attempt
+      - unusual_activity
+      - system_error
+      type: string
+      description: |-
+        * `login_attempt` - Login Attempt
+        * `failed_authentication` - Failed Authentication
+        * `multiple_faces_detected` - Multiple Faces Detected
+        * `liveness_check_failed` - Liveness Check Failed
+        * `obstacle_detected` - Obstacle Detected
+        * `spoofing_attempt` - Spoofing Attempt
+        * `unusual_activity` - Unusual Activity
+        * `system_error` - System Error
+    FaceEnrollment:
+      type: object
+      description: Serializer for face enrollment
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        client:
+          type: string
+          format: uuid
+        client_user:
+          type: string
+          format: uuid
+        enrollment_session:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/Status571Enum'
+        embedding_vector:
+          type: string
+          readOnly: true
+          description: Encrypted face embedding vector
+        embedding_dimension:
+          type: integer
+          readOnly: true
+        face_quality_score:
+          type: number
+          format: double
+          readOnly: true
+          description: Face image quality score
+        liveness_score:
+          type: number
+          format: double
+          readOnly: true
+          description: Liveness detection score
+        anti_spoofing_score:
+          type: number
+          format: double
+          readOnly: true
+          description: Anti-spoofing detection score
+        face_landmarks:
+          readOnly: true
+          nullable: true
+          description: Facial landmarks coordinates
+        face_bbox:
+          readOnly: true
+          nullable: true
+          description: Face bounding box coordinates
+        sample_number:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Sample number in enrollment session
+        total_samples:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        face_image_path:
+          type: string
+          maxLength: 500
+        metadata: {}
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - client
+      - client_user
+      - enrollment_session
+      - sample_number
+    FaceEnrollmentRequest:
+      type: object
+      description: Serializer for face enrollment
+      properties:
+        client:
+          type: string
+          format: uuid
+        client_user:
+          type: string
+          format: uuid
+        enrollment_session:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/Status571Enum'
+        sample_number:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Sample number in enrollment session
+        total_samples:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        face_image_path:
+          type: string
+          maxLength: 500
+        metadata: {}
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - client
+      - client_user
+      - enrollment_session
+      - sample_number
+    FaceEnrollmentSummary:
+      type: object
+      description: Lightweight serializer for enrollment records.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        client_user_id:
+          type: string
+          format: uuid
+          readOnly: true
+        external_user_id:
+          type: string
+          readOnly: true
+        display_name:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/Status571Enum'
+          readOnly: true
+        face_quality_score:
+          type: number
+          format: double
+          readOnly: true
+          description: Face image quality score
+        liveness_score:
+          type: number
+          format: double
+          readOnly: true
+          description: Liveness detection score
+        anti_spoofing_score:
+          type: number
+          format: double
+          readOnly: true
+          description: Anti-spoofing detection score
+        sample_number:
+          type: integer
+          readOnly: true
+          description: Sample number in enrollment session
+        total_samples:
+          type: integer
+          readOnly: true
+        face_image_path:
+          type: string
+          readOnly: true
+        metadata:
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    FaceFrameResponse:
+      type: object
+      description: |-
+        Serializer describing the payload returned when processing enrollment or authentication frames.
+        All fields are optional except `success` - responses vary based on workflow stage.
+      properties:
+        success:
+          type: boolean
+          description: Indicates if the frame was processed successfully.
+        session_status:
+          type: string
+          description: The current status of the session.
+        session_token:
+          type: string
+          description: The session token for context.
+        message:
+          type: string
+          description: A human-readable message about the result.
+        error:
+          type: string
+          description: An error message if processing failed.
+        requires_more_frames:
+          type: boolean
+          description: True if the session requires more frames to complete.
+        frame_accepted:
+          type: boolean
+          description: True if this specific frame was accepted for processing.
+        frame_rejected:
+          type: boolean
+          description: True if this frame was rejected.
+        attempted_frame:
+          type: integer
+          description: The sequence number of the frame that was attempted.
+        frames_processed:
+          type: integer
+          description: The total number of frames successfully processed so far.
+        completed_samples:
+          type: integer
+          description: Number of accepted samples for enrollment.
+        target_samples:
+          type: integer
+          description: Total number of samples required for enrollment.
+        enrollment_progress:
+          type: number
+          format: double
+          description: The progress of the enrollment as a percentage (0-100).
+        enrollment_complete:
+          type: boolean
+          description: True if the enrollment process is complete.
+        liveness_verified:
+          type: boolean
+          description: True if liveness has been verified.
+        liveness_score:
+          type: number
+          format: double
+          description: A score indicating the confidence of liveness detection.
+        liveness_data:
+          description: Detailed data from the liveness detection process.
+        liveness_blinks:
+          type: integer
+          description: Number of blinks detected during the session.
+        liveness_motion_events:
+          type: integer
+          description: Number of motion events detected.
+        similarity_score:
+          type: number
+          format: double
+          description: The similarity score in an authentication attempt.
+        quality_score:
+          type: number
+          format: double
+          description: A score representing the quality of the face image.
+        anti_spoofing_score:
+          type: number
+          format: double
+          description: A score indicating the confidence against spoofing attempts.
+        preview_image:
+          type: string
+          description: A base64-encoded data URL of a preview image.
+        obstacles:
+          type: array
+          items:
+            type: string
+          description: A list of detected obstacles (e.g., 'face_too_small').
+        obstacles_detected:
+          type: array
+          items:
+            type: string
+          description: Deprecated. Use 'obstacles'.
+        obstacle_confidence:
+          description: A dictionary with confidence scores for detected obstacles.
+        match_fallback_used:
+          type: boolean
+          description: Indicates if a fallback matching mechanism was used.
+        match_fallback_explanation:
+          type: string
+          description: Explanation for why a fallback was used.
+        authentication_metadata:
+          description: Additional metadata related to the authentication attempt.
+        matched_user:
+          type: object
+          additionalProperties: {}
+          description: Information about the matched user.
+        liveness_reason:
+          type: string
+          description: The reason for the liveness verification result.
+        result:
+          type: string
+          description: The final result of the operation.
+        processing_time_ms:
+          type: number
+          format: double
+          description: The time taken to process the frame in milliseconds.
+        rejection_reason:
+          type: string
+          description: Reason for frame rejection.
+      required:
+      - success
+    FaceImageUploadRequest:
+      type: object
+      description: Serializer for face image upload
+      properties:
+        image:
+          type: string
+        session_token:
+          type: string
+          minLength: 1
+          maxLength: 100
+        frame_number:
+          type: integer
+          default: 1
+        timestamp:
+          type: string
+          format: date-time
+      required:
+      - image
+      - session_token
+    FaceRecognitionAttemptSummary:
+      type: object
+      description: Summarise recognition attempts for troubleshooting.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        session_token:
+          type: string
+          readOnly: true
+        result:
+          allOf:
+          - $ref: '#/components/schemas/ResultEnum'
+          readOnly: true
+        similarity_score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        confidence_score:
+          type: number
+          format: double
+          readOnly: true
+        face_quality_score:
+          type: number
+          format: double
+          readOnly: true
+        liveness_score:
+          type: number
+          format: double
+          readOnly: true
+        anti_spoofing_score:
+          type: number
+          format: double
+          readOnly: true
+        matched_user_id:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        matched_external_user_id:
+          type: string
+          readOnly: true
+        ip_address:
+          type: string
+          readOnly: true
+          nullable: true
+        user_agent:
+          type: string
+          readOnly: true
+        metadata:
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+    FailureReasonEnum:
+      enum:
+      - invalid_credentials
+      - face_not_recognized
+      - liveness_failed
+      - quality_too_low
+      - multiple_faces
+      - no_face_detected
+      - obstacles_detected
+      - account_disabled
+      - rate_limited
+      - system_error
+      type: string
+      description: |-
+        * `invalid_credentials` - Invalid Credentials
+        * `face_not_recognized` - Face Not Recognized
+        * `liveness_failed` - Liveness Check Failed
+        * `quality_too_low` - Image Quality Too Low
+        * `multiple_faces` - Multiple Faces Detected
+        * `no_face_detected` - No Face Detected
+        * `obstacles_detected` - Obstacles Detected
+        * `account_disabled` - Account Disabled
+        * `rate_limited` - Rate Limited
+        * `system_error` - System Error
+    MetricTypeEnum:
+      enum:
+      - counter
+      - gauge
+      - histogram
+      - timer
+      type: string
+      description: |-
+        * `counter` - Counter
+        * `gauge` - Gauge
+        * `histogram` - Histogram
+        * `timer` - Timer
+    ModelPerformance:
+      type: object
+      description: Serializer for model performance metrics
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        model:
+          type: string
+          format: uuid
+          readOnly: true
+        model_name:
+          type: string
+          readOnly: true
+        accuracy:
+          type: number
+          format: double
+          readOnly: true
+        precision:
+          type: number
+          format: double
+          readOnly: true
+        recall:
+          type: number
+          format: double
+          readOnly: true
+        f1_score:
+          type: number
+          format: double
+          readOnly: true
+        false_acceptance_rate:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        false_rejection_rate:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        test_set_size:
+          type: integer
+          readOnly: true
+        test_conditions:
+          readOnly: true
+        environment:
+          allOf:
+          - $ref: '#/components/schemas/EnvironmentEnum'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+    PaginatedAuditLogList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
+    PaginatedAuthenticationLogList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthenticationLog'
+    PaginatedAuthenticationSessionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthenticationSession'
+    PaginatedAuthenticationSessionSummaryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthenticationSessionSummary'
+    PaginatedClientAPIUsageList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClientAPIUsage'
+    PaginatedClientList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Client'
+    PaginatedClientUserList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClientUser'
+    PaginatedClientWebhookLogList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClientWebhookLog'
+    PaginatedDataQualityMetricsList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DataQualityMetrics'
+    PaginatedFaceEnrollmentList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/FaceEnrollment'
+    PaginatedFaceEnrollmentSummaryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/FaceEnrollmentSummary'
+    PaginatedFaceRecognitionAttemptSummaryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/FaceRecognitionAttemptSummary'
+    PaginatedModelPerformanceList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelPerformance'
+    PaginatedSecurityAlertList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityAlert'
+    PaginatedSecurityEventList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityEvent'
+    PaginatedStreamingSessionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/StreamingSession'
+    PaginatedSystemConfigurationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SystemConfiguration'
+    PaginatedSystemMetricsList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SystemMetrics'
+    PaginatedWebhookDeliveryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookDelivery'
+    PaginatedWebhookEndpointList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookEndpoint'
+    PaginatedWebhookEventList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookEvent'
+    PaginatedWebhookEventLogList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookEventLog'
+    PatchedClientRequest:
+      type: object
+      description: Expose client configuration without leaking sensitive secrets.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+        domain:
+          type: string
+          format: uri
+          minLength: 1
+          description: Primary domain for CORS and webhook validation
+          maxLength: 200
+        api_secret:
+          type: string
+          writeOnly: true
+          minLength: 1
+        status:
+          $ref: '#/components/schemas/ClientStatusEnum'
+        tier:
+          $ref: '#/components/schemas/TierEnum'
+        webhook_url:
+          type: string
+          format: uri
+          nullable: true
+          maxLength: 200
+        webhook_secret:
+          type: string
+          writeOnly: true
+        allowed_domains:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: Allowed domains for CORS
+        rate_limit_per_hour:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        rate_limit_per_day:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        features:
+          description: 'Feature configuration: enrollment, recognition, liveness,
+            etc.'
+        metadata: {}
+        contact_email:
+          type: string
+          format: email
+          minLength: 1
+          maxLength: 254
+        contact_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+    PatchedClientUserWriteRequest:
+      type: object
+      description: Request payload for creating or updating client users.
+      properties:
+        external_user_id:
+          type: string
+          minLength: 1
+          maxLength: 100
+        external_user_uuid:
+          type: string
+          format: uuid
+          nullable: true
+        profile: {}
+        metadata: {}
+        face_auth_enabled:
+          type: boolean
+          default: true
+    PatchedFaceEnrollmentRequest:
+      type: object
+      description: Serializer for face enrollment
+      properties:
+        client:
+          type: string
+          format: uuid
+        client_user:
+          type: string
+          format: uuid
+        enrollment_session:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/Status571Enum'
+        sample_number:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          description: Sample number in enrollment session
+        total_samples:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        face_image_path:
+          type: string
+          maxLength: 500
+        metadata: {}
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    PatchedWebhookEndpointRequest:
+      type: object
+      description: Serializer for webhook endpoints
+      properties:
+        client:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        url:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 200
+        status:
+          $ref: '#/components/schemas/WebhookEndpointStatusEnum'
+        subscribed_events:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: List of event names this endpoint subscribes to
+        secret_token:
+          type: string
+          writeOnly: true
+          nullable: true
+          maxLength: 100
+        max_retries:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        retry_delay_seconds:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        metadata: {}
+    PerformanceMetrics:
+      type: object
+      description: Performance metrics serializer
+      properties:
+        avg_response_time:
+          type: number
+          format: double
+          nullable: true
+          description: Average response time in milliseconds
+        min_response_time:
+          type: number
+          format: double
+          nullable: true
+          description: Minimum response time in milliseconds
+        max_response_time:
+          type: number
+          format: double
+          nullable: true
+          description: Maximum response time in milliseconds
+      required:
+      - avg_response_time
+      - max_response_time
+      - min_response_time
+    RecentActivity:
+      type: object
+      description: Recent activity serializer
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Activity timestamp
+        success:
+          type: boolean
+          description: Whether the attempt was successful
+        auth_method:
+          type: string
+          description: Authentication method used
+        failure_reason:
+          type: string
+          description: Reason for failure if any
+      required:
+      - auth_method
+      - failure_reason
+      - success
+      - timestamp
+    ResultEnum:
+      enum:
+      - success
+      - failed
+      - no_match
+      - multiple_matches
+      - liveness_failed
+      - spoofing_detected
+      - quality_too_low
+      type: string
+      description: |-
+        * `success` - Success
+        * `failed` - Failed
+        * `no_match` - No Match
+        * `multiple_matches` - Multiple Matches
+        * `liveness_failed` - Liveness Failed
+        * `spoofing_detected` - Spoofing Detected
+        * `quality_too_low` - Quality Too Low
+    RiskAnalysis:
+      type: object
+      description: Risk analysis serializer
+      properties:
+        avg_risk_score:
+          type: number
+          format: double
+          nullable: true
+          description: Average risk score
+        high_risk_attempts:
+          type: integer
+          description: Number of high risk attempts
+      required:
+      - avg_risk_score
+      - high_risk_attempts
+    SecurityAlert:
+      type: object
+      description: Comprehensive serializer for SecurityAlert model with detailed
+        field documentation
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Unique identifier for the security alert
+        user:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+          description: User associated with this alert
+        user_email:
+          type: string
+          readOnly: true
+          description: User's email address
+        alert_type:
+          allOf:
+          - $ref: '#/components/schemas/AlertTypeEnum'
+          description: |-
+            Type of security alert
+
+            * `failed_attempts` - Multiple Failed Attempts
+            * `new_device` - New Device Login
+            * `location_anomaly` - Unusual Location
+            * `time_anomaly` - Unusual Time
+            * `quality_degradation` - Quality Degradation
+            * `system_breach` - System Breach Attempt
+            * `data_anomaly` - Data Anomaly
+        severity:
+          allOf:
+          - $ref: '#/components/schemas/SecurityAlertSeverityEnum'
+          description: |-
+            Alert severity level (low, medium, high, critical)
+
+            * `info` - Info
+            * `low` - Low
+            * `medium` - Medium
+            * `high` - High
+            * `critical` - Critical
+        title:
+          type: string
+          description: Alert title/summary
+          maxLength: 200
+        description:
+          type: string
+          description: Detailed alert description
+        ip_address:
+          type: string
+          nullable: true
+          description: IP address related to the alert
+        context_data:
+          description: Additional context data in JSON format
+        acknowledged:
+          type: boolean
+          description: Whether the alert has been acknowledged
+        acknowledged_by:
+          type: string
+          format: uuid
+          nullable: true
+          description: User who acknowledged the alert
+        acknowledged_by_name:
+          type: string
+          readOnly: true
+          description: Name of person who acknowledged alert
+        acknowledged_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when alert was acknowledged
+        resolved:
+          type: boolean
+          description: Whether the alert has been resolved
+        resolved_by:
+          type: string
+          format: uuid
+          nullable: true
+          description: User who resolved the alert
+        resolved_by_name:
+          type: string
+          readOnly: true
+          description: Name of person who resolved alert
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when alert was resolved
+        resolution_notes:
+          type: string
+          description: Notes about how the alert was resolved
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - alert_type
+      - description
+      - title
+    SecurityAlertSeverityEnum:
+      enum:
+      - info
+      - low
+      - medium
+      - high
+      - critical
+      type: string
+      description: |-
+        * `info` - Info
+        * `low` - Low
+        * `medium` - Medium
+        * `high` - High
+        * `critical` - Critical
+    SecurityEvent:
+      type: object
+      description: Serialise security events per client.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        event_type:
+          $ref: '#/components/schemas/EventTypeEnum'
+        severity:
+          $ref: '#/components/schemas/SecurityEventSeverityEnum'
+        client:
+          type: string
+          format: uuid
+          nullable: true
+        client_user:
+          type: string
+          format: uuid
+          nullable: true
+        client_name:
+          type: string
+          readOnly: true
+        client_user_name:
+          type: string
+          readOnly: true
+        ip_address:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+        details: {}
+        resolved:
+          type: boolean
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_by_client:
+          type: string
+          format: uuid
+          nullable: true
+        resolved_by_client_user:
+          type: string
+          format: uuid
+          nullable: true
+        resolved_by_name:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - event_type
+    SecurityEventRequest:
+      type: object
+      description: Serialise security events per client.
+      properties:
+        event_type:
+          $ref: '#/components/schemas/EventTypeEnum'
+        severity:
+          $ref: '#/components/schemas/SecurityEventSeverityEnum'
+        client:
+          type: string
+          format: uuid
+          nullable: true
+        client_user:
+          type: string
+          format: uuid
+          nullable: true
+        ip_address:
+          type: string
+          nullable: true
+          minLength: 1
+        user_agent:
+          type: string
+        details: {}
+        resolved:
+          type: boolean
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_by_client:
+          type: string
+          format: uuid
+          nullable: true
+        resolved_by_client_user:
+          type: string
+          format: uuid
+          nullable: true
+      required:
+      - event_type
+    SecurityEventSeverityEnum:
+      enum:
+      - low
+      - medium
+      - high
+      - critical
+      type: string
+      description: |-
+        * `low` - Low
+        * `medium` - Medium
+        * `high` - High
+        * `critical` - Critical
+    SecurityStatus:
+      type: object
+      description: Security status serializer
+      properties:
+        active_alerts:
+          type: integer
+          description: Number of active security alerts
+        risk_level:
+          type: string
+          description: Current risk level (low, medium, high)
+        last_security_scan:
+          type: string
+          format: date-time
+          description: Last security scan timestamp
+      required:
+      - active_alerts
+      - last_security_scan
+      - risk_level
+    SessionStatus:
+      type: object
+      description: Serializer for session status
+      properties:
+        session_token:
+          type: string
+        status:
+          type: string
+        session_type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        result:
+          type: string
+        metadata: {}
+        enrollment_status:
+          type: string
+          description: Status of the enrollment if session_type is 'enrollment'
+      required:
+      - created_at
+      - expires_at
+      - session_token
+      - session_type
+      - status
+    SessionType1dfEnum:
+      enum:
+      - webcam
+      - mobile
+      - api
+      type: string
+      description: |-
+        * `webcam` - webcam
+        * `mobile` - mobile
+        * `api` - api
+    SessionType414Enum:
+      enum:
+      - enrollment
+      - recognition
+      - verification
+      - identification
+      type: string
+      description: |-
+        * `enrollment` - Enrollment
+        * `recognition` - Recognition
+        * `verification` - Verification
+        * `identification` - Identification
+    StatisticsResponse:
+      type: object
+      description: Statistics response serializer for comprehensive user statistics
+      properties:
+        total_attempts:
+          type: integer
+          description: Total authentication attempts
+        successful_attempts:
+          type: integer
+          description: Number of successful attempts
+        failed_attempts:
+          type: integer
+          description: Number of failed attempts
+        success_rate:
+          type: number
+          format: double
+          description: Success rate percentage
+        face_enrolled:
+          type: boolean
+          description: Whether user has enrolled face biometrics
+        last_login:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last login timestamp
+        account_created:
+          type: string
+          format: date-time
+          description: Account creation timestamp
+        authentication_methods:
+          type: array
+          items:
+            type: string
+          description: List of authentication methods used
+        avg_scores:
+          allOf:
+          - $ref: '#/components/schemas/AvgScores'
+          description: Average biometric scores
+        security_status:
+          allOf:
+          - $ref: '#/components/schemas/SecurityStatus'
+          description: Current security status
+      required:
+      - account_created
+      - authentication_methods
+      - avg_scores
+      - face_enrolled
+      - failed_attempts
+      - last_login
+      - security_status
+      - success_rate
+      - successful_attempts
+      - total_attempts
+    Status571Enum:
+      enum:
+      - pending
+      - active
+      - inactive
+      - expired
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `active` - Active
+        * `inactive` - Inactive
+        * `expired` - Expired
+    Status95aEnum:
+      enum:
+      - active
+      - completed
+      - expired
+      - failed
+      - cancelled
+      type: string
+      description: |-
+        * `active` - Active
+        * `completed` - Completed
+        * `expired` - Expired
+        * `failed` - Failed
+        * `cancelled` - Cancelled
+    StreamingSession:
+      type: object
+      description: Serializer for streaming sessions
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        user:
+          type: string
+          readOnly: true
+        session_token:
+          type: string
+          readOnly: true
+        session_type:
+          $ref: '#/components/schemas/StreamingSessionSessionTypeEnum'
+        status:
+          $ref: '#/components/schemas/StreamingSessionStatusEnum'
+        ice_servers: {}
+        constraints: {}
+        peer_connection_id:
+          type: string
+          maxLength: 255
+        remote_address:
+          type: string
+          nullable: true
+        video_quality:
+          type: string
+          maxLength: 10
+        frame_rate:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        bitrate:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        session_data: {}
+        error_log:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        connected_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        duration:
+          type: integer
+          description: Calculate session duration in seconds
+          readOnly: true
+      required:
+      - session_type
+    StreamingSessionRequest:
+      type: object
+      description: Serializer for streaming sessions
+      properties:
+        session_type:
+          $ref: '#/components/schemas/StreamingSessionSessionTypeEnum'
+        status:
+          $ref: '#/components/schemas/StreamingSessionStatusEnum'
+        ice_servers: {}
+        constraints: {}
+        peer_connection_id:
+          type: string
+          maxLength: 255
+        remote_address:
+          type: string
+          nullable: true
+          minLength: 1
+        video_quality:
+          type: string
+          maxLength: 10
+        frame_rate:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        bitrate:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        session_data: {}
+        error_log:
+          type: string
+        connected_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - session_type
+    StreamingSessionSessionTypeEnum:
+      enum:
+      - enrollment
+      - authentication
+      - verification
+      - identification
+      type: string
+      description: |-
+        * `enrollment` - Enrollment
+        * `authentication` - Authentication
+        * `verification` - Verification
+        * `identification` - Identification
+    StreamingSessionStatusEnum:
+      enum:
+      - initiating
+      - connecting
+      - connected
+      - processing
+      - completed
+      - failed
+      - disconnected
+      type: string
+      description: |-
+        * `initiating` - Initiating
+        * `connecting` - Connecting
+        * `connected` - Connected
+        * `processing` - Processing
+        * `completed` - Completed
+        * `failed` - Failed
+        * `disconnected` - Disconnected
+    SuccessResponse:
+      type: object
+      description: Canonical success envelope.
+      properties:
+        success:
+          type: boolean
+          default: true
+        message:
+          type: string
+        data: {}
+        timestamp:
+          type: string
+          format: date-time
+      required:
+      - message
+      - timestamp
+    SystemConfiguration:
+      type: object
+      description: Expose key/value configuration entries.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        key:
+          type: string
+          maxLength: 100
+        value:
+          type: string
+        description:
+          type: string
+        is_encrypted:
+          type: boolean
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - key
+      - value
+    SystemMetrics:
+      type: object
+      description: Comprehensive serializer for SystemMetrics model with detailed
+        field documentation
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Unique identifier for the system metric
+        metric_name:
+          type: string
+          description: Name of the metric being measured
+          maxLength: 100
+        metric_type:
+          allOf:
+          - $ref: '#/components/schemas/MetricTypeEnum'
+          description: |-
+            Type of metric (counter, gauge, histogram, timer)
+
+            * `counter` - Counter
+            * `gauge` - Gauge
+            * `histogram` - Histogram
+            * `timer` - Timer
+        value:
+          type: number
+          format: double
+          description: Numeric value of the metric
+        unit:
+          type: string
+          description: Unit of measurement (ms, %, count, etc.)
+          maxLength: 20
+        tags:
+          description: Additional metadata tags in JSON format
+        timestamp:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Timestamp when the metric was recorded
+      required:
+      - metric_name
+      - metric_type
+      - value
+    SystemStatus:
+      type: object
+      description: Aggregate status payload for observability endpoints.
+      properties:
+        status:
+          type: string
+        uptime:
+          type: string
+        version:
+          type: string
+        database_status:
+          type: string
+        redis_status:
+          type: string
+        celery_status:
+          type: string
+        face_processing_status:
+          type: string
+        total_clients:
+          type: integer
+        active_sessions:
+          type: integer
+        total_enrollments:
+          type: integer
+        total_authentications:
+          type: integer
+      required:
+      - active_sessions
+      - celery_status
+      - database_status
+      - face_processing_status
+      - redis_status
+      - status
+      - total_authentications
+      - total_clients
+      - total_enrollments
+      - uptime
+      - version
+    TierEnum:
+      enum:
+      - basic
+      - premium
+      - enterprise
+      type: string
+      description: |-
+        * `basic` - Basic
+        * `premium` - Premium
+        * `enterprise` - Enterprise
+    WebhookDelivery:
+      type: object
+      description: Serializer for webhook deliveries
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        endpoint:
+          type: string
+          format: uuid
+        event_name:
+          type: string
+          maxLength: 100
+        event_data: {}
+        status:
+          $ref: '#/components/schemas/WebhookDeliveryStatusEnum'
+        http_method:
+          type: string
+          maxLength: 10
+        headers: {}
+        response_status_code:
+          type: integer
+          readOnly: true
+          nullable: true
+        response_headers:
+          readOnly: true
+        response_body:
+          type: string
+          readOnly: true
+        response_time_ms:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        attempt_number:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        max_attempts:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        next_retry_at:
+          type: string
+          format: date-time
+          nullable: true
+        error_message:
+          type: string
+          readOnly: true
+        error_code:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        delivered_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - endpoint
+      - event_data
+      - event_name
+    WebhookDeliveryRequest:
+      type: object
+      description: Serializer for webhook deliveries
+      properties:
+        endpoint:
+          type: string
+          format: uuid
+        event_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        event_data: {}
+        status:
+          $ref: '#/components/schemas/WebhookDeliveryStatusEnum'
+        http_method:
+          type: string
+          minLength: 1
+          maxLength: 10
+        headers: {}
+        attempt_number:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        max_attempts:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        next_retry_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - endpoint
+      - event_data
+      - event_name
+    WebhookDeliveryStatusEnum:
+      enum:
+      - pending
+      - success
+      - failed
+      - retrying
+      - abandoned
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `success` - Success
+        * `failed` - Failed
+        * `retrying` - Retrying
+        * `abandoned` - Abandoned
+    WebhookEndpoint:
+      type: object
+      description: Serializer for webhook endpoints
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        client:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 100
+        url:
+          type: string
+          format: uri
+          maxLength: 200
+        status:
+          $ref: '#/components/schemas/WebhookEndpointStatusEnum'
+        subscribed_events:
+          type: array
+          items:
+            type: string
+            maxLength: 100
+          description: List of event names this endpoint subscribes to
+        max_retries:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        retry_delay_seconds:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        total_deliveries:
+          type: integer
+          readOnly: true
+        successful_deliveries:
+          type: integer
+          readOnly: true
+        failed_deliveries:
+          type: integer
+          readOnly: true
+        metadata: {}
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_delivery_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - client
+      - name
+      - url
+    WebhookEndpointRequest:
+      type: object
+      description: Serializer for webhook endpoints
+      properties:
+        client:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        url:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 200
+        status:
+          $ref: '#/components/schemas/WebhookEndpointStatusEnum'
+        subscribed_events:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: List of event names this endpoint subscribes to
+        secret_token:
+          type: string
+          writeOnly: true
+          nullable: true
+          maxLength: 100
+        max_retries:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        retry_delay_seconds:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        metadata: {}
+      required:
+      - client
+      - name
+      - url
+    WebhookEndpointStatusEnum:
+      enum:
+      - active
+      - inactive
+      - failed
+      type: string
+      description: |-
+        * `active` - Active
+        * `inactive` - Inactive
+        * `failed` - Failed
+    WebhookEvent:
+      type: object
+      description: Serializer for webhook events
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        event_name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+        is_active:
+          type: boolean
+        payload_schema:
+          description: JSON schema for event payload validation
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - description
+      - event_name
+    WebhookEventLog:
+      type: object
+      description: Serializer for webhook event logs
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        client:
+          type: string
+          format: uuid
+        event_name:
+          type: string
+          maxLength: 100
+        event_source:
+          type: string
+          maxLength: 100
+        event_data: {}
+        total_endpoints:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        successful_deliveries:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        failed_deliveries:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        metadata: {}
+        success_rate:
+          type: number
+          format: double
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - client
+      - event_data
+      - event_name
+      - event_source
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API Key authentication via X-API-Key header
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /api/v1/auth/token/ endpoint
+    WebhookAuth:
+      type: apiKey
+      in: header
+      name: X-FR-Signature
+      description: Webhook signature authentication via X-FR-Signature header
+servers:
+- url: http://127.0.0.1:8000
+  description: Development Server
+- url: https://api.facerecognition.com
+  description: Production Server
+tags:
+- name: Authentication
+  description: Endpoints for creating authentication and enrollment sessions, and
+    processing face images.
+- name: Client Management
+  description: Endpoints for managing clients and their users.
+- name: Analytics
+  description: Endpoints for retrieving analytics and system metrics.
+- name: System
+  description: Endpoints for checking system status and health.
+- name: Webhooks
+  description: Endpoints related to webhook management and logs.
+- name: Streaming
+  description: Endpoints for managing WebRTC streaming sessions.
+externalDocs:
+  description: Face Recognition Documentation
+  url: https://docs.facerecognition.com/
