@@ -490,6 +490,13 @@ FACE_RECOGNITION_CONFIG = {
     "USE_EMBEDDING_AVERAGING": True,  # Use embedding averaging for enrollment
     "SESSION_TIMEOUT_MINUTES": 1,  # Session timeout in minutes
     
+    # DUPLICATE FACE DETECTION SETTINGS
+    # Threshold for detecting if a face belongs to another user (0.0 - 1.0)
+    # Higher = stricter (fewer false positives, but might miss some duplicates)
+    # Lower = looser (catches more duplicates, but might have false positives)
+    # Recommended: 0.70-0.80 for production
+    "DUPLICATE_FACE_THRESHOLD": float(os.environ.get('DUPLICATE_FACE_THRESHOLD', 0.80)),
+    
     # OBSTACLE DETECTION SETTINGS - Toggle on/off via env var for performance
     # Set OBSTACLE_DETECTION_ENABLED=true in environment to enable
     "OBSTACLE_DETECTION_ENABLED": OBSTACLE_DETECTION_ENABLED,  # Uses env var, default False

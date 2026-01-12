@@ -1246,10 +1246,11 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             
             # VALIDASI: Check if face already exists for another user
             engine_user_id = f"{self.client.client_id}:{self.session.client_user.external_user_id}"
+            duplicate_threshold = getattr(settings, 'FACE_RECOGNITION_CONFIG', {}).get('DUPLICATE_FACE_THRESHOLD', 0.75)
             duplicate_check = self.face_engine.check_face_duplicate(
                 embedding=embedding,
                 current_user_id=engine_user_id,
-                similarity_threshold=0.55  # 85% similarity threshold
+                similarity_threshold=duplicate_threshold  # From settings.FACE_RECOGNITION_CONFIG
             )
             
             if duplicate_check.get('is_duplicate', False):
