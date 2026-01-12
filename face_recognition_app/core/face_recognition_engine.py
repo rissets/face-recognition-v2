@@ -1046,9 +1046,10 @@ class FaceRecognitionEngine:
         # This avoids loading InsightFace models multiple times!
         self.app = get_shared_face_analysis()
         
-        # ObstacleDetector uses MediaPipe which has internal timestamp state
-        # CANNOT be shared - each session needs its own instance to avoid timestamp conflicts
-        self.obstacle_detector = ObstacleDetector()
+        # OPTIMIZATION: Only create ObstacleDetector if obstacle detection is enabled
+        # This saves significant CPU/memory when obstacle detection is disabled
+        self._obstacle_detection_enabled = self.config.get('OBSTACLE_DETECTION_ENABLED', False)
+        self._obstacle_detector = None  # Lazy initialization
         
         # ChromaDB connection can be shared safely
         self.embedding_store = get_shared_chroma_store()
@@ -1089,7 +1090,18 @@ class FaceRecognitionEngine:
         self.embedding_averager = embedding_averager
         self.allowed_obstacles = set(self.config.get('NON_BLOCKING_OBSTACLES', ['glasses', 'hat']))
         
-        logger.info(f"Face recognition engine initialized (optimized: {self._use_optimized_store})")
+        logger.info(f"Face recognition engine initialized (optimized: {self._use_optimized_store}, obstacle_detection: {self._obstacle_detection_enabled})")
+    
+    @property
+    def obstacle_detector(self):
+        """Lazy-load ObstacleDetector only when needed"""
+        if self._obstacle_detector is None and self._obstacle_detection_enabled:
+            self._obstacle_detector = ObstacleDetector()
+        return self._obstacle_detector
+    
+    def is_obstacle_detection_enabled(self) -> bool:
+        """Check if obstacle detection is enabled"""
+        return self._obstacle_detection_enabled
     
     def set_client_id(self, client_id: str):
         """Set client ID for per-client isolation (useful for reusing engine instance)"""

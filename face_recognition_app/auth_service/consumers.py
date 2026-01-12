@@ -317,6 +317,10 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
     async def process_enrollment_frame(self, frame: np.ndarray, data: Dict[str, Any]):
         """Process enrollment frame"""
         try:
+            # DEBUG: Log enrollment state at start of each frame
+            if self._frames_processed <= 3:
+                logger.info(f"📍 ENROLLMENT FRAME START - Frame {self._frames_processed}, enrollment_completing={self._enrollment_completing}")
+            
             # Get enrollment record
             enrollment = await self.get_enrollment(self.session.id)
             if not enrollment:
@@ -353,6 +357,13 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             face_data = result.get("face_data", {})
             liveness_data = result.get("liveness_data", {})
             obstacle_data = result.get("obstacle_data", {})
+            
+            # DEBUG: Log liveness_data from engine
+            if self._frames_processed <= 10:
+                logger.info(f"🔬 Frame {self._frames_processed} liveness_data from engine: "
+                           f"blinks={liveness_data.get('blinks_detected', 0)}, "
+                           f"motion={liveness_data.get('motion_events', 0)}, "
+                           f"is_live={liveness_data.get('is_live', False)}")
             visual_data = result.get("visual_data", {})
             
             # STRICT: Reject frame if ANY obstacle is detected (blocking or non-blocking)
@@ -405,129 +416,164 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             await self.update_session_metadata(metadata)
 
             # Check if enrollment is complete
-            target_samples = metadata.get("target_samples", 3)
+            target_samples = metadata.get("target_samples", 10)
             required_blinks = metadata.get("required_blinks", 1)
             required_motion = metadata.get("required_motion_events", 1)
             
             # STRICT Liveness verification: need blinks AND motion AND no obstacles
             # Explicitly convert to Python bool to avoid numpy.bool_ JSON serialization issues
-            blinks_ok = bool(liveness_data.get("blinks_detected", 0) >= required_blinks)
-            motion_ok = bool(liveness_data.get("motion_events", 0) >= required_motion)
+            actual_blinks = liveness_data.get("blinks_detected", 0)
+            actual_motion = liveness_data.get("motion_events", 0)
+            actual_quality = face_data.get("quality", 0.0)
+            quality_threshold = self.face_engine.capture_quality_threshold
+            
+            blinks_ok = bool(actual_blinks >= required_blinks)
+            motion_ok = bool(actual_motion >= required_motion)
             no_obstacles = bool(len(detected_obstacles) == 0)
+            frames_ok = bool(self._frames_processed >= target_samples)
+            quality_ok = bool(actual_quality >= quality_threshold)
             liveness_verified = bool(blinks_ok and motion_ok and no_obstacles)
+            
+            # DEBUG: Log all condition values for EVERY frame during debugging
+            logger.info(f"🔍 ENROLLMENT CHECK Frame {self._frames_processed}: "
+                       f"frames_ok={frames_ok}({self._frames_processed}/{target_samples}), "
+                       f"blinks_ok={blinks_ok}({actual_blinks}/{required_blinks}), "
+                       f"motion_ok={motion_ok}({actual_motion}/{required_motion}), "
+                       f"no_obstacles={no_obstacles}, "
+                       f"quality_ok={quality_ok}({actual_quality:.2f}/{quality_threshold}), "
+                       f"liveness_verified={liveness_verified}, "
+                       f"not_completing={not self._enrollment_completing}")
             
             # Check if enrollment is complete (and not already completing)
             is_complete = (
                 not self._enrollment_completing and  # Prevent multiple completions
-                self._frames_processed >= target_samples and 
+                frames_ok and 
                 liveness_verified and
-                face_data.get("quality", 0.0) >= self.face_engine.capture_quality_threshold
+                quality_ok
+            )
+            
+            # Check if enrollment is complete (and not already completing)
+            is_complete = (
+                not self._enrollment_completing and  # Prevent multiple completions
+                frames_ok and 
+                liveness_verified and
+                quality_ok
             )
 
             if is_complete:
+                logger.info(f"✅ ENROLLMENT COMPLETE - ALL CONDITIONS MET at frame {self._frames_processed}")
                 # Set flag to prevent multiple completions
                 self._enrollment_completing = True
                 logger.info(f"🔒 Enrollment completion started - blocking further completions")
                 
-                # Calculate AVERAGE similarity from all collected frames
-                average_similarity = None
-                if self._similarity_scores:
-                    average_similarity = sum(self._similarity_scores) / len(self._similarity_scores)
-                    logger.info(f"📊 FINAL Average similarity from {len(self._similarity_scores)} frames: {average_similarity:.3f} ({average_similarity*100:.1f}%)")
-                    logger.info(f"📊 Individual frame similarities: {[f'{s:.3f}' for s in self._similarity_scores]}")
-                else:
-                    logger.info(f"ℹ️ No similarity scores collected (no old_profile_photo or no embeddings)")
-                
-                # Complete enrollment with frame data (pass average_similarity instead of calculating in sync method)
-                success, _ = await self.complete_enrollment(enrollment, face_data, liveness_data, frame)
-                
-                if success:
-                    # Use the AVERAGE similarity we calculated from all frames
-                    similarity_score = average_similarity
-                    
-                    # Force save similarity in async context FIRST to ensure proper DB commit
-                    await self._save_client_user_similarity(similarity_score)
-                    
-                    # Wait a tiny bit to ensure DB commit is complete
-                    await asyncio.sleep(0.05)
-                    
-                    # Refresh client_user from database to get latest similarity_with_old_photo
-                    await database_sync_to_async(self.session.client_user.refresh_from_db)()
-                    db_similarity_score = self.session.client_user.similarity_with_old_photo
-                    
-                    logger.info(f"📤 Sending enrollment_complete - similarity calculated: {similarity_score}, from DB after async save: {db_similarity_score}")
-                    
-                    # Verify they match
-                    if similarity_score is not None and db_similarity_score is not None:
-                        if abs(similarity_score - db_similarity_score) > 0.0001:
-                            logger.warning(f"⚠️ Similarity mismatch! Calculated: {similarity_score}, DB: {db_similarity_score}")
-                    
-                    # Use DB value for response to ensure consistency
-                    final_similarity = db_similarity_score if db_similarity_score is not None else None
-                    logger.info(f"📤 Final similarity value for response: {final_similarity}")
-                    
-                    # Generate encrypted response
-                    encrypted_response = await self.generate_encrypted_response(
-                        enrollment_id=str(enrollment.id),
-                        session_type="enrollment"
-                    )
-                    
-                    # Prepare response with DB value
-                    response_data = {
-                        "type": "enrollment_complete",
-                        "success": True,
-                        "enrollment_id": str(enrollment.id),
-                        "frames_processed": self._frames_processed,
-                        "liveness_verified": True,
-                        "blinks_detected": liveness_data.get("blinks_detected", 0),
-                        "motion_verified": liveness_data.get("motion_verified", False),
-                        "quality_score": face_data.get("quality", 0.0),
-                        "similarity_with_old_photo": final_similarity,
-                        # Add detailed similarity info
-                        "similarity_samples": len(self._similarity_scores),
-                        "similarity_method": "average" if self._similarity_scores else None,
-                        "encrypted_data": encrypted_response,
-                        "visual_data": visual_data,
-                        "message": "Enrollment completed successfully"
-                    }
-                    
-                    logger.info(f"📤📤 Response similarity_with_old_photo field value: {response_data['similarity_with_old_photo']}")
-                    
-                    await self.safe_send(text_data=json.dumps(response_data))
-                    
-                    await self.update_session_status("completed")
-                    
-                    # Wait 1 second before closing to allow client to process response
-                    await asyncio.sleep(1)
-                    await self.close(code=1000)
-                else:
-                    # Check if failure is due to duplicate face
-                    enrollment_refresh = await self.get_enrollment(self.session.id)
-                    failure_reason = enrollment_refresh.metadata.get('failure_reason') if enrollment_refresh else None
-                    
-                    if failure_reason == 'duplicate_face':
-                        conflicting_user = enrollment_refresh.metadata.get('conflicting_user_id', 'another user')
-                        similarity = enrollment_refresh.metadata.get('similarity_score', 0.0)
-                        
-                        await self.safe_send(text_data=json.dumps({
-                            "type": "enrollment_failed",
-                            "success": False,
-                            "error": "duplicate_face",
-                            "error_code": "DUPLICATE_FACE_DETECTED",
-                            "message": f"❌ This face has already been enrolled by another user",
-                            "details": {
-                                "reason": "Face already exists in system",
-                                "similarity_score": float(similarity),
-                                "conflicting_user": str(conflicting_user)
-                            },
-                            "visual_data": visual_data
-                        }))
-                        
-                        await self.update_session_status("failed")
-                        await asyncio.sleep(1)
-                        await self.close(code=4001)  # Custom close code for duplicate
+                try:
+                    # Calculate AVERAGE similarity from all collected frames
+                    average_similarity = None
+                    if self._similarity_scores:
+                        average_similarity = sum(self._similarity_scores) / len(self._similarity_scores)
+                        logger.info(f"📊 FINAL Average similarity from {len(self._similarity_scores)} frames: {average_similarity:.3f} ({average_similarity*100:.1f}%)")
+                        logger.info(f"📊 Individual frame similarities: {[f'{s:.3f}' for s in self._similarity_scores]}")
                     else:
-                        await self.send_error("Failed to complete enrollment")
+                        logger.info(f"ℹ️ No similarity scores collected (no old_profile_photo or no embeddings)")
+                    
+                    # Complete enrollment with frame data (pass average_similarity instead of calculating in sync method)
+                    success, _ = await self.complete_enrollment(enrollment, face_data, liveness_data, frame)
+                    
+                    if success:
+                        # Use the AVERAGE similarity we calculated from all frames
+                        similarity_score = average_similarity
+                        
+                        # Force save similarity in async context FIRST to ensure proper DB commit
+                        await self._save_client_user_similarity(similarity_score)
+                        
+                        # Wait a tiny bit to ensure DB commit is complete
+                        await asyncio.sleep(0.05)
+                        
+                        # Refresh client_user from database to get latest similarity_with_old_photo
+                        await database_sync_to_async(self.session.client_user.refresh_from_db)()
+                        db_similarity_score = self.session.client_user.similarity_with_old_photo
+                        
+                        logger.info(f"📤 Sending enrollment_complete - similarity calculated: {similarity_score}, from DB after async save: {db_similarity_score}")
+                        
+                        # Verify they match
+                        if similarity_score is not None and db_similarity_score is not None:
+                            if abs(similarity_score - db_similarity_score) > 0.0001:
+                                logger.warning(f"⚠️ Similarity mismatch! Calculated: {similarity_score}, DB: {db_similarity_score}")
+                        
+                        # Use DB value for response to ensure consistency
+                        final_similarity = db_similarity_score if db_similarity_score is not None else None
+                        logger.info(f"📤 Final similarity value for response: {final_similarity}")
+                        
+                        # Generate encrypted response
+                        encrypted_response = await self.generate_encrypted_response(
+                            enrollment_id=str(enrollment.id),
+                            session_type="enrollment"
+                        )
+                        
+                        # Prepare response with DB value
+                        response_data = {
+                            "type": "enrollment_complete",
+                            "success": True,
+                            "enrollment_id": str(enrollment.id),
+                            "frames_processed": self._frames_processed,
+                            "liveness_verified": True,
+                            "blinks_detected": liveness_data.get("blinks_detected", 0),
+                            "motion_verified": liveness_data.get("motion_verified", False),
+                            "quality_score": face_data.get("quality", 0.0),
+                            "similarity_with_old_photo": final_similarity,
+                            # Add detailed similarity info
+                            "similarity_samples": len(self._similarity_scores),
+                            "similarity_method": "average" if self._similarity_scores else None,
+                            "encrypted_data": encrypted_response,
+                            "visual_data": visual_data,
+                            "message": "Enrollment completed successfully"
+                        }
+                        
+                        logger.info(f"📤📤 Response similarity_with_old_photo field value: {response_data['similarity_with_old_photo']}")
+                        
+                        await self.safe_send(text_data=json.dumps(response_data))
+                        
+                        await self.update_session_status("completed")
+                        
+                        # Wait 1 second before closing to allow client to process response
+                        await asyncio.sleep(1)
+                        await self.close(code=1000)
+                    else:
+                        # Check if failure is due to duplicate face
+                        enrollment_refresh = await self.get_enrollment(self.session.id)
+                        failure_reason = enrollment_refresh.metadata.get('failure_reason') if enrollment_refresh else None
+                        
+                        if failure_reason == 'duplicate_face':
+                            conflicting_user = enrollment_refresh.metadata.get('conflicting_user_id', 'another user')
+                            similarity = enrollment_refresh.metadata.get('similarity_score', 0.0)
+                            
+                            await self.safe_send(text_data=json.dumps({
+                                "type": "enrollment_failed",
+                                "success": False,
+                                "error": "duplicate_face",
+                                "error_code": "DUPLICATE_FACE_DETECTED",
+                                "message": f"❌ This face has already been enrolled by another user",
+                                "details": {
+                                    "reason": "Face already exists in system",
+                                    "similarity_score": float(similarity),
+                                    "conflicting_user": str(conflicting_user)
+                                },
+                                "visual_data": visual_data
+                            }))
+                            
+                            await self.update_session_status("failed")
+                            await asyncio.sleep(1)
+                            await self.close(code=4001)  # Custom close code for duplicate
+                        else:
+                            # Reset flag so we can retry
+                            self._enrollment_completing = False
+                            logger.warning(f"⚠️ Enrollment completion failed, resetting flag to allow retry")
+                            await self.send_error("Failed to complete enrollment")
+                except Exception as e:
+                    # Reset flag on any exception so we can retry
+                    self._enrollment_completing = False
+                    logger.error(f"❌ Exception during enrollment completion, resetting flag: {e}", exc_info=True)
+                    await self.send_error(f"Enrollment completion error: {str(e)}")
             else:
                 # Send progress update with detailed feedback
                 progress_message = []
@@ -972,10 +1018,10 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             face = faces[0]
             bbox = face.get("bbox")
             
-            # Detect obstacles
+            # Detect obstacles - ONLY if enabled in settings (major performance optimization)
             obstacles = []
-            obstacle_info = {}
-            if bbox:
+            obstacle_info = {"detected": [], "confidence": {}, "has_blocking": False}
+            if bbox and self.face_engine.is_obstacle_detection_enabled():
                 obstacles, obstacle_confidence = self.face_engine.obstacle_detector.detect_obstacles(frame, bbox)
                 obstacle_info = {
                     "detected": obstacles,

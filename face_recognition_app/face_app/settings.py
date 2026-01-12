@@ -396,6 +396,10 @@ FACE_SEARCH_CACHE_TTL = config("FACE_SEARCH_CACHE_TTL", default=300, cast=int)  
 FACE_MAX_FRAMES_PER_SESSION = config("FACE_MAX_FRAMES_PER_SESSION", default=20, cast=int)
 FACE_ENGINE_WORKER_THREADS = config("FACE_ENGINE_WORKER_THREADS", default=5, cast=int)
 
+# Performance Optimization Toggles (can be set via environment variables)
+OBSTACLE_DETECTION_ENABLED = config("OBSTACLE_DETECTION_ENABLED", default=False, cast=bool)
+MEDIAPIPE_SKIP_REINIT = config("MEDIAPIPE_SKIP_REINIT", default=True, cast=bool)
+
 # Celery Configuration
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default=f"{REDIS_BASE_URL}/0")
 CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=f"{REDIS_BASE_URL}/0")
@@ -466,6 +470,8 @@ FACE_RECOGNITION_CONFIG = {
     # Min blinks required for liveness (lowered)
     "LIVENESS_BLINK_THRESHOLD": 1,
     "LIVENESS_MOTION_THRESHOLD": 0.2,  # Motion threshold for liveness
+    "LIVENESS_MOTION_EVENTS": 1,  # Min motion events required
+    "LIVENESS_MOTION_SCORE": 0.2,  # Min motion score required
     "ANTI_SPOOFING_THRESHOLD": 0.7,  # Anti-spoofing detection
     "EMBEDDING_DIMENSION": 512,
     "MAX_ENROLLMENT_SAMPLES": 5,
@@ -473,11 +479,25 @@ FACE_RECOGNITION_CONFIG = {
     "MIN_FACE_SIZE": 100,
     "MAX_FACE_SIZE": 800,
     "CAPTURE_QUALITY_THRESHOLD": 0.7,
+    "AUTH_QUALITY_THRESHOLD": 0.4,  # Lower threshold for authentication
+    "QUALITY_TOLERANCE": 0.12,
+    "FALLBACK_VERIFICATION_THRESHOLD": 0.28,
     "HEAD_POSE_THRESHOLD": 20,  # Max head pose angle in degrees
     "LIVENESS_METHODS": ["blink_detection", "motion_detection", "head_pose_validation"],
-    "OBSTACLE_DETECTION_ENABLED": True,
     "USE_EMBEDDING_AVERAGING": True,  # Use embedding averaging for enrollment
     "SESSION_TIMEOUT_MINUTES": 1,  # Session timeout in minutes
+    
+    # OBSTACLE DETECTION SETTINGS - Toggle on/off via env var for performance
+    # Set OBSTACLE_DETECTION_ENABLED=true in environment to enable
+    "OBSTACLE_DETECTION_ENABLED": OBSTACLE_DETECTION_ENABLED,  # Uses env var, default False
+    "BLOCKING_OBSTACLES": ["mask", "hand_covering"],  # Only these block enrollment
+    "NON_BLOCKING_OBSTACLES": ["glasses", "hat"],  # These are allowed
+    
+    # MEDIAPIPE OPTIMIZATION SETTINGS - Toggle via env var
+    # Set MEDIAPIPE_SKIP_REINIT=false to disable (enables reinit on session restore)
+    "MEDIAPIPE_STATIC_MODE": True,  # True = no timestamp tracking (safer for concurrent sessions)
+    "MEDIAPIPE_REUSE_DETECTOR": True,  # Reuse detector within same session (avoid reinit)
+    "SKIP_MEDIAPIPE_REINIT": MEDIAPIPE_SKIP_REINIT,  # Uses env var, default True
 }
 
 # Third-Party Service Configuration
@@ -690,7 +710,7 @@ LOGGING = {
             "formatter": "verbose",
         },
         "console": {
-            "level": "DEBUG",
+            "level": "INFO",  # Changed from DEBUG to INFO to reduce log spam
             "class": "logging.StreamHandler",
             "formatter": "simple",
         },
@@ -703,12 +723,35 @@ LOGGING = {
         "django": {
             "handlers": ["console", "file"],
             "level": "INFO",
-            "propagate": True,
+            "propagate": False,  # FIXED: Prevent duplicate logs
         },
         "face_recognition": {
             "handlers": ["console", "file"],
-            "level": "DEBUG",
-            "propagate": True,
+            "level": "INFO",  # Changed from DEBUG to INFO
+            "propagate": False,  # FIXED: Prevent duplicate logs
+        },
+        "auth_service": {
+            "handlers": ["console", "file"],
+            "level": "INFO",  # Set to INFO to reduce spam
+            "propagate": False,  # FIXED: Prevent duplicate logs
+        },
+        "core": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        # Suppress noisy third-party loggers
+        "httpcore": {
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "httpx": {
+            "level": "WARNING", 
+            "propagate": False,
+        },
+        "chromadb": {
+            "level": "WARNING",
+            "propagate": False,
         },
     },
 }

@@ -118,11 +118,14 @@ class SessionManager:
             detector.eye_visibility_score = state.get('eye_visibility_score', 0.0)
             detector.blink_quality_scores = state.get('blink_quality_scores', [])
             
-            # IMPORTANT: Reinitialize MediaPipe FaceMesh to clear timestamp state
-            # This avoids "Packet timestamp mismatch" errors when resuming sessions
-            detector.reinitialize_face_mesh()
+            # OPTIMIZATION: Only reinitialize MediaPipe if configured to do so
+            # Skipping this saves significant CPU/GPU resources
+            from django.conf import settings
+            skip_reinit = settings.FACE_RECOGNITION_CONFIG.get('SKIP_MEDIAPIPE_REINIT', False)
+            if not skip_reinit:
+                detector.reinitialize_face_mesh()
+                logger.debug(f"Restored liveness detector for session {session_token} - total_blinks: {detector.total_blinks}, motion_events: {detector.motion_events}, frame_counter: {detector.frame_counter}")
             
-            logger.debug(f"Restored liveness detector for session {session_token} - total_blinks: {detector.total_blinks}, motion_events: {detector.motion_events}, frame_counter: {detector.frame_counter}")
             return detector
             
         except (json.JSONDecodeError, KeyError) as e:

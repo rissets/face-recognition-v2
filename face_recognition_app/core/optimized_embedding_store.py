@@ -46,6 +46,7 @@ class OptimizedChromaEmbeddingStore:
         self.client_id = client_id
         self._collections_cache = {}
         self._client = None
+        self.base_collection_name = "face_embeddings"  # Default value
         
         try:
             chroma_config = settings.CHROMA_DB_CONFIG
@@ -55,7 +56,7 @@ class OptimizedChromaEmbeddingStore:
             )
             
             # Get or create base collection (for backward compatibility)
-            self.base_collection_name = chroma_config['collection_name']
+            self.base_collection_name = chroma_config.get('collection_name', 'face_embeddings')
             
             logger.info(f"OptimizedChromaEmbeddingStore initialized (client_id: {client_id})")
             
@@ -146,10 +147,16 @@ class OptimizedChromaEmbeddingStore:
             client_id: Client ID for isolation (uses instance client_id if not provided)
         """
         try:
+            # Check if ChromaDB client is available
+            if self._client is None:
+                logger.error("ChromaDB client not initialized - cannot add embedding")
+                return None
+            
             cid = client_id or self.client_id
             collection = self._get_collection(cid)
             
             if collection is None:
+                logger.error(f"Failed to get collection for client {cid}")
                 return None
             
             import uuid
