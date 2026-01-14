@@ -382,6 +382,13 @@ class LivenessDetector:
         self.yaw_history = []
         self.last_turn_direction = None
         self.returned_to_center = True
+        
+        # Hold still tracking (untuk capture foto profile)
+        self.hold_still_count = 0
+        self.consecutive_still_frames = 0
+        self.last_hold_still_time = 0.0
+        self.hold_still_bbox_history = []
+        self.hold_still_quality = 0.0
     
     def validate_head_pose(self, landmarks) -> tuple[bool, dict]:
         """
@@ -708,7 +715,9 @@ class LivenessDetector:
             'motion_score': self.motion_score,
             'open_mouth_count': self.open_mouth_count,
             'turn_left_count': self.turn_left_count,
-            'turn_right_count': self.turn_right_count
+            'turn_right_count': self.turn_right_count,
+            'hold_still_count': self.hold_still_count,
+            'consecutive_still_frames': self.consecutive_still_frames
         }
     
     def calculate_mar(self, landmarks, image_shape):
@@ -766,7 +775,7 @@ class LivenessDetector:
             # Detect immediately jika threshold tercapai (MAR_CONSEC_FRAMES = 1)
             if self.consecutive_mouth_open >= self.MAR_CONSEC_FRAMES:
                 # Valid open mouth detected - interval minimal untuk prevent double counting
-                if (current_time - self.last_mouth_open_time) > 0.5:  # Reduced: 0.8s -> 0.5s
+                if (current_time - self.last_mouth_open_time) > 0.3:  # Reduced: 0.8s -> 0.3s
                     self.open_mouth_count += 1
                     self.last_mouth_open_time = current_time
                     logger.info(f"👄 OPEN MOUTH DETECTED! Count: {self.open_mouth_count}, MAR: {mar:.3f} (threshold: {self.MAR_OPEN_THRESHOLD:.3f})")
@@ -893,6 +902,88 @@ class LivenessDetector:
             'both_turns_detected': self.turn_left_count > 0 and self.turn_right_count > 0
         }
     
+    def detect_hold_still(self, bbox, quality_score):
+        """
+        Detect if subject is holding still (diam) untuk capture foto profile yang bagus
+        Returns: dict with hold_still status and frame count
+        """
+        from django.conf import settings
+        
+        # Get settings
+        config = settings.FACE_RECOGNITION_CONFIG
+        frames_required = config.get('HOLD_STILL_FRAMES_REQUIRED', 8)
+        motion_threshold = config.get('HOLD_STILL_MOTION_THRESHOLD', 0.015)
+        
+        current_time = time.time()
+        
+        # Calculate bbox center and size for motion detection
+        bbox_center = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
+        bbox_width = bbox[2] - bbox[0]
+        bbox_height = bbox[3] - bbox[1]
+        bbox_size = (bbox_width + bbox_height) / 2
+        
+        # Store bbox history (keep last 10 frames)
+        self.hold_still_bbox_history.append({
+            'center': bbox_center,
+            'size': bbox_size,
+            'quality': quality_score,
+            'time': current_time
+        })
+        if len(self.hold_still_bbox_history) > 10:
+            self.hold_still_bbox_history.pop(0)
+        
+        # Calculate motion from bbox history
+        if len(self.hold_still_bbox_history) >= 2:
+            last_bbox = self.hold_still_bbox_history[-1]
+            prev_bbox = self.hold_still_bbox_history[-2]
+            
+            # Calculate center movement (normalized by bbox size)
+            center_movement = np.linalg.norm(
+                np.array(last_bbox['center']) - np.array(prev_bbox['center'])
+            ) / bbox_size
+            
+            # Calculate size change
+            size_change = abs(last_bbox['size'] - prev_bbox['size']) / prev_bbox['size']
+            
+            # Total motion score
+            motion = center_movement + size_change
+            
+            # Check if still (minimal motion and good quality)
+            # Quality threshold diturunkan dari 0.75 -> 0.6 agar lebih mudah
+            is_still = motion < motion_threshold and quality_score > 0.4
+            
+            # Log untuk debugging (setiap 10 frame atau saat mendekati hold still)
+            if self.consecutive_still_frames > 0 or len(self.hold_still_bbox_history) % 10 == 0:
+                logger.debug(f"Hold still check: motion={motion:.4f} (threshold={motion_threshold:.4f}), "
+                           f"quality={quality_score:.2f}, is_still={is_still}, "
+                           f"consecutive={self.consecutive_still_frames}/{frames_required}")
+            
+            if is_still:
+                self.consecutive_still_frames += 1
+                self.hold_still_quality = quality_score  # Store quality for this hold
+                
+                # Count hold_still when frames_required is reached
+                if self.consecutive_still_frames >= frames_required:
+                    if (current_time - self.last_hold_still_time) > 0.3:  # Production optimized for slow frame rate
+                        self.hold_still_count += 1
+                        self.last_hold_still_time = current_time
+                        logger.info(f"🎯 HOLD STILL DETECTED! Count: {self.hold_still_count}, Frames: {self.consecutive_still_frames}, Quality: {quality_score:.2f}, Motion: {motion:.4f}")
+                        self.consecutive_still_frames = 0  # Reset untuk detection berikutnya
+            else:
+                # Reset if motion detected
+                if self.consecutive_still_frames > 0:
+                    logger.debug(f"Motion detected (score: {motion:.4f}), resetting still counter (was: {self.consecutive_still_frames})")
+                self.consecutive_still_frames = 0
+        
+        return {
+            'hold_still_detected': self.hold_still_count > 0,
+            'hold_still_count': self.hold_still_count,
+            'consecutive_still_frames': self.consecutive_still_frames,
+            'frames_required': frames_required,
+            'is_currently_still': self.consecutive_still_frames > 0,
+            'hold_still_quality': self.hold_still_quality
+        }
+    
     def detect_all_challenges(self, frame, bbox=None):
         """
         Detect all liveness challenges: blink, open mouth, head turn
@@ -922,6 +1013,13 @@ class LivenessDetector:
             'both_turns_detected': False
         }
         
+        hold_still_result = {
+            'hold_still_count': self.hold_still_count,
+            'hold_still_detected': False,
+            'consecutive_still_frames': 0,
+            'is_currently_still': False
+        }
+        
         if results.multi_face_landmarks:
             face_landmarks = results.multi_face_landmarks[0]
             
@@ -930,6 +1028,11 @@ class LivenessDetector:
             
             # Detect head turns
             head_turn_result = self.detect_head_turn(face_landmarks, frame.shape)
+        
+        # Detect hold still (needs bbox and quality from blink_result)
+        if bbox is not None:
+            quality_score = blink_result.get('quality', 0.0)
+            hold_still_result = self.detect_hold_still(bbox, quality_score)
         
         # Combine all results
         return {
@@ -958,6 +1061,13 @@ class LivenessDetector:
             'current_yaw': head_turn_result.get('current_yaw', 0.0),
             'current_direction': head_turn_result.get('current_direction', 'center'),
             
+            # Hold still results
+            'hold_still_count': hold_still_result.get('hold_still_count', 0),
+            'hold_still_detected': hold_still_result.get('hold_still_detected', False),
+            'consecutive_still_frames': hold_still_result.get('consecutive_still_frames', 0),
+            'is_currently_still': hold_still_result.get('is_currently_still', False),
+            'hold_still_quality': hold_still_result.get('hold_still_quality', 0.0),
+            
             # Head pose
             'head_pose': blink_result.get('head_pose', {}),
             
@@ -966,13 +1076,15 @@ class LivenessDetector:
                 'blink': blink_result.get('blinks_detected', 0) >= 2,
                 'open_mouth': mouth_result.get('open_mouth_count', 0) >= 1,
                 'turn_left': head_turn_result.get('turn_left_count', 0) >= 1,
-                'turn_right': head_turn_result.get('turn_right_count', 0) >= 1
+                'turn_right': head_turn_result.get('turn_right_count', 0) >= 1,
+                'hold_still': hold_still_result.get('hold_still_count', 0) >= 1
             },
             'all_challenges_completed': (
                 blink_result.get('blinks_detected', 0) >= 2 and
                 mouth_result.get('open_mouth_count', 0) >= 1 and
                 head_turn_result.get('turn_left_count', 0) >= 1 and
-                head_turn_result.get('turn_right_count', 0) >= 1
+                head_turn_result.get('turn_right_count', 0) >= 1 and
+                hold_still_result.get('hold_still_count', 0) >= 1
             ),
             
             # Frame info
@@ -1963,32 +2075,36 @@ class FaceRecognitionEngine:
             required_open_mouth = config.get('ENROLLMENT_OPEN_MOUTH_REQUIRED', 1)
             required_turn_left = config.get('ENROLLMENT_TURN_LEFT_REQUIRED', 1)
             required_turn_right = config.get('ENROLLMENT_TURN_RIGHT_REQUIRED', 1)
+            required_hold_still = config.get('ENROLLMENT_HOLD_STILL_REQUIRED', 1)
             
             # Check if all challenges are completed
             blinks_ok = result.get('blinks_detected', 0) >= required_blinks
             open_mouth_ok = result.get('open_mouth_count', 0) >= required_open_mouth
             turn_left_ok = result.get('turn_left_count', 0) >= required_turn_left
             turn_right_ok = result.get('turn_right_count', 0) >= required_turn_right
+            hold_still_ok = result.get('hold_still_count', 0) >= required_hold_still
             
-            all_challenges_completed = blinks_ok and open_mouth_ok and turn_left_ok and turn_right_ok
+            all_challenges_completed = blinks_ok and open_mouth_ok and turn_left_ok and turn_right_ok and hold_still_ok
             
             # Calculate overall liveness score
             blink_contribution = min(1.0, result.get('blinks_detected', 0) / max(1, required_blinks))
             mouth_contribution = min(1.0, result.get('open_mouth_count', 0) / max(1, required_open_mouth))
             turn_left_contribution = min(1.0, result.get('turn_left_count', 0) / max(1, required_turn_left))
             turn_right_contribution = min(1.0, result.get('turn_right_count', 0) / max(1, required_turn_right))
+            hold_still_contribution = min(1.0, result.get('hold_still_count', 0) / max(1, required_hold_still))
             motion_contribution = min(1.0, result.get('motion_events', 0) / 3.0)
             
-            # Weighted score: Blink 25%, Open Mouth 25%, Turns 30% (15% each), Motion 20%
+            # Weighted score: Blink 20%, Open Mouth 20%, Turns 20% (10% each), Hold Still 25%, Motion 15%
             liveness_score = (
-                blink_contribution * 0.25 +
-                mouth_contribution * 0.25 +
-                turn_left_contribution * 0.15 +
-                turn_right_contribution * 0.15 +
-                motion_contribution * 0.20
+                blink_contribution * 0.20 +
+                mouth_contribution * 0.20 +
+                turn_left_contribution * 0.10 +
+                turn_right_contribution * 0.10 +
+                hold_still_contribution * 0.25 +
+                motion_contribution * 0.15
             )
             
-            # Determine current challenge feedback for UI
+            # Determine current challenge feedback for UI (urutan: blink -> mouth -> turns -> hold still)
             current_challenge = "completed"
             if not blinks_ok:
                 current_challenge = "blink"
@@ -1998,6 +2114,8 @@ class FaceRecognitionEngine:
                 current_challenge = "turn_left"
             elif not turn_right_ok:
                 current_challenge = "turn_right"
+            elif not hold_still_ok:
+                current_challenge = "hold_still"
             
             return {
                 'is_live': all_challenges_completed or result.get('blink_verified', False),
@@ -2026,6 +2144,13 @@ class FaceRecognitionEngine:
                 
                 'yaw': result.get('yaw', 0.0),
                 
+                'hold_still_detected': result.get('hold_still_detected', False),
+                'hold_still_count': result.get('hold_still_count', 0),
+                'hold_still_required': required_hold_still,
+                'hold_still_ok': hold_still_ok,
+                'consecutive_still_frames': result.get('consecutive_still_frames', 0),
+                'is_currently_still': result.get('is_currently_still', False),
+                
                 'motion_score': result.get('motion_score', 0.0),
                 'motion_verified': result.get('motion_verified', False),
                 'motion_events': result.get('motion_events', 0),
@@ -2045,6 +2170,7 @@ class FaceRecognitionEngine:
                 'open_mouth_count': 0,
                 'turn_left_count': 0,
                 'turn_right_count': 0,
+                'hold_still_count': 0,
                 'all_challenges_completed': False,
                 'error': str(e)
             }

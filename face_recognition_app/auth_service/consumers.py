@@ -435,6 +435,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             metadata["open_mouth_count"] = liveness_data.get("open_mouth_count", 0)
             metadata["turn_left_count"] = liveness_data.get("turn_left_count", 0)
             metadata["turn_right_count"] = liveness_data.get("turn_right_count", 0)
+            metadata["hold_still_count"] = liveness_data.get("hold_still_count", 0)
             metadata["all_challenges_completed"] = liveness_data.get("all_challenges_completed", False)
             metadata["current_challenge"] = liveness_data.get("current_challenge", "blink")
             
@@ -449,6 +450,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             required_open_mouth = liveness_data.get("open_mouth_required", 1)
             required_turn_left = liveness_data.get("turn_left_required", 1)
             required_turn_right = liveness_data.get("turn_right_required", 1)
+            required_hold_still = liveness_data.get("hold_still_required", 1)
             required_motion = metadata.get("required_motion_events", 1)
             
             # ENHANCED Liveness verification with all challenges
@@ -457,6 +459,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             actual_open_mouth = liveness_data.get("open_mouth_count", 0)
             actual_turn_left = liveness_data.get("turn_left_count", 0)
             actual_turn_right = liveness_data.get("turn_right_count", 0)
+            actual_hold_still = liveness_data.get("hold_still_count", 0)
             actual_quality = face_data.get("quality", 0.0)
             quality_threshold = self.face_engine.capture_quality_threshold
             
@@ -465,6 +468,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             open_mouth_ok = liveness_data.get("open_mouth_ok", bool(actual_open_mouth >= required_open_mouth))
             turn_left_ok = liveness_data.get("turn_left_ok", bool(actual_turn_left >= required_turn_left))
             turn_right_ok = liveness_data.get("turn_right_ok", bool(actual_turn_right >= required_turn_right))
+            hold_still_ok = liveness_data.get("hold_still_ok", bool(actual_hold_still >= required_hold_still))
             motion_ok = bool(actual_motion >= required_motion)
             no_obstacles = bool(len(detected_obstacles) == 0)
             frames_ok = bool(self._frames_processed >= target_samples)
@@ -472,7 +476,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             
             # All challenges must be completed for enrollment liveness
             all_challenges_done = liveness_data.get("all_challenges_completed", 
-                                                    (blinks_ok and open_mouth_ok and turn_left_ok and turn_right_ok))
+                                                    (blinks_ok and open_mouth_ok and turn_left_ok and turn_right_ok and hold_still_ok))
             liveness_verified = bool(all_challenges_done and no_obstacles)
             
             # Check if enrollment is complete (and not already completing)
@@ -492,13 +496,14 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                            f"open_mouth={actual_open_mouth}/{required_open_mouth}, "
                            f"turn_left={actual_turn_left}/{required_turn_left}, "
                            f"turn_right={actual_turn_right}/{required_turn_right}, "
+                           f"hold_still={actual_hold_still}/{required_hold_still}, "
                            f"current_challenge={current_challenge}, "
                            f"is_complete={is_complete}")
 
             if is_complete:
                 logger.info(f"✅ ENROLLMENT COMPLETE - ALL CONDITIONS MET at frame {self._frames_processed}")
                 logger.info(f"   Challenges: blinks={actual_blinks}, open_mouth={actual_open_mouth}, "
-                           f"turn_left={actual_turn_left}, turn_right={actual_turn_right}")
+                           f"turn_left={actual_turn_left}, turn_right={actual_turn_right}, hold_still={actual_hold_still}")
                 # Set flag to prevent multiple completions
                 self._enrollment_completing = True
                 
@@ -564,6 +569,9 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                             "turn_left_required": required_turn_left,
                             "turn_right_count": actual_turn_right,
                             "turn_right_required": required_turn_right,
+                            # Hold still challenge
+                            "hold_still_count": actual_hold_still,
+                            "hold_still_required": required_hold_still,
                             # Other liveness info
                             "motion_verified": liveness_data.get("motion_verified", False),
                             "liveness_score": liveness_data.get("liveness_score", 0.0),
@@ -649,6 +657,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     "open_mouth": "👄 Open your mouth wide",
                     "turn_left": "👈 Turn your head to the LEFT",
                     "turn_right": "👉 Turn your head to the RIGHT",
+                    "hold_still": "🎯 Stay STILL - Capturing your profile photo...",
                     "completed": "✅ All challenges completed!"
                 }
                 
@@ -676,6 +685,12 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     "turn_right_required": int(required_turn_right),
                     "turn_right_ok": bool(turn_right_ok),
                     "yaw": float(liveness_data.get("yaw", 0.0)),
+                    # Hold still challenge
+                    "hold_still_count": int(actual_hold_still),
+                    "hold_still_required": int(required_hold_still),
+                    "hold_still_ok": bool(hold_still_ok),
+                    "consecutive_still_frames": int(liveness_data.get("consecutive_still_frames", 0)),
+                    "is_currently_still": bool(liveness_data.get("is_currently_still", False)),
                     # All challenges status
                     "all_challenges_completed": bool(all_challenges_done),
                     "current_challenge": current_challenge,

@@ -265,6 +265,7 @@ class FaceAuthWebSocketClient:
                 open_mouth_ok = data.get("open_mouth_ok", False)
                 turn_left_ok = data.get("turn_left_ok", False)
                 turn_right_ok = data.get("turn_right_ok", False)
+                hold_still_ok = data.get("hold_still_ok", False)
                 motion_ok = data.get("motion_ok", False)
                 no_obstacles = data.get("no_obstacles", True)
                 all_challenges = data.get("all_challenges_completed", False)
@@ -304,6 +305,16 @@ class FaceAuthWebSocketClient:
                             data.get('turn_right_required', 1)
                         } {'✅' if turn_right_ok else '❌'} (YAW: {
                             data.get('yaw', 0):.3f})"
+                    )
+                
+                # Hold still challenge
+                if data.get('hold_still_required') is not None:
+                    still_frames = data.get('consecutive_still_frames', 0)
+                    is_still = data.get('is_currently_still', False)
+                    print(
+                        f"   🎯 Hold Still: {data.get('hold_still_count', 0)}/{
+                            data.get('hold_still_required', 1)
+                        } {'✅' if hold_still_ok else '❌'} ({'🟢 HOLDING...' if is_still else f'frames: {still_frames}/8'})"
                     )
                 
                 # Current challenge feedback
@@ -375,16 +386,21 @@ class FaceAuthWebSocketClient:
                 turn_right_req = data.get('turn_right_required', 1)
                 print(f"   👉 Turn Right: {turn_right}/{turn_right_req} {'✅' if turn_right >= turn_right_req else '❌'}")
                 
+                hold_still = data.get('hold_still_count', 0)
+                hold_still_req = data.get('hold_still_required', 1)
+                print(f"   🎯 Hold Still: {hold_still}/{hold_still_req} {'✅' if hold_still >= hold_still_req else '❌'}")
+                
                 motion = data.get('motion_events', 0)
                 motion_req = data.get('motion_required', 1)
                 print(f"   🏃 Motion: {motion}/{motion_req} {'✅' if motion >= motion_req else '❌'}")
             
             print("\n💡 Tips:")
             print("   - Make sure your face is well-lit and clearly visible")
-            print("   - 👁️ Blink naturally 2 times during enrollment")
+            print("   - 👁️ Blink naturally 1-2 times during enrollment")
             print("   - 👄 Open your mouth wide once")
-            print("   - 👈 Turn your head to the LEFT")
-            print("   - 👉 Turn your head to the RIGHT")
+            print("   - 👈 Turn your head to the LEFT (if required)")
+            print("   - 👉 Turn your head to the RIGHT (if required)")
+            print("   - 🎯 Stay STILL at the end to capture your profile photo")
             print("   - Keep your face centered in the frame")
             print("=" * 60)
             # Signal to stop sending frames
@@ -404,7 +420,8 @@ class FaceAuthWebSocketClient:
             print(f"   👄 Open Mouth: {data.get('open_mouth_count', 0)}/{data.get('open_mouth_required', 1)} ✅")
             print(f"   👈 Turn Left: {data.get('turn_left_count', 0)}/{data.get('turn_left_required', 1)} ✅")
             print(f"   👉 Turn Right: {data.get('turn_right_count', 0)}/{data.get('turn_right_required', 1)} ✅")
-            print(f"   🏃 Motion verified: {'✅' if data.get('motion_verified') else '❌'}")
+            print(f"   � Hold Still: {data.get('hold_still_count', 0)}/{data.get('hold_still_required', 1)} ✅")
+            print(f"   �🏃 Motion verified: {'✅' if data.get('motion_verified') else '❌'}")
             print(f"   📷 Quality score: {data.get('quality_score', 0):.2f}")
             
             # Display similarity with old photo if available

@@ -496,7 +496,12 @@ FACE_RECOGNITION_CONFIG = {
     "ENROLLMENT_OPEN_MOUTH_REQUIRED": 1,  # Min open mouth events required
     "ENROLLMENT_TURN_LEFT_REQUIRED": 0,  # Min left head turns required
     "ENROLLMENT_TURN_RIGHT_REQUIRED": 0,  # Min right head turns required
+    "ENROLLMENT_HOLD_STILL_REQUIRED": 1,  # Min hold still (diam) untuk capture foto profile yang jelas
     "ENROLLMENT_TIMEOUT_SECONDS": 60,  # Timeout for enrollment liveness
+    
+    # HOLD STILL (Diam) settings untuk foto profile - LEBIH MUDAH & CEPAT
+    "HOLD_STILL_FRAMES_REQUIRED": 2,  # Berapa frame harus diam (2 frames = ~0.1s, lebih cepat dari 4)
+    "HOLD_STILL_MOTION_THRESHOLD": 0.1,  # Threshold motion - naikkan untuk lebih toleran (0.015 -> 0.03)
     
     # MAR (Mouth Aspect Ratio) thresholds - PRODUCTION OPTIMIZED
     "MAR_OPEN_THRESHOLD": 0.18,  # Threshold for detecting open mouth (turun lagi: 0.3 -> 0.2 -> 0.18, sangat mudah)
