@@ -748,7 +748,8 @@ class LivenessDetector:
     
     def detect_open_mouth(self, landmarks, image_shape):
         """
-        Detect if mouth is open
+        Detect if mouth is open - PRODUCTION OPTIMIZED
+        Instant detection untuk handle network latency
         Returns: dict with open_mouth_detected, count, and current MAR
         """
         mar = self.calculate_mar(landmarks, image_shape)
@@ -758,20 +759,22 @@ class LivenessDetector:
         
         current_time = time.time()
         
-        # Detect open mouth with consecutive frames - SIMPLIFIED LOGIC
+        # PRODUCTION-OPTIMIZED: Instant detection dengan time window
         if mar > self.MAR_OPEN_THRESHOLD:
             self.consecutive_mouth_open += 1
             
-            # Count immediately when threshold is reached (tidak perlu tunggu tutup mulut)
+            # Detect immediately jika threshold tercapai (MAR_CONSEC_FRAMES = 1)
             if self.consecutive_mouth_open >= self.MAR_CONSEC_FRAMES:
-                # Valid open mouth detected
-                if (current_time - self.last_mouth_open_time) > 0.8:  # Min 0.8s between detections
+                # Valid open mouth detected - interval minimal untuk prevent double counting
+                if (current_time - self.last_mouth_open_time) > 0.5:  # Reduced: 0.8s -> 0.5s
                     self.open_mouth_count += 1
                     self.last_mouth_open_time = current_time
-                    logger.info(f"✓ OPEN MOUTH DETECTED! Count: {self.open_mouth_count}, MAR: {mar:.3f}")
-                    self.consecutive_mouth_open = 0  # Reset to allow multiple detections
+                    logger.info(f"👄 OPEN MOUTH DETECTED! Count: {self.open_mouth_count}, MAR: {mar:.3f} (threshold: {self.MAR_OPEN_THRESHOLD:.3f})")
+                    self.consecutive_mouth_open = 0  # Reset untuk allow detection berikutnya
         else:
             # Reset counter when mouth closes
+            if self.consecutive_mouth_open > 0:
+                logger.debug(f"Mouth closed, resetting counter (was: {self.consecutive_mouth_open})")
             self.consecutive_mouth_open = 0
         
         return {
