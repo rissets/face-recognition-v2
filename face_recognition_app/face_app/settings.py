@@ -492,10 +492,10 @@ FACE_RECOGNITION_CONFIG = {
     
     # ENROLLMENT LIVENESS CHALLENGES
     "ENROLLMENT_LIVENESS_ENABLED": True,  # Enable enhanced liveness for enrollment
-    "ENROLLMENT_BLINK_REQUIRED": 2,  # Min blinks required for enrollment
+    "ENROLLMENT_BLINK_REQUIRED": 1,  # Min blinks required for enrollment
     "ENROLLMENT_OPEN_MOUTH_REQUIRED": 1,  # Min open mouth events required
-    "ENROLLMENT_TURN_LEFT_REQUIRED": 1,  # Min left head turns required
-    "ENROLLMENT_TURN_RIGHT_REQUIRED": 1,  # Min right head turns required
+    "ENROLLMENT_TURN_LEFT_REQUIRED": 0,  # Min left head turns required
+    "ENROLLMENT_TURN_RIGHT_REQUIRED": 0,  # Min right head turns required
     "ENROLLMENT_TIMEOUT_SECONDS": 60,  # Timeout for enrollment liveness
     
     # MAR (Mouth Aspect Ratio) thresholds
