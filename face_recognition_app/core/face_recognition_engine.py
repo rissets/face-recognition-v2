@@ -736,6 +736,10 @@ class LivenessDetector:
                 return 0.0
             
             mar = vertical_dist / horizontal_dist
+            
+            # DEBUG: Log MAR value setiap frame untuk troubleshooting
+            logger.debug(f"MAR: {mar:.3f} (threshold: {self.MAR_OPEN_THRESHOLD:.3f}) - {'OPEN' if mar > self.MAR_OPEN_THRESHOLD else 'closed'}")
+            
             return mar
             
         except Exception as e:
@@ -754,16 +758,20 @@ class LivenessDetector:
         
         current_time = time.time()
         
-        # Detect open mouth with consecutive frames
+        # Detect open mouth with consecutive frames - SIMPLIFIED LOGIC
         if mar > self.MAR_OPEN_THRESHOLD:
             self.consecutive_mouth_open += 1
-        else:
+            
+            # Count immediately when threshold is reached (tidak perlu tunggu tutup mulut)
             if self.consecutive_mouth_open >= self.MAR_CONSEC_FRAMES:
-                # Valid open mouth detected (mouth was open, now closed)
-                if (current_time - self.last_mouth_open_time) > 0.5:  # Min 0.5s between detections
+                # Valid open mouth detected
+                if (current_time - self.last_mouth_open_time) > 0.8:  # Min 0.8s between detections
                     self.open_mouth_count += 1
                     self.last_mouth_open_time = current_time
-                    logger.debug(f"✓ OPEN MOUTH DETECTED! Count: {self.open_mouth_count}, MAR: {mar:.3f}")
+                    logger.info(f"✓ OPEN MOUTH DETECTED! Count: {self.open_mouth_count}, MAR: {mar:.3f}")
+                    self.consecutive_mouth_open = 0  # Reset to allow multiple detections
+        else:
+            # Reset counter when mouth closes
             self.consecutive_mouth_open = 0
         
         return {
@@ -771,7 +779,8 @@ class LivenessDetector:
             'open_mouth_count': self.open_mouth_count,
             'current_mar': mar,
             'is_mouth_currently_open': mar > self.MAR_OPEN_THRESHOLD,
-            'threshold': self.MAR_OPEN_THRESHOLD
+            'threshold': self.MAR_OPEN_THRESHOLD,
+            'consecutive_frames': self.consecutive_mouth_open
         }
     
     def calculate_yaw(self, landmarks, image_shape):

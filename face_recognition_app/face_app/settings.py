@@ -498,9 +498,9 @@ FACE_RECOGNITION_CONFIG = {
     "ENROLLMENT_TURN_RIGHT_REQUIRED": 0,  # Min right head turns required
     "ENROLLMENT_TIMEOUT_SECONDS": 60,  # Timeout for enrollment liveness
     
-    # MAR (Mouth Aspect Ratio) thresholds
-    "MAR_OPEN_THRESHOLD": 0.3,  # Threshold for detecting open mouth
-    "MAR_CONSECUTIVE_FRAMES": 3,  # Consecutive frames required
+    # MAR (Mouth Aspect Ratio) thresholds - LEBIH MUDAH
+    "MAR_OPEN_THRESHOLD": 0.2,  # Threshold for detecting open mouth (diturunkan dari 0.3 -> 0.2, lebih mudah)
+    "MAR_CONSECUTIVE_FRAMES": 2,  # Consecutive frames required (diturunkan dari 3 -> 2, lebih cepat detect)
     
     # YAW (Head Turn) thresholds
     "YAW_LEFT_THRESHOLD": -0.15,  # Threshold for left turn detection
