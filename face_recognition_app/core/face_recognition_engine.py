@@ -905,6 +905,7 @@ class LivenessDetector:
     def detect_hold_still(self, bbox, quality_score):
         """
         Detect if subject is holding still (diam) untuk capture foto profile yang bagus
+        HANYA AKTIF SETELAH OPEN MOUTH SELESAI
         Returns: dict with hold_still status and frame count
         """
         from django.conf import settings
@@ -913,6 +914,19 @@ class LivenessDetector:
         config = settings.FACE_RECOGNITION_CONFIG
         frames_required = config.get('HOLD_STILL_FRAMES_REQUIRED', 8)
         motion_threshold = config.get('HOLD_STILL_MOTION_THRESHOLD', 0.015)
+        open_mouth_required = config.get('ENROLLMENT_OPEN_MOUTH_REQUIRED', 1)
+        
+        # PENTING: Hold still hanya aktif setelah open mouth challenge selesai
+        if self.open_mouth_count < open_mouth_required:
+            return {
+                'hold_still_detected': False,
+                'hold_still_count': self.hold_still_count,
+                'consecutive_still_frames': 0,
+                'frames_required': frames_required,
+                'is_currently_still': False,
+                'hold_still_quality': 0.0,
+                'waiting_for_open_mouth': True  # Indicator untuk UI
+            }
         
         current_time = time.time()
         
