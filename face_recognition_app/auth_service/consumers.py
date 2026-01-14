@@ -653,12 +653,12 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 # Get current challenge feedback for UI guidance
                 current_challenge = liveness_data.get("current_challenge", "blink")
                 challenge_feedback = {
-                    "blink": "👁️ Please blink your eyes",
-                    "open_mouth": "👄 Open your mouth wide",
-                    "turn_left": "👈 Turn your head to the LEFT",
-                    "turn_right": "👉 Turn your head to the RIGHT",
-                    "hold_still": "🎯 Stay STILL - Capturing your profile photo...",
-                    "completed": "✅ All challenges completed!"
+                    "blink": "👁️ Silakan kedipkan mata Anda",
+                    "open_mouth": "👄 Buka mulut Anda lebar-lebar",
+                    "turn_left": "👈 Putar kepala Anda ke KIRI",
+                    "turn_right": "👉 Putar kepala Anda ke KANAN",
+                    "hold_still": "🎯 DIAM - Mengambil foto profil Anda...",
+                    "completed": "✅ Semua tantangan selesai!"
                 }
                 
                 response_data = {

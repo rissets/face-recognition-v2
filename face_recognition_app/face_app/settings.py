@@ -504,7 +504,7 @@ FACE_RECOGNITION_CONFIG = {
     "HOLD_STILL_MOTION_THRESHOLD": 0.1,  # Threshold motion - naikkan untuk lebih toleran (0.015 -> 0.03)
     
     # MAR (Mouth Aspect Ratio) thresholds - PRODUCTION OPTIMIZED
-    "MAR_OPEN_THRESHOLD": 0.18,  # Threshold for detecting open mouth (turun lagi: 0.3 -> 0.2 -> 0.18, sangat mudah)
+    "MAR_OPEN_THRESHOLD": 0.12,  # Threshold for detecting open mouth (sangat mudah: 0.3 -> 0.2 -> 0.18 -> 0.12, bahkan mulut sedikit terbuka terdeteksi)
     "MAR_CONSECUTIVE_FRAMES": 1,  # Consecutive frames required (1 = LANGSUNG DETECT, optimal untuk production dengan latency)
     
     # YAW (Head Turn) thresholds

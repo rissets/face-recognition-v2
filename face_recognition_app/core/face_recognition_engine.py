@@ -775,7 +775,7 @@ class LivenessDetector:
             # Detect immediately jika threshold tercapai (MAR_CONSEC_FRAMES = 1)
             if self.consecutive_mouth_open >= self.MAR_CONSEC_FRAMES:
                 # Valid open mouth detected - interval minimal untuk prevent double counting
-                if (current_time - self.last_mouth_open_time) > 0.3:  # Reduced: 0.8s -> 0.3s
+                if (current_time - self.last_mouth_open_time) > 0.2:  # Ultra fast: 0.8s -> 0.3s -> 0.2s untuk production
                     self.open_mouth_count += 1
                     self.last_mouth_open_time = current_time
                     logger.info(f"👄 OPEN MOUTH DETECTED! Count: {self.open_mouth_count}, MAR: {mar:.3f} (threshold: {self.MAR_OPEN_THRESHOLD:.3f})")

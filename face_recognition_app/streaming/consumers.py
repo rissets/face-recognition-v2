@@ -346,26 +346,26 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
             # Determine current feedback for user
             current_feedback = None
             if not challenges['blink']['done']:
-                current_feedback = {'action': 'blink', 'message': f"Blink your eyes ({challenges['blink']['completed']}/2)", 'icon': '👁️'}
+                current_feedback = {'action': 'blink', 'message': f"Kedipkan mata Anda ({challenges['blink']['completed']}/2)", 'icon': '👁️'}
             elif not challenges['open_mouth']['done']:
                 if liveness_data.get('is_mouth_currently_open', False):
-                    current_feedback = {'action': 'open_mouth', 'message': 'Good! Keep mouth open...', 'icon': '👄', 'in_progress': True}
+                    current_feedback = {'action': 'open_mouth', 'message': 'Bagus! Tahan mulut terbuka...', 'icon': '👄', 'in_progress': True}
                 else:
-                    current_feedback = {'action': 'open_mouth', 'message': 'Open your mouth wide', 'icon': '👄'}
+                    current_feedback = {'action': 'open_mouth', 'message': 'Buka mulut Anda lebar-lebar', 'icon': '👄'}
             elif not challenges['turn_left']['done']:
                 current_dir = liveness_data.get('current_direction', 'center')
                 if current_dir == 'left':
-                    current_feedback = {'action': 'turn_left', 'message': 'Good! Keep turning left...', 'icon': '⬅️', 'in_progress': True}
+                    current_feedback = {'action': 'turn_left', 'message': 'Bagus! Tahan kepala ke kiri...', 'icon': '⬅️', 'in_progress': True}
                 else:
-                    current_feedback = {'action': 'turn_left', 'message': 'Turn your head LEFT', 'icon': '⬅️'}
+                    current_feedback = {'action': 'turn_left', 'message': 'Putar kepala Anda ke KIRI', 'icon': '⬅️'}
             elif not challenges['turn_right']['done']:
                 current_dir = liveness_data.get('current_direction', 'center')
                 if current_dir == 'right':
-                    current_feedback = {'action': 'turn_right', 'message': 'Good! Keep turning right...', 'icon': '➡️', 'in_progress': True}
+                    current_feedback = {'action': 'turn_right', 'message': 'Bagus! Tahan kepala ke kanan...', 'icon': '➡️', 'in_progress': True}
                 else:
-                    current_feedback = {'action': 'turn_right', 'message': 'Turn your head RIGHT', 'icon': '➡️'}
+                    current_feedback = {'action': 'turn_right', 'message': 'Putar kepala Anda ke KANAN', 'icon': '➡️'}
             else:
-                current_feedback = {'action': 'complete', 'message': 'All challenges completed! ✓', 'icon': '✅'}
+                current_feedback = {'action': 'complete', 'message': 'Semua tantangan selesai! ✓', 'icon': '✅'}
 
             payload = {
                 "success": True,
