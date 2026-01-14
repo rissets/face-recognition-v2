@@ -1,0 +1,16 @@
+[Unit]
+Description=Celery Beat Service for Research Fish
+After=network.target
+
+[Service]
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/face-recognition-v2/face_recognition_app
+
+ExecStart=/home/admin/face-recognition-v2/venv/bin/celery -A face_app beat --loglevel=info
+
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

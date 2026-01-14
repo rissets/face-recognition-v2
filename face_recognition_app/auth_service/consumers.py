@@ -360,8 +360,8 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 else:
                     logger.info(f"ℹ️ No old photo embedding available - similarity will not be calculated")
 
-            # Process frame with face engine
-            result = await self.run_face_detection(frame)
+            # Process frame with face engine - use enrollment mode for enhanced liveness
+            result = await self.run_face_detection(frame, session_type="enrollment")
             
             if not result.get("success"):
                 await self.safe_send(text_data=json.dumps({
@@ -431,27 +431,49 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             metadata["liveness_blinks"] = liveness_data.get("blinks_detected", 0)
             metadata["motion_events"] = liveness_data.get("motion_events", 0)
             metadata["liveness_verified"] = liveness_data.get("is_live", False)
+            # New enrollment challenges metadata
+            metadata["open_mouth_count"] = liveness_data.get("open_mouth_count", 0)
+            metadata["turn_left_count"] = liveness_data.get("turn_left_count", 0)
+            metadata["turn_right_count"] = liveness_data.get("turn_right_count", 0)
+            metadata["all_challenges_completed"] = liveness_data.get("all_challenges_completed", False)
+            metadata["current_challenge"] = liveness_data.get("current_challenge", "blink")
             
             await self.update_session_metadata(metadata)
 
             # Check if enrollment is complete
             target_samples = metadata.get("target_samples", 10)
-            required_blinks = metadata.get("required_blinks", 1)
+            
+            # Get requirements from liveness_data (populated by check_liveness_for_enrollment)
+            # These use settings from FACE_RECOGNITION_CONFIG
+            required_blinks = liveness_data.get("blinks_required", metadata.get("required_blinks", 2))
+            required_open_mouth = liveness_data.get("open_mouth_required", 1)
+            required_turn_left = liveness_data.get("turn_left_required", 1)
+            required_turn_right = liveness_data.get("turn_right_required", 1)
             required_motion = metadata.get("required_motion_events", 1)
             
-            # STRICT Liveness verification: need blinks AND motion AND no obstacles
-            # Explicitly convert to Python bool to avoid numpy.bool_ JSON serialization issues
+            # ENHANCED Liveness verification with all challenges
             actual_blinks = liveness_data.get("blinks_detected", 0)
             actual_motion = liveness_data.get("motion_events", 0)
+            actual_open_mouth = liveness_data.get("open_mouth_count", 0)
+            actual_turn_left = liveness_data.get("turn_left_count", 0)
+            actual_turn_right = liveness_data.get("turn_right_count", 0)
             actual_quality = face_data.get("quality", 0.0)
             quality_threshold = self.face_engine.capture_quality_threshold
             
-            blinks_ok = bool(actual_blinks >= required_blinks)
+            # Check each challenge status (use liveness_data flags if available)
+            blinks_ok = liveness_data.get("blinks_ok", bool(actual_blinks >= required_blinks))
+            open_mouth_ok = liveness_data.get("open_mouth_ok", bool(actual_open_mouth >= required_open_mouth))
+            turn_left_ok = liveness_data.get("turn_left_ok", bool(actual_turn_left >= required_turn_left))
+            turn_right_ok = liveness_data.get("turn_right_ok", bool(actual_turn_right >= required_turn_right))
             motion_ok = bool(actual_motion >= required_motion)
             no_obstacles = bool(len(detected_obstacles) == 0)
             frames_ok = bool(self._frames_processed >= target_samples)
             quality_ok = bool(actual_quality >= quality_threshold)
-            liveness_verified = bool(blinks_ok and motion_ok and no_obstacles)
+            
+            # All challenges must be completed for enrollment liveness
+            all_challenges_done = liveness_data.get("all_challenges_completed", 
+                                                    (blinks_ok and open_mouth_ok and turn_left_ok and turn_right_ok))
+            liveness_verified = bool(all_challenges_done and no_obstacles)
             
             # Check if enrollment is complete (and not already completing)
             is_complete = (
@@ -461,16 +483,22 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 quality_ok
             )
             
-            # Log only every 5 frames or on completion
+            # Log progress every 5 frames or on completion
+            current_challenge = liveness_data.get("current_challenge", "unknown")
             if self._frames_processed % 5 == 0 or is_complete:
                 logger.debug(f"Enrollment check Frame {self._frames_processed}: "
                            f"frames={self._frames_processed}/{target_samples}, "
                            f"blinks={actual_blinks}/{required_blinks}, "
-                           f"motion={actual_motion}/{required_motion}, "
+                           f"open_mouth={actual_open_mouth}/{required_open_mouth}, "
+                           f"turn_left={actual_turn_left}/{required_turn_left}, "
+                           f"turn_right={actual_turn_right}/{required_turn_right}, "
+                           f"current_challenge={current_challenge}, "
                            f"is_complete={is_complete}")
 
             if is_complete:
                 logger.info(f"✅ ENROLLMENT COMPLETE - ALL CONDITIONS MET at frame {self._frames_processed}")
+                logger.info(f"   Challenges: blinks={actual_blinks}, open_mouth={actual_open_mouth}, "
+                           f"turn_left={actual_turn_left}, turn_right={actual_turn_right}")
                 # Set flag to prevent multiple completions
                 self._enrollment_completing = True
                 
@@ -518,15 +546,27 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                             session_type="enrollment"
                         )
                         
-                        # Prepare response with DB value
+                        # Prepare response with DB value and all challenge info
                         response_data = {
                             "type": "enrollment_complete",
                             "success": True,
                             "enrollment_id": str(enrollment.id),
                             "frames_processed": self._frames_processed,
                             "liveness_verified": True,
-                            "blinks_detected": liveness_data.get("blinks_detected", 0),
+                            # Blink challenge
+                            "blinks_detected": actual_blinks,
+                            "blinks_required": required_blinks,
+                            # Open mouth challenge
+                            "open_mouth_count": actual_open_mouth,
+                            "open_mouth_required": required_open_mouth,
+                            # Head turn challenges
+                            "turn_left_count": actual_turn_left,
+                            "turn_left_required": required_turn_left,
+                            "turn_right_count": actual_turn_right,
+                            "turn_right_required": required_turn_right,
+                            # Other liveness info
                             "motion_verified": liveness_data.get("motion_verified", False),
+                            "liveness_score": liveness_data.get("liveness_score", 0.0),
                             "quality_score": face_data.get("quality", 0.0),
                             "similarity_with_old_photo": final_similarity,
                             # Add detailed similarity info
@@ -534,7 +574,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                             "similarity_method": "average" if self._similarity_scores else None,
                             "encrypted_data": encrypted_response,
                             "visual_data": visual_data,
-                            "message": "Enrollment completed successfully"
+                            "message": "Enrollment completed successfully with all liveness challenges passed"
                         }
                         
                         logger.info(f"📤📤 Response similarity_with_old_photo field value: {response_data['similarity_with_old_photo']}")
@@ -602,6 +642,16 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 if self._similarity_scores:
                     current_avg_similarity = sum(self._similarity_scores) / len(self._similarity_scores)
                 
+                # Get current challenge feedback for UI guidance
+                current_challenge = liveness_data.get("current_challenge", "blink")
+                challenge_feedback = {
+                    "blink": "👁️ Please blink your eyes",
+                    "open_mouth": "👄 Open your mouth wide",
+                    "turn_left": "👈 Turn your head to the LEFT",
+                    "turn_right": "👉 Turn your head to the RIGHT",
+                    "completed": "✅ All challenges completed!"
+                }
+                
                 response_data = {
                     "type": "frame_processed",
                     "success": True,
@@ -609,9 +659,28 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     "target_samples": int(target_samples),
                     "liveness_verified": bool(liveness_verified),
                     "liveness_score": float(liveness_data.get("liveness_score", 0.0)),
-                    "blinks_detected": int(liveness_data.get("blinks_detected", 0)),
+                    # Blink challenge
+                    "blinks_detected": int(actual_blinks),
                     "blinks_required": int(required_blinks),
                     "blinks_ok": bool(blinks_ok),
+                    # Open mouth challenge
+                    "open_mouth_count": int(actual_open_mouth),
+                    "open_mouth_required": int(required_open_mouth),
+                    "open_mouth_ok": bool(open_mouth_ok),
+                    "mar": float(liveness_data.get("mar", 0.0)),
+                    # Head turn challenges
+                    "turn_left_count": int(actual_turn_left),
+                    "turn_left_required": int(required_turn_left),
+                    "turn_left_ok": bool(turn_left_ok),
+                    "turn_right_count": int(actual_turn_right),
+                    "turn_right_required": int(required_turn_right),
+                    "turn_right_ok": bool(turn_right_ok),
+                    "yaw": float(liveness_data.get("yaw", 0.0)),
+                    # All challenges status
+                    "all_challenges_completed": bool(all_challenges_done),
+                    "current_challenge": current_challenge,
+                    "challenge_feedback": challenge_feedback.get(current_challenge, ""),
+                    # Motion info
                     "motion_score": float(liveness_data.get("motion_score", 0.0)),
                     "motion_events": int(liveness_data.get("motion_events", 0)),
                     "motion_required": int(required_motion),
@@ -625,7 +694,7 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                     "frame_similarity": float(frame_similarity) if frame_similarity is not None else None,
                     "current_avg_similarity": float(current_avg_similarity) if current_avg_similarity is not None else None,
                     "similarity_samples": int(len(self._similarity_scores)),
-                    "message": " | ".join(progress_message) if progress_message else "Blink AND move head to complete"
+                    "message": challenge_feedback.get(current_challenge, "Complete liveness challenges")
                 }
                 
                 await self.safe_send(text_data=json.dumps(response_data))
@@ -997,15 +1066,16 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
             logger.error(f"Error encrypting with API key: {e}", exc_info=True)
             raise
 
-    async def run_face_detection(self, frame: np.ndarray) -> Dict[str, Any]:
+    async def run_face_detection(self, frame: np.ndarray, session_type: str = None) -> Dict[str, Any]:
         """Run face detection and liveness check on frame"""
         return await asyncio.get_event_loop().run_in_executor(
             None,
             self._sync_face_detection,
-            frame
+            frame,
+            session_type
         )
 
-    def _sync_face_detection(self, frame: np.ndarray) -> Dict[str, Any]:
+    def _sync_face_detection(self, frame: np.ndarray, session_type: str = None) -> Dict[str, Any]:
         """Synchronous face detection (runs in thread pool)"""
         try:
             # Detect faces
@@ -1038,7 +1108,11 @@ class AuthProcessConsumer(AsyncWebsocketConsumer):
                 }
             
             # Check liveness with session token for state tracking
-            liveness_result = self.face_engine.check_liveness(frame, face, session_token=self.session_token)
+            # Use enhanced liveness check for enrollment sessions (includes open mouth, head turns)
+            if session_type == "enrollment":
+                liveness_result = self.face_engine.check_liveness_for_enrollment(frame, face, session_token=self.session_token)
+            else:
+                liveness_result = self.face_engine.check_liveness(frame, face, session_token=self.session_token)
             
             # Get visual feedback data for drawing polygons
             visual_data = self._extract_visual_data(frame, face, liveness_result)

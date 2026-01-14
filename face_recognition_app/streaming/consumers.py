@@ -288,7 +288,7 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
             await self.send_error(f"Unknown command: {command}")
 
     async def process_enrollment_frame(self, frame):
-        """Process frame for enrollment"""
+        """Process frame for enrollment with enhanced liveness challenges"""
         try:
             # Get user from database
             user = await self.get_session_user()
@@ -316,13 +316,67 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
                     completed = True
                     await self.finalize_streaming_session('completed')
 
+            # Enhanced liveness data with challenge info
+            liveness_data = result.get("liveness_data", {})
+            
+            # Add challenge completion status for UI
+            challenges = {
+                'blink': {
+                    'required': 2,
+                    'completed': liveness_data.get('blinks_detected', 0),
+                    'done': liveness_data.get('blinks_detected', 0) >= 2
+                },
+                'open_mouth': {
+                    'required': 1,
+                    'completed': liveness_data.get('open_mouth_count', 0),
+                    'done': liveness_data.get('open_mouth_count', 0) >= 1
+                },
+                'turn_left': {
+                    'required': 1,
+                    'completed': liveness_data.get('turn_left_count', 0),
+                    'done': liveness_data.get('turn_left_count', 0) >= 1
+                },
+                'turn_right': {
+                    'required': 1,
+                    'completed': liveness_data.get('turn_right_count', 0),
+                    'done': liveness_data.get('turn_right_count', 0) >= 1
+                }
+            }
+            
+            # Determine current feedback for user
+            current_feedback = None
+            if not challenges['blink']['done']:
+                current_feedback = {'action': 'blink', 'message': f"Blink your eyes ({challenges['blink']['completed']}/2)", 'icon': '👁️'}
+            elif not challenges['open_mouth']['done']:
+                if liveness_data.get('is_mouth_currently_open', False):
+                    current_feedback = {'action': 'open_mouth', 'message': 'Good! Keep mouth open...', 'icon': '👄', 'in_progress': True}
+                else:
+                    current_feedback = {'action': 'open_mouth', 'message': 'Open your mouth wide', 'icon': '👄'}
+            elif not challenges['turn_left']['done']:
+                current_dir = liveness_data.get('current_direction', 'center')
+                if current_dir == 'left':
+                    current_feedback = {'action': 'turn_left', 'message': 'Good! Keep turning left...', 'icon': '⬅️', 'in_progress': True}
+                else:
+                    current_feedback = {'action': 'turn_left', 'message': 'Turn your head LEFT', 'icon': '⬅️'}
+            elif not challenges['turn_right']['done']:
+                current_dir = liveness_data.get('current_direction', 'center')
+                if current_dir == 'right':
+                    current_feedback = {'action': 'turn_right', 'message': 'Good! Keep turning right...', 'icon': '➡️', 'in_progress': True}
+                else:
+                    current_feedback = {'action': 'turn_right', 'message': 'Turn your head RIGHT', 'icon': '➡️'}
+            else:
+                current_feedback = {'action': 'complete', 'message': 'All challenges completed! ✓', 'icon': '✅'}
+
             payload = {
                 "success": True,
                 "quality_score": result["quality_score"],
-                "liveness_data": result["liveness_data"],
+                "liveness_data": liveness_data,
                 "embedding_saved": embedding_saved,
                 "progress": progress,
                 "feedback": self.get_quality_feedback(result),
+                "challenges": challenges,
+                "current_feedback": current_feedback,
+                "all_challenges_done": all(c['done'] for c in challenges.values())
             }
             if completed:
                 payload['finalized'] = True
@@ -365,14 +419,31 @@ class FaceRecognitionConsumer(AsyncWebsocketConsumer):
             return {"success": False, "error": str(e)}
 
     def get_quality_feedback(self, result):
-        """Generate feedback based on quality metrics"""
+        """Generate feedback based on quality metrics and liveness challenges"""
         feedback = []
 
         if result["quality_score"] < 0.7:
             feedback.append("Improve image quality")
 
-        if result["liveness_data"]["blinks_detected"] < 2:
-            feedback.append("Please blink naturally")
+        liveness_data = result.get("liveness_data", {})
+        
+        # Blink feedback
+        blinks = liveness_data.get("blinks_detected", 0)
+        if blinks < 2:
+            feedback.append(f"Please blink naturally ({blinks}/2)")
+        
+        # Open mouth feedback
+        open_mouth_count = liveness_data.get("open_mouth_count", 0)
+        if open_mouth_count < 1:
+            feedback.append("Open your mouth wide")
+        
+        # Head turn feedback
+        left_turns = liveness_data.get("turn_left_count", 0)
+        right_turns = liveness_data.get("turn_right_count", 0)
+        if left_turns < 1:
+            feedback.append("Turn your head LEFT")
+        if right_turns < 1:
+            feedback.append("Turn your head RIGHT")
 
         if result.get("obstacles"):
             feedback.append(f"Remove obstacles: {', '.join(result['obstacles'])}")

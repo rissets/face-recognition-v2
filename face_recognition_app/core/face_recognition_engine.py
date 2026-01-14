@@ -249,6 +249,19 @@ class LivenessDetector:
         self.LEFT_EYE_POINTS = [33, 160, 158, 133, 153, 144]  
         self.RIGHT_EYE_POINTS = [362, 385, 387, 263, 373, 380]
         
+        # Mouth landmarks for open mouth detection (MAR)
+        self.UPPER_LIP_CENTER = 13
+        self.LOWER_LIP_CENTER = 14
+        self.LEFT_MOUTH_CORNER = 61
+        self.RIGHT_MOUTH_CORNER = 291
+        
+        # Head turn detection landmarks
+        self.NOSE_TIP = 1
+        self.LEFT_EYE_OUTER = 33
+        self.RIGHT_EYE_OUTER = 263
+        self.LEFT_EYE_INNER = 133
+        self.RIGHT_EYE_INNER = 362
+        
         # Blink detection parameters - OPTIMIZED for real-world detection
         self.EAR_THRESHOLD = 0.22  # LOWERED from 0.25 - detect when eyes close significantly
         self.ADAPTIVE_FACTOR = 0.75  # LOWERED from 0.80 - more aggressive adaptive threshold
@@ -257,6 +270,15 @@ class LivenessDetector:
         self.MAX_BLINK_DURATION = 15  # INCREASED from 10 - allow longer blinks
         self.MOTION_SENSITIVITY = 0.015  # SUPER SENSITIVE - lowered from 0.03 (2x more sensitive!)
         self.MOTION_EVENT_INTERVAL = 0.20  # FASTER - lowered from 0.25s
+        
+        # Open mouth detection parameters
+        self.MAR_OPEN_THRESHOLD = 0.3
+        self.MAR_CONSEC_FRAMES = 3
+        
+        # Head turn detection parameters
+        self.YAW_LEFT_THRESHOLD = -0.15
+        self.YAW_RIGHT_THRESHOLD = 0.15
+        self.YAW_CONSEC_FRAMES = 3
         
         # Tracking variables - made serializable for session management
         self.reset()
@@ -345,6 +367,21 @@ class LivenessDetector:
         self.last_bbox_center = None
         self.last_bbox_size = None
         self.last_motion_time = 0.0
+        
+        # Open mouth tracking
+        self.open_mouth_count = 0
+        self.consecutive_mouth_open = 0
+        self.mar_history = []
+        self.last_mouth_open_time = 0.0
+        
+        # Head turn tracking
+        self.turn_left_count = 0
+        self.turn_right_count = 0
+        self.consecutive_left = 0
+        self.consecutive_right = 0
+        self.yaw_history = []
+        self.last_turn_direction = None
+        self.returned_to_center = True
     
     def validate_head_pose(self, landmarks) -> tuple[bool, dict]:
         """
@@ -668,7 +705,266 @@ class LivenessDetector:
             'ear_history_length': len(self.ear_history),
             'last_ear': self.ear_history[-1] if self.ear_history else 0.0,
             'motion_events': self.motion_events,
-            'motion_score': self.motion_score
+            'motion_score': self.motion_score,
+            'open_mouth_count': self.open_mouth_count,
+            'turn_left_count': self.turn_left_count,
+            'turn_right_count': self.turn_right_count
+        }
+    
+    def calculate_mar(self, landmarks, image_shape):
+        """
+        Calculate MAR (Mouth Aspect Ratio)
+        MAR = vertical_distance / horizontal_distance
+        Higher MAR = mouth more open
+        """
+        try:
+            h, w = image_shape[:2]
+            
+            # Get mouth landmark coordinates
+            upper_lip = landmarks.landmark[self.UPPER_LIP_CENTER]
+            lower_lip = landmarks.landmark[self.LOWER_LIP_CENTER]
+            left_corner = landmarks.landmark[self.LEFT_MOUTH_CORNER]
+            right_corner = landmarks.landmark[self.RIGHT_MOUTH_CORNER]
+            
+            # Vertical distance (mouth opening)
+            vertical_dist = abs(lower_lip.y - upper_lip.y) * h
+            
+            # Horizontal distance (mouth width)
+            horizontal_dist = abs(right_corner.x - left_corner.x) * w
+            
+            if horizontal_dist < 1:
+                return 0.0
+            
+            mar = vertical_dist / horizontal_dist
+            return mar
+            
+        except Exception as e:
+            logger.error(f"Error calculating MAR: {e}")
+            return 0.0
+    
+    def detect_open_mouth(self, landmarks, image_shape):
+        """
+        Detect if mouth is open
+        Returns: dict with open_mouth_detected, count, and current MAR
+        """
+        mar = self.calculate_mar(landmarks, image_shape)
+        self.mar_history.append(mar)
+        if len(self.mar_history) > 30:
+            self.mar_history.pop(0)
+        
+        current_time = time.time()
+        
+        # Detect open mouth with consecutive frames
+        if mar > self.MAR_OPEN_THRESHOLD:
+            self.consecutive_mouth_open += 1
+        else:
+            if self.consecutive_mouth_open >= self.MAR_CONSEC_FRAMES:
+                # Valid open mouth detected (mouth was open, now closed)
+                if (current_time - self.last_mouth_open_time) > 0.5:  # Min 0.5s between detections
+                    self.open_mouth_count += 1
+                    self.last_mouth_open_time = current_time
+                    logger.debug(f"✓ OPEN MOUTH DETECTED! Count: {self.open_mouth_count}, MAR: {mar:.3f}")
+            self.consecutive_mouth_open = 0
+        
+        return {
+            'open_mouth_detected': self.open_mouth_count > 0,
+            'open_mouth_count': self.open_mouth_count,
+            'current_mar': mar,
+            'is_mouth_currently_open': mar > self.MAR_OPEN_THRESHOLD,
+            'threshold': self.MAR_OPEN_THRESHOLD
+        }
+    
+    def calculate_yaw(self, landmarks, image_shape):
+        """
+        Calculate yaw angle (head turn left/right)
+        Returns normalized yaw: negative = left, positive = right
+        """
+        try:
+            h, w = image_shape[:2]
+            
+            # Get key landmarks
+            nose = landmarks.landmark[self.NOSE_TIP]
+            left_eye_outer = landmarks.landmark[self.LEFT_EYE_OUTER]
+            right_eye_outer = landmarks.landmark[self.RIGHT_EYE_OUTER]
+            left_eye_inner = landmarks.landmark[self.LEFT_EYE_INNER]
+            right_eye_inner = landmarks.landmark[self.RIGHT_EYE_INNER]
+            
+            # Calculate eye center
+            left_eye_x = (left_eye_outer.x + left_eye_inner.x) / 2
+            right_eye_x = (right_eye_outer.x + right_eye_inner.x) / 2
+            eye_center_x = (left_eye_x + right_eye_x) / 2
+            
+            # Eye distance for normalization
+            eye_distance = abs(right_eye_x - left_eye_x)
+            
+            if eye_distance < 0.01:
+                return 0.0
+            
+            # Nose position relative to eye center
+            nose_offset = nose.x - eye_center_x
+            
+            # Normalize by eye distance
+            normalized_yaw = nose_offset / eye_distance
+            
+            # Check eye asymmetry (confirmation)
+            left_eye_width = abs(left_eye_inner.x - left_eye_outer.x)
+            right_eye_width = abs(right_eye_inner.x - right_eye_outer.x)
+            eye_asymmetry = (right_eye_width - left_eye_width) / (eye_distance + 1e-6)
+            
+            # Combine for accuracy
+            yaw = normalized_yaw * 0.7 + eye_asymmetry * 0.3
+            
+            return yaw
+            
+        except Exception as e:
+            logger.error(f"Error calculating yaw: {e}")
+            return 0.0
+    
+    def detect_head_turn(self, landmarks, image_shape):
+        """
+        Detect head turns left and right
+        Returns: dict with turn counts and current direction
+        """
+        yaw = self.calculate_yaw(landmarks, image_shape)
+        self.yaw_history.append(yaw)
+        if len(self.yaw_history) > 30:
+            self.yaw_history.pop(0)
+        
+        # Detect turn direction
+        if yaw < self.YAW_LEFT_THRESHOLD:
+            # Head is turned left
+            self.consecutive_left += 1
+            self.consecutive_right = 0
+            
+            if self.consecutive_left >= self.YAW_CONSEC_FRAMES and self.returned_to_center:
+                if self.last_turn_direction != 'left':
+                    self.turn_left_count += 1
+                    self.last_turn_direction = 'left'
+                    self.returned_to_center = False
+                    logger.debug(f"✓ HEAD TURN LEFT DETECTED! Count: {self.turn_left_count}")
+                    
+        elif yaw > self.YAW_RIGHT_THRESHOLD:
+            # Head is turned right
+            self.consecutive_right += 1
+            self.consecutive_left = 0
+            
+            if self.consecutive_right >= self.YAW_CONSEC_FRAMES and self.returned_to_center:
+                if self.last_turn_direction != 'right':
+                    self.turn_right_count += 1
+                    self.last_turn_direction = 'right'
+                    self.returned_to_center = False
+                    logger.debug(f"✓ HEAD TURN RIGHT DETECTED! Count: {self.turn_right_count}")
+                    
+        else:
+            # Head is centered
+            self.consecutive_left = 0
+            self.consecutive_right = 0
+            if not self.returned_to_center:
+                self.returned_to_center = True
+                self.last_turn_direction = None
+        
+        # Determine current direction
+        if yaw < self.YAW_LEFT_THRESHOLD:
+            current_direction = 'left'
+        elif yaw > self.YAW_RIGHT_THRESHOLD:
+            current_direction = 'right'
+        else:
+            current_direction = 'center'
+        
+        return {
+            'turn_left_count': self.turn_left_count,
+            'turn_right_count': self.turn_right_count,
+            'current_yaw': yaw,
+            'current_direction': current_direction,
+            'turn_left_detected': self.turn_left_count > 0,
+            'turn_right_detected': self.turn_right_count > 0,
+            'both_turns_detected': self.turn_left_count > 0 and self.turn_right_count > 0
+        }
+    
+    def detect_all_challenges(self, frame, bbox=None):
+        """
+        Detect all liveness challenges: blink, open mouth, head turn
+        Returns comprehensive result for enrollment
+        """
+        # First detect blink (which also updates motion)
+        blink_result = self.detect_blink(frame, bbox)
+        
+        # Get face landmarks for mouth and head turn detection
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.safe_process(rgb_frame)
+        
+        mouth_result = {
+            'open_mouth_detected': False,
+            'open_mouth_count': self.open_mouth_count,
+            'current_mar': 0.0,
+            'is_mouth_currently_open': False
+        }
+        
+        head_turn_result = {
+            'turn_left_count': self.turn_left_count,
+            'turn_right_count': self.turn_right_count,
+            'current_yaw': 0.0,
+            'current_direction': 'center',
+            'turn_left_detected': False,
+            'turn_right_detected': False,
+            'both_turns_detected': False
+        }
+        
+        if results.multi_face_landmarks:
+            face_landmarks = results.multi_face_landmarks[0]
+            
+            # Detect open mouth
+            mouth_result = self.detect_open_mouth(face_landmarks, frame.shape)
+            
+            # Detect head turns
+            head_turn_result = self.detect_head_turn(face_landmarks, frame.shape)
+        
+        # Combine all results
+        return {
+            # Blink detection results
+            'blinks_detected': blink_result.get('blinks_detected', 0),
+            'blink_verified': blink_result.get('blink_verified', False),
+            'ear': blink_result.get('ear', 0.0),
+            
+            # Motion results
+            'motion_events': blink_result.get('motion_events', 0),
+            'motion_score': blink_result.get('motion_score', 0.0),
+            'motion_verified': blink_result.get('motion_verified', False),
+            
+            # Open mouth results
+            'open_mouth_count': mouth_result.get('open_mouth_count', 0),
+            'open_mouth_verified': mouth_result.get('open_mouth_count', 0) >= 1,
+            'current_mar': mouth_result.get('current_mar', 0.0),
+            'is_mouth_currently_open': mouth_result.get('is_mouth_currently_open', False),
+            
+            # Head turn results
+            'turn_left_count': head_turn_result.get('turn_left_count', 0),
+            'turn_right_count': head_turn_result.get('turn_right_count', 0),
+            'turn_left_verified': head_turn_result.get('turn_left_count', 0) >= 1,
+            'turn_right_verified': head_turn_result.get('turn_right_count', 0) >= 1,
+            'both_turns_verified': head_turn_result.get('both_turns_detected', False),
+            'current_yaw': head_turn_result.get('current_yaw', 0.0),
+            'current_direction': head_turn_result.get('current_direction', 'center'),
+            
+            # Head pose
+            'head_pose': blink_result.get('head_pose', {}),
+            
+            # Challenge completion summary
+            'challenges_completed': {
+                'blink': blink_result.get('blinks_detected', 0) >= 2,
+                'open_mouth': mouth_result.get('open_mouth_count', 0) >= 1,
+                'turn_left': head_turn_result.get('turn_left_count', 0) >= 1,
+                'turn_right': head_turn_result.get('turn_right_count', 0) >= 1
+            },
+            'all_challenges_completed': (
+                blink_result.get('blinks_detected', 0) >= 2 and
+                mouth_result.get('open_mouth_count', 0) >= 1 and
+                head_turn_result.get('turn_left_count', 0) >= 1 and
+                head_turn_result.get('turn_right_count', 0) >= 1
+            ),
+            
+            # Frame info
+            'frame_count': blink_result.get('frame_count', 0)
         }
 
 
@@ -1608,6 +1904,139 @@ class FaceRecognitionEngine:
                 'error': str(e)
             }
     
+    def check_liveness_for_enrollment(self, frame, face_data, session_token=None):
+        """
+        Enhanced liveness check for enrollment with additional challenges:
+        - Blink detection
+        - Open mouth detection
+        - Head turn left/right detection
+        
+        Uses session-based detector to track challenges across frames
+        """
+        try:
+            bbox = face_data.get('bbox')
+            if bbox is None:
+                return {
+                    'is_live': False,
+                    'blink_detected': False,
+                    'blinks_detected': 0,
+                    'open_mouth_detected': False,
+                    'open_mouth_count': 0,
+                    'turn_left_detected': False,
+                    'turn_left_count': 0,
+                    'turn_right_detected': False,
+                    'turn_right_count': 0,
+                    'all_challenges_completed': False,
+                    'error': 'No bbox provided'
+                }
+            
+            # Get or create session-based liveness detector
+            if session_token:
+                liveness_detector = self.session_manager.get_or_create_liveness_detector(session_token)
+            else:
+                logger.warning("check_liveness_for_enrollment called without session_token - creating temporary detector")
+                liveness_detector = LivenessDetector()
+            
+            # Use the comprehensive detect_all_challenges method
+            result = liveness_detector.detect_all_challenges(frame, bbox)
+            
+            # Update detector state back to cache
+            if session_token:
+                self.session_manager.update_liveness_detector(session_token, liveness_detector)
+            
+            # Get required counts from settings
+            from django.conf import settings
+            config = settings.FACE_RECOGNITION_CONFIG
+            required_blinks = config.get('ENROLLMENT_BLINK_REQUIRED', 2)
+            required_open_mouth = config.get('ENROLLMENT_OPEN_MOUTH_REQUIRED', 1)
+            required_turn_left = config.get('ENROLLMENT_TURN_LEFT_REQUIRED', 1)
+            required_turn_right = config.get('ENROLLMENT_TURN_RIGHT_REQUIRED', 1)
+            
+            # Check if all challenges are completed
+            blinks_ok = result.get('blinks_detected', 0) >= required_blinks
+            open_mouth_ok = result.get('open_mouth_count', 0) >= required_open_mouth
+            turn_left_ok = result.get('turn_left_count', 0) >= required_turn_left
+            turn_right_ok = result.get('turn_right_count', 0) >= required_turn_right
+            
+            all_challenges_completed = blinks_ok and open_mouth_ok and turn_left_ok and turn_right_ok
+            
+            # Calculate overall liveness score
+            blink_contribution = min(1.0, result.get('blinks_detected', 0) / max(1, required_blinks))
+            mouth_contribution = min(1.0, result.get('open_mouth_count', 0) / max(1, required_open_mouth))
+            turn_left_contribution = min(1.0, result.get('turn_left_count', 0) / max(1, required_turn_left))
+            turn_right_contribution = min(1.0, result.get('turn_right_count', 0) / max(1, required_turn_right))
+            motion_contribution = min(1.0, result.get('motion_events', 0) / 3.0)
+            
+            # Weighted score: Blink 25%, Open Mouth 25%, Turns 30% (15% each), Motion 20%
+            liveness_score = (
+                blink_contribution * 0.25 +
+                mouth_contribution * 0.25 +
+                turn_left_contribution * 0.15 +
+                turn_right_contribution * 0.15 +
+                motion_contribution * 0.20
+            )
+            
+            # Determine current challenge feedback for UI
+            current_challenge = "completed"
+            if not blinks_ok:
+                current_challenge = "blink"
+            elif not open_mouth_ok:
+                current_challenge = "open_mouth"
+            elif not turn_left_ok:
+                current_challenge = "turn_left"
+            elif not turn_right_ok:
+                current_challenge = "turn_right"
+            
+            return {
+                'is_live': all_challenges_completed or result.get('blink_verified', False),
+                'blink_detected': result.get('blink_verified', False),
+                'blink_score': result.get('blink_score', 0.0),
+                'ear': result.get('ear', 0.0),
+                'blinks_detected': result.get('blinks_detected', 0),
+                'blinks_required': required_blinks,
+                'blinks_ok': blinks_ok,
+                
+                'open_mouth_detected': result.get('open_mouth_detected', False),
+                'open_mouth_count': result.get('open_mouth_count', 0),
+                'open_mouth_required': required_open_mouth,
+                'open_mouth_ok': open_mouth_ok,
+                'mar': result.get('mar', 0.0),
+                
+                'turn_left_detected': result.get('turn_left_detected', False),
+                'turn_left_count': result.get('turn_left_count', 0),
+                'turn_left_required': required_turn_left,
+                'turn_left_ok': turn_left_ok,
+                
+                'turn_right_detected': result.get('turn_right_detected', False),
+                'turn_right_count': result.get('turn_right_count', 0),
+                'turn_right_required': required_turn_right,
+                'turn_right_ok': turn_right_ok,
+                
+                'yaw': result.get('yaw', 0.0),
+                
+                'motion_score': result.get('motion_score', 0.0),
+                'motion_verified': result.get('motion_verified', False),
+                'motion_events': result.get('motion_events', 0),
+                
+                'liveness_score': liveness_score,
+                'all_challenges_completed': all_challenges_completed,
+                'current_challenge': current_challenge,
+                'quality': result.get('quality', 0.0),
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in enrollment liveness check: {e}", exc_info=True)
+            return {
+                'is_live': False,
+                'blink_detected': False,
+                'blinks_detected': 0,
+                'open_mouth_count': 0,
+                'turn_left_count': 0,
+                'turn_right_count': 0,
+                'all_challenges_completed': False,
+                'error': str(e)
+            }
+    
     def extract_embedding(self, frame):
         """Extract face embedding from frame"""
         try:
@@ -1941,7 +2370,7 @@ class FaceRecognitionEngine:
         return " | ".join(feedback)
     
     def process_frame_for_enrollment(self, frame, user_id):
-        """Process frame for user enrollment"""
+        """Process frame for user enrollment with enhanced liveness challenges"""
         try:
             # Extract embedding
             result, error = self.extract_embedding(frame)
@@ -1958,8 +2387,9 @@ class FaceRecognitionEngine:
             if blocking_obstacles:
                 return None, f"Obstacles detected: {', '.join(blocking_obstacles)}"
             
-            # Check liveness
-            liveness_result = self.liveness_detector.detect_blink(frame, bbox)
+            # Enhanced liveness detection with all challenges
+            # Use detect_all_challenges for enrollment (includes blink, open mouth, head turns)
+            liveness_result = self.liveness_detector.detect_all_challenges(frame, bbox)
             
             # Quality assessment
             quality_score = self._assess_image_quality(frame, bbox)
@@ -1975,17 +2405,26 @@ class FaceRecognitionEngine:
 
             face_snapshot = self._capture_face_snapshot(frame, bbox)
             
+            # Check if all challenges are completed for enrollment
+            all_challenges_completed = liveness_result.get('all_challenges_completed', False)
+            
+            # Calculate liveness verified status based on challenge completion
+            # For enrollment: require more challenges than authentication
+            liveness_verified = (
+                liveness_result.get('blinks_detected', 0) >= 1 or
+                liveness_result.get('motion_events', 0) >= 1 or
+                liveness_result.get('open_mouth_count', 0) >= 1 or
+                (liveness_result.get('turn_left_count', 0) >= 1 or liveness_result.get('turn_right_count', 0) >= 1)
+            )
+            
             return {
                 'embedding': embedding,
                 'bbox': bbox,
                 'confidence': confidence,
                 'quality_score': quality_score,
                 'liveness_data': liveness_result,
-                'liveness_verified': self.liveness_detector.is_live(
-                    blink_count_threshold=max(0, self.liveness_blink_threshold - 1),
-                    motion_event_threshold=max(0, self.liveness_motion_events - 1),
-                    motion_score_threshold=self.liveness_motion_score * 0.7
-                ),
+                'liveness_verified': liveness_verified,
+                'all_challenges_completed': all_challenges_completed,
                 'obstacles': obstacles,
                 'obstacle_confidence': obstacle_confidence,
                 'face_snapshot': face_snapshot

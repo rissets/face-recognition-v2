@@ -1,19 +1,21 @@
 """
-OPTIMIZED Passive Liveness Detection v2.2
+OPTIMIZED Passive Liveness Detection v2.3
 ==========================================
 Versi optimal dengan STRICT SCORING dan auto-timeout
 
-KEY IMPROVEMENTS v2.2:
-1. Blink detection: STRICT SCORING (bobot 40%, need 2+ blinks untuk good score)
-2. Movement analysis: HEAD ROTATION/NOD detection (bobot 35%)
-3. Screen detection: Weight naik ke 25%
-4. Auto-timeout: Otomatis close & final decision setelah 5 detik
+KEY IMPROVEMENTS v2.3:
+1. Blink detection: STRICT SCORING (bobot 25%, need 2+ blinks untuk good score)
+2. Movement analysis: HEAD ROTATION/NOD detection (bobot 25%)
+3. Screen detection: Weight 20%
+4. Auto-timeout: Otomatis close & final decision setelah timeout
 5. Threshold: 0.60 (lebih strict)
 6. Moiré detection: FIXED - multi-band FFT analysis
 7. Illumination analysis: FIXED - gradient + variance + color
 8. Reflection detection: FIXED - high reflection = SPOOF
 9. Debug mode untuk monitoring real-time
 10. Pool-based FaceMesh to prevent thread explosion
+11. NEW: Open Mouth detection (MAR - Mouth Aspect Ratio) - bobot 15%
+12. NEW: Head Turn Left/Right detection (Yaw angle) - bobot 15%
 """
 
 import cv2
@@ -698,6 +700,315 @@ class ImprovedBlinkDetector:
     def is_timeout(self):
         """Check apakah sudah timeout"""
         return (time.time() - self.start_time) >= self.MAX_DURATION
+
+
+class OpenMouthDetector:
+    """
+    Deteksi open mouth menggunakan MAR (Mouth Aspect Ratio)
+    Untuk anti-spoofing: foto tidak bisa buka mulut
+    """
+    
+    def __init__(self, max_duration=5.0):
+        # Mouth landmarks indices (MediaPipe Face Mesh)
+        # Upper lip: 13, 14 (center), 82, 81, 80, 191 (upper)
+        # Lower lip: 14, 17 (center), 314, 311, 310, 415 (lower)
+        # Mouth corners: 61 (left), 291 (right)
+        self.UPPER_LIP = [13, 14, 82, 81, 80, 191]
+        self.LOWER_LIP = [14, 17, 314, 311, 310, 415]
+        self.LEFT_CORNER = 61
+        self.RIGHT_CORNER = 291
+        self.UPPER_CENTER = 13  # Upper lip center
+        self.LOWER_CENTER = 14  # Lower lip center (mouth opens here)
+        
+        # MAR threshold - mouth is open when MAR > threshold
+        self.MAR_OPEN_THRESHOLD = 0.3  # Adjust based on testing
+        self.MAR_CONSEC_FRAMES = 3  # Need consecutive frames to confirm
+        
+        # Tracking
+        self.open_mouth_count = 0
+        self.consecutive_open = 0
+        self.mar_history = deque(maxlen=30)
+        self.open_times = deque(maxlen=20)
+        self.start_time = time.time()
+        self.MAX_DURATION = max_duration
+        self.frame_counter = 0
+        
+    def mouth_aspect_ratio(self, face_landmarks, image_shape):
+        """
+        Calculate MAR (Mouth Aspect Ratio)
+        MAR = vertical_distance / horizontal_distance
+        Higher MAR = mouth more open
+        """
+        try:
+            h, w = image_shape[:2]
+            
+            # Get mouth landmark coordinates
+            upper_lip_center = face_landmarks.landmark[self.UPPER_CENTER]
+            lower_lip_center = face_landmarks.landmark[14]  # Lower lip inner
+            left_corner = face_landmarks.landmark[self.LEFT_CORNER]
+            right_corner = face_landmarks.landmark[self.RIGHT_CORNER]
+            
+            # Also get points 78 (upper inner) and 308 (lower inner) for better accuracy
+            upper_inner = face_landmarks.landmark[13]  # Upper lip inner
+            lower_inner = face_landmarks.landmark[14]  # Lower lip inner
+            
+            # Vertical distance (mouth opening)
+            # Use multiple points for better accuracy
+            upper_y = (upper_lip_center.y + upper_inner.y) / 2
+            lower_y = lower_inner.y
+            vertical_dist = abs(lower_y - upper_y) * h
+            
+            # Horizontal distance (mouth width)
+            horizontal_dist = abs(right_corner.x - left_corner.x) * w
+            
+            if horizontal_dist < 1:
+                return 0.0
+            
+            mar = vertical_dist / horizontal_dist
+            return mar
+            
+        except Exception as e:
+            return 0.0
+    
+    def detect(self, face_landmarks, image_shape):
+        """
+        Detect if mouth is open
+        Returns: (score, confidence, open_count)
+        """
+        self.frame_counter += 1
+        elapsed = time.time() - self.start_time
+        
+        mar = self.mouth_aspect_ratio(face_landmarks, image_shape)
+        self.mar_history.append(mar)
+        
+        # Detect open mouth with consecutive frames
+        if mar > self.MAR_OPEN_THRESHOLD:
+            self.consecutive_open += 1
+        else:
+            if self.consecutive_open >= self.MAR_CONSEC_FRAMES:
+                # Valid open mouth detected (mouth was open, now closed)
+                self.open_mouth_count += 1
+                self.open_times.append(time.time())
+            self.consecutive_open = 0
+        
+        # Also check if currently open for long enough
+        if self.consecutive_open >= self.MAR_CONSEC_FRAMES:
+            # Mouth is currently open
+            if len(self.open_times) == 0 or (time.time() - self.open_times[-1]) > 0.5:
+                # Count as new open event if last one was > 0.5s ago
+                self.open_mouth_count += 1
+                self.open_times.append(time.time())
+                self.consecutive_open = 0  # Reset to avoid double counting
+        
+        # Scoring based on enrollment mode (need 1+ open mouth)
+        if elapsed < 1.0:
+            return 0.30, 0.3, self.open_mouth_count
+        elif elapsed < self.MAX_DURATION:
+            if self.open_mouth_count >= 2:
+                return 0.95, 0.95, self.open_mouth_count
+            elif self.open_mouth_count >= 1:
+                return 0.80, 0.90, self.open_mouth_count
+            else:
+                # Check if mouth is currently open
+                if mar > self.MAR_OPEN_THRESHOLD * 0.8:
+                    return 0.50, 0.70, self.open_mouth_count  # Almost there
+                return 0.20, 0.60, self.open_mouth_count
+        else:
+            # Timeout - final decision
+            if self.open_mouth_count >= 1:
+                return 0.90, 1.0, self.open_mouth_count
+            else:
+                return 0.0, 1.0, self.open_mouth_count
+    
+    def get_current_mar(self):
+        """Get current MAR for UI feedback"""
+        if self.mar_history:
+            return self.mar_history[-1]
+        return 0.0
+    
+    def is_mouth_currently_open(self):
+        """Check if mouth is currently open"""
+        if self.mar_history:
+            return self.mar_history[-1] > self.MAR_OPEN_THRESHOLD
+        return False
+
+
+class HeadTurnDetector:
+    """
+    Deteksi head turn kiri/kanan (yaw angle)
+    Untuk anti-spoofing: foto tidak bisa menoleh
+    """
+    
+    def __init__(self, max_duration=5.0):
+        # Face landmark indices for head pose estimation
+        self.NOSE_TIP = 1
+        self.LEFT_EYE_OUTER = 33
+        self.RIGHT_EYE_OUTER = 263
+        self.LEFT_EYE_INNER = 133
+        self.RIGHT_EYE_INNER = 362
+        self.CHIN = 152
+        self.FOREHEAD = 10
+        
+        # Yaw thresholds (in normalized units)
+        self.YAW_LEFT_THRESHOLD = -0.15  # Negative = left turn
+        self.YAW_RIGHT_THRESHOLD = 0.15  # Positive = right turn
+        self.YAW_CONSEC_FRAMES = 3
+        
+        # Tracking
+        self.turn_left_count = 0
+        self.turn_right_count = 0
+        self.consecutive_left = 0
+        self.consecutive_right = 0
+        self.yaw_history = deque(maxlen=30)
+        self.turn_times = deque(maxlen=20)
+        self.start_time = time.time()
+        self.MAX_DURATION = max_duration
+        self.frame_counter = 0
+        
+        # State tracking for turn completion
+        self.last_turn_direction = None  # 'left', 'right', or None
+        self.returned_to_center = True
+        
+    def calculate_yaw(self, face_landmarks, image_shape):
+        """
+        Calculate yaw angle (head turn left/right)
+        Returns normalized yaw: negative = left, positive = right
+        """
+        try:
+            h, w = image_shape[:2]
+            
+            # Get key landmarks
+            nose = face_landmarks.landmark[self.NOSE_TIP]
+            left_eye_outer = face_landmarks.landmark[self.LEFT_EYE_OUTER]
+            right_eye_outer = face_landmarks.landmark[self.RIGHT_EYE_OUTER]
+            left_eye_inner = face_landmarks.landmark[self.LEFT_EYE_INNER]
+            right_eye_inner = face_landmarks.landmark[self.RIGHT_EYE_INNER]
+            
+            # Calculate eye center
+            left_eye_x = (left_eye_outer.x + left_eye_inner.x) / 2
+            right_eye_x = (right_eye_outer.x + right_eye_inner.x) / 2
+            eye_center_x = (left_eye_x + right_eye_x) / 2
+            
+            # Eye distance for normalization
+            eye_distance = abs(right_eye_x - left_eye_x)
+            
+            if eye_distance < 0.01:
+                return 0.0
+            
+            # Nose position relative to eye center
+            # Negative = nose is left of center (turned left)
+            # Positive = nose is right of center (turned right)
+            nose_offset = nose.x - eye_center_x
+            
+            # Normalize by eye distance
+            normalized_yaw = nose_offset / eye_distance
+            
+            # Also check asymmetry of eye sizes (confirmation)
+            left_eye_width = abs(left_eye_inner.x - left_eye_outer.x)
+            right_eye_width = abs(right_eye_inner.x - right_eye_outer.x)
+            eye_asymmetry = (right_eye_width - left_eye_width) / (eye_distance + 1e-6)
+            
+            # Combine nose offset with eye asymmetry for better accuracy
+            yaw = normalized_yaw * 0.7 + eye_asymmetry * 0.3
+            
+            return yaw
+            
+        except Exception as e:
+            return 0.0
+    
+    def detect(self, face_landmarks, image_shape):
+        """
+        Detect head turns left and right
+        For enrollment: need at least 1 left turn AND 1 right turn
+        Returns: (score, confidence, {'left': count, 'right': count})
+        """
+        self.frame_counter += 1
+        elapsed = time.time() - self.start_time
+        
+        yaw = self.calculate_yaw(face_landmarks, image_shape)
+        self.yaw_history.append(yaw)
+        
+        # Detect turn direction
+        if yaw < self.YAW_LEFT_THRESHOLD:
+            # Head is turned left
+            self.consecutive_left += 1
+            self.consecutive_right = 0
+            
+            if self.consecutive_left >= self.YAW_CONSEC_FRAMES and self.returned_to_center:
+                if self.last_turn_direction != 'left':
+                    self.turn_left_count += 1
+                    self.turn_times.append(('left', time.time()))
+                    self.last_turn_direction = 'left'
+                    self.returned_to_center = False
+                    
+        elif yaw > self.YAW_RIGHT_THRESHOLD:
+            # Head is turned right
+            self.consecutive_right += 1
+            self.consecutive_left = 0
+            
+            if self.consecutive_right >= self.YAW_CONSEC_FRAMES and self.returned_to_center:
+                if self.last_turn_direction != 'right':
+                    self.turn_right_count += 1
+                    self.turn_times.append(('right', time.time()))
+                    self.last_turn_direction = 'right'
+                    self.returned_to_center = False
+                    
+        else:
+            # Head is centered
+            self.consecutive_left = 0
+            self.consecutive_right = 0
+            if not self.returned_to_center:
+                self.returned_to_center = True
+                self.last_turn_direction = None
+        
+        # Scoring - need BOTH left and right turns for full score
+        total_turns = self.turn_left_count + self.turn_right_count
+        has_left = self.turn_left_count >= 1
+        has_right = self.turn_right_count >= 1
+        
+        if elapsed < 1.0:
+            return 0.30, 0.3, {'left': self.turn_left_count, 'right': self.turn_right_count}
+        elif elapsed < self.MAX_DURATION:
+            if has_left and has_right:
+                # Both directions completed
+                if total_turns >= 3:
+                    return 0.95, 0.95, {'left': self.turn_left_count, 'right': self.turn_right_count}
+                return 0.90, 0.90, {'left': self.turn_left_count, 'right': self.turn_right_count}
+            elif has_left or has_right:
+                # Only one direction
+                return 0.60, 0.80, {'left': self.turn_left_count, 'right': self.turn_right_count}
+            else:
+                # Check if currently turning
+                if abs(yaw) > abs(self.YAW_LEFT_THRESHOLD) * 0.5:
+                    return 0.40, 0.60, {'left': self.turn_left_count, 'right': self.turn_right_count}
+                return 0.15, 0.50, {'left': self.turn_left_count, 'right': self.turn_right_count}
+        else:
+            # Timeout - final decision
+            if has_left and has_right:
+                return 0.95, 1.0, {'left': self.turn_left_count, 'right': self.turn_right_count}
+            elif has_left or has_right:
+                return 0.50, 1.0, {'left': self.turn_left_count, 'right': self.turn_right_count}
+            else:
+                return 0.0, 1.0, {'left': self.turn_left_count, 'right': self.turn_right_count}
+    
+    def get_current_yaw(self):
+        """Get current yaw for UI feedback"""
+        if self.yaw_history:
+            return self.yaw_history[-1]
+        return 0.0
+    
+    def get_turn_direction(self):
+        """Get current turn direction for UI feedback"""
+        if not self.yaw_history:
+            return 'center'
+        yaw = self.yaw_history[-1]
+        if yaw < self.YAW_LEFT_THRESHOLD:
+            return 'left'
+        elif yaw > self.YAW_RIGHT_THRESHOLD:
+            return 'right'
+        return 'center'
+
+
 class ImprovedMovementAnalyzer:
     """Movement analyzer - fokus pada HEAD ROTATION dan FACIAL LANDMARKS, bukan translasi object"""
     
@@ -870,14 +1181,16 @@ class ImprovedMovementAnalyzer:
 class OptimizedPassiveLivenessDetector:
     """
     Detector yang optimal - fokus pada akurasi tanpa false positive
+    Enhanced v2.3: Added Open Mouth + Head Turn Left/Right detection
     """
     
-    def __init__(self, debug=False, max_duration=5.0):
+    def __init__(self, debug=False, max_duration=5.0, mode='enrollment'):
         if not debug:
-            print("Initializing OPTIMIZED Passive Liveness Detector...")
+            print("Initializing OPTIMIZED Passive Liveness Detector v2.3...")
         
         self.debug = debug
         self.max_duration = max_duration
+        self.mode = mode  # 'enrollment' or 'authentication'
         
         # MediaPipe - use pool-based FaceMesh to prevent thread explosion
         self.mp_face_mesh = mp.solutions.face_mesh
@@ -887,6 +1200,12 @@ class OptimizedPassiveLivenessDetector:
         # Components with configurable timeout
         self.blink_detector = ImprovedBlinkDetector(max_duration=max_duration)
         self.movement_analyzer = ImprovedMovementAnalyzer()
+        
+        # NEW: Open Mouth detector for enrollment anti-spoofing
+        self.open_mouth_detector = OpenMouthDetector(max_duration=max_duration)
+        
+        # NEW: Head Turn detector for enrollment anti-spoofing
+        self.head_turn_detector = HeadTurnDetector(max_duration=max_duration)
         
         # YOLO
         self.yolo_model = None
@@ -906,15 +1225,19 @@ class OptimizedPassiveLivenessDetector:
         
         if not debug:
             print("✓ Detector ready!")
-            print(f"\nDETECTION STRATEGY (v2.2 - STRICT, Timeout: {max_duration}s):")
+            print(f"\nDETECTION STRATEGY (v2.3 - ENHANCED, Mode: {mode}, Timeout: {max_duration}s):")
             print("  1. YOLO device detection (if available)")
-            if max_duration <= 3.5:
-                print("  2. Blink detection [40% weight] - NEED 1+ blinks (auth mode)")
+            if mode == 'enrollment':
+                print("  2. Blink detection [20%] - NEED 2+ blinks")
+                print("  3. Open Mouth detection [20%] - NEED 1+ open mouth")
+                print("  4. Head Turn Left/Right [20%] - NEED left + right turns")
+                print("  5. Head rotation/nod [15%] - Micro movements")
+                print("  6. Screen detection [25%] - Moiré + Reflection + Illumination")
             else:
-                print("  2. Blink detection [40% weight] - NEED 2+ blinks (enrollment mode)")
-            print("  3. Head rotation/nod [35% weight] - HEAD movement only")
-            print("  4. Screen detection [25% weight] - Moiré + Reflection + Illumination")
-            print("  5. Threshold: 0.50 (STRICT - harder to pass)")
+                print("  2. Blink detection [30%] - NEED 1+ blinks (auth mode)")
+                print("  3. Head rotation/nod [30%] - HEAD movement only")
+                print("  4. Screen detection [40%] - Moiré + Reflection + Illumination")
+            print("  5. Threshold: 0.55 (STRICT - harder to pass)")
             print(f"  6. Auto-timeout: {max_duration} seconds MAX")
             print("  7. Final decision: Otomatis setelah timeout\n")
     
@@ -980,52 +1303,103 @@ class OptimizedPassiveLivenessDetector:
             elapsed = time.time() - self.blink_detector.start_time
             blink_count = self.blink_detector.blink_counter
             
-            # Use average of collected scores if available, otherwise use blink-based scoring
+            # Get enrollment challenge counts
+            open_mouth_count = self.open_mouth_detector.open_mouth_count if self.mode == 'enrollment' else 0
+            left_turns = self.head_turn_detector.turn_left_count if self.mode == 'enrollment' else 0
+            right_turns = self.head_turn_detector.turn_right_count if self.mode == 'enrollment' else 0
+            
+            # Use average of collected scores if available, otherwise use challenge-based scoring
             if len(self.final_scores) > 0:
                 # Use median of collected scores for final decision
                 final_score = float(np.median(list(self.final_scores)))
                 
-                # Adjust based on blink count - MORE CONSERVATIVE
-                required_blinks = 1 if self.max_duration <= 3.5 else 2
-                
-                if blink_count >= required_blinks:
-                    # Has enough blinks - small boost only if score already decent
-                    if final_score >= 0.55:  # Only boost if already passing
-                        final_score = min(0.85, final_score + 0.05)  # Smaller boost
-                    blink_status = "sufficient"
-                elif blink_count >= 1 and self.max_duration <= 3.5:
-                    # Auth mode with 1 blink - acceptable but no boost
-                    blink_status = "acceptable"
+                if self.mode == 'enrollment':
+                    # Enrollment mode: Check all challenges
+                    challenges_completed = 0
+                    total_challenges = 4  # blink(2), open_mouth(1), left_turn(1), right_turn(1)
+                    
+                    if blink_count >= 2:
+                        challenges_completed += 1
+                    if open_mouth_count >= 1:
+                        challenges_completed += 1
+                    if left_turns >= 1:
+                        challenges_completed += 1
+                    if right_turns >= 1:
+                        challenges_completed += 1
+                    
+                    # Adjust score based on challenge completion
+                    if challenges_completed >= 4:
+                        final_score = min(0.95, final_score + 0.10)
+                        challenge_status = "all_completed"
+                    elif challenges_completed >= 3:
+                        final_score = min(0.85, final_score + 0.05)
+                        challenge_status = "mostly_completed"
+                    elif challenges_completed >= 2:
+                        challenge_status = "partial"
+                    else:
+                        final_score = max(0.0, final_score - 0.20)
+                        challenge_status = "insufficient"
+                    
+                    reason = (f"TIMEOUT ({elapsed:.1f}s): {'REAL' if final_score > 0.55 else 'SPOOF'} - "
+                             f"Score: {final_score:.2f}, Challenges: {challenges_completed}/{total_challenges} ({challenge_status})")
                 else:
-                    # Not enough blinks - penalize score
-                    final_score = max(0.0, final_score - 0.15)  # Smaller penalty
-                    blink_status = "insufficient"
+                    # Auth mode: simpler check
+                    required_blinks = 1
+                    if blink_count >= required_blinks:
+                        if final_score >= 0.55:
+                            final_score = min(0.85, final_score + 0.05)
+                        blink_status = "sufficient"
+                    else:
+                        final_score = max(0.0, final_score - 0.15)
+                        blink_status = "insufficient"
+                    
+                    reason = f"TIMEOUT ({elapsed:.1f}s): {'REAL' if final_score > 0.60 else 'SPOOF'} - Score: {final_score:.2f}, Blinks: {blink_count} ({blink_status})"
                 
-                # Final decision based on HIGHER threshold for better security
-                THRESHOLD = 0.60  # Increased from 0.50
+                # Final decision based on mode threshold
+                THRESHOLD = 0.55 if self.mode == 'enrollment' else 0.60
                 is_live = final_score > THRESHOLD
                 
-                reason = f"TIMEOUT ({elapsed:.1f}s): {'REAL' if is_live else 'SPOOF'} - Score: {final_score:.2f}, Blinks: {blink_count} ({blink_status})"
             else:
-                # No scores collected - fall back to blink-only decision
-                required_blinks = 1 if self.max_duration <= 3.5 else 2
-                
-                if blink_count >= required_blinks:
-                    final_score = 0.80
-                    is_live = True
-                    reason = f"TIMEOUT ({elapsed:.1f}s): REAL - {blink_count} blink(s) detected (no face data)"
+                # No scores collected - fall back to challenge-based decision
+                if self.mode == 'enrollment':
+                    challenges_met = (blink_count >= 2 and open_mouth_count >= 1 and 
+                                     left_turns >= 1 and right_turns >= 1)
+                    if challenges_met:
+                        final_score = 0.85
+                        is_live = True
+                        reason = f"TIMEOUT ({elapsed:.1f}s): REAL - All challenges completed (no face data)"
+                    else:
+                        final_score = 0.0
+                        is_live = False
+                        reason = f"TIMEOUT ({elapsed:.1f}s): SPOOF - Challenges incomplete (B:{blink_count}, M:{open_mouth_count}, L:{left_turns}, R:{right_turns})"
                 else:
-                    final_score = 0.0
-                    is_live = False
-                    reason = f"TIMEOUT ({elapsed:.1f}s): SPOOF - {blink_count} blink(s), need {required_blinks}+"
+                    required_blinks = 1
+                    if blink_count >= required_blinks:
+                        final_score = 0.80
+                        is_live = True
+                        reason = f"TIMEOUT ({elapsed:.1f}s): REAL - {blink_count} blink(s) detected (no face data)"
+                    else:
+                        final_score = 0.0
+                        is_live = False
+                        reason = f"TIMEOUT ({elapsed:.1f}s): SPOOF - {blink_count} blink(s), need {required_blinks}+"
             
             return is_live, final_score, {
                 'final_score': final_score,
                 'is_live': is_live,
                 'reason': reason,
                 'blink_count': blink_count,
+                'open_mouth_count': open_mouth_count,
+                'head_turn_left': left_turns,
+                'head_turn_right': right_turns,
+                'mode': self.mode,
                 'timeout': True,
-                'elapsed_time': elapsed
+                'elapsed_time': elapsed,
+                'challenges': {
+                    'blink': {'required': 2 if self.mode == 'enrollment' else 1, 'completed': blink_count},
+                    'open_mouth': {'required': 1, 'completed': open_mouth_count} if self.mode == 'enrollment' else None,
+                    'head_turn_left': {'required': 1, 'completed': left_turns} if self.mode == 'enrollment' else None,
+                    'head_turn_right': {'required': 1, 'completed': right_turns} if self.mode == 'enrollment' else None,
+                }
             }
         
         # Stage 1: YOLO device detection
@@ -1065,6 +1439,22 @@ class OptimizedPassiveLivenessDetector:
         movement_score, movement_conf = self.movement_analyzer.analyze(all_landmarks)
         screen_score, screen_conf = self.screen_detector.analyze(frame, face_roi, bbox)
         
+        # NEW: Open Mouth detection (enrollment only)
+        open_mouth_score = 0.5  # Default neutral
+        open_mouth_count = 0
+        if self.mode == 'enrollment':
+            open_mouth_score, open_mouth_conf, open_mouth_count = self.open_mouth_detector.detect(
+                face_landmarks, frame.shape
+            )
+        
+        # NEW: Head Turn detection (enrollment only)
+        head_turn_score = 0.5  # Default neutral
+        head_turn_data = {'left': 0, 'right': 0}
+        if self.mode == 'enrollment':
+            head_turn_score, head_turn_conf, head_turn_data = self.head_turn_detector.detect(
+                face_landmarks, frame.shape
+            )
+        
         # Debug output
         if self.debug:
             elapsed = time.time() - self.blink_detector.start_time
@@ -1072,6 +1462,9 @@ class OptimizedPassiveLivenessDetector:
             print(f"  Blink: {blink_score:.3f} (count: {blink_count})")
             print(f"  Movement: {movement_score:.3f} (head rotation/nod)")
             print(f"  Screen: {screen_score:.3f}")
+            if self.mode == 'enrollment':
+                print(f"  Open Mouth: {open_mouth_score:.3f} (count: {open_mouth_count})")
+                print(f"  Head Turn: {head_turn_score:.3f} (L: {head_turn_data['left']}, R: {head_turn_data['right']})")
             
             # Show ALL screen detection methods
             if hasattr(self.screen_detector, 'last_subscores'):
@@ -1081,11 +1474,38 @@ class OptimizedPassiveLivenessDetector:
                     indicator = "❌ SPOOF!" if val < 0.3 else ("⚠ Warning" if val < 0.6 else "✓ OK")
                     print(f"      {key:20s}: {val:.3f} {indicator}")
         
-        # Stage 4: SMART FUSION - BLINK WEIGHT LEBIH KECIL (STRICT)
-        # Blink sekarang hanya 40%, Movement 35%, Screen 25%
-        
-        # Primary indicators - Blink bobot DIKURANGI untuk strict scoring
-        primary_score = (blink_score * 0.20 + movement_score * 0.25 + screen_score * 0.5)
+        # Stage 4: SMART FUSION based on mode
+        if self.mode == 'enrollment':
+            # ENROLLMENT MODE: Include all 5 challenge types
+            # Weights: Blink 20%, Open Mouth 20%, Head Turn 20%, Movement 15%, Screen 25%
+            
+            primary_score = (
+                blink_score * 0.20 + 
+                open_mouth_score * 0.20 + 
+                head_turn_score * 0.20 + 
+                movement_score * 0.15 + 
+                screen_score * 0.25
+            )
+            
+            # Calculate challenge completion status
+            challenges_completed = 0
+            if blink_count >= 2:
+                challenges_completed += 1
+            if open_mouth_count >= 1:
+                challenges_completed += 1
+            if head_turn_data['left'] >= 1 and head_turn_data['right'] >= 1:
+                challenges_completed += 1
+            
+            # Bonus for completing all challenges
+            if challenges_completed >= 3:
+                primary_score = min(1.0, primary_score + 0.15)
+            elif challenges_completed >= 2:
+                primary_score = min(1.0, primary_score + 0.08)
+            
+        else:
+            # AUTHENTICATION MODE: Simpler checks (blink + movement + screen)
+            # Weights: Blink 30%, Movement 30%, Screen 40%
+            primary_score = (blink_score * 0.30 + movement_score * 0.30 + screen_score * 0.40)
         
         # Secondary indicator - Screen detection weight NAIK
         secondary_score = screen_score
@@ -1099,7 +1519,7 @@ class OptimizedPassiveLivenessDetector:
             final_score = primary_score * 0.50 + screen_score * 0.50
         else:
             # Normal case - screen weight lebih besar
-            final_score = primary_score * 0.30 + secondary_score * 0.70
+            final_score = primary_score * 0.40 + secondary_score * 0.60
         
         self.final_scores.append(final_score)
         
@@ -1108,26 +1528,115 @@ class OptimizedPassiveLivenessDetector:
             final_score = np.median(list(self.final_scores)[-7:])
         
         # Decision - STRICT THRESHOLD (lebih tinggi)
-        THRESHOLD = 0.7  # Strict threshold - lebih sulit dianggap real
+        THRESHOLD = 0.55 if self.mode == 'enrollment' else 0.60
         is_live = final_score > THRESHOLD
         
         details = {
             'final_score': final_score,
             'is_live': is_live,
+            'mode': self.mode,
             'scores': {
                 'blink': blink_score,
                 'movement': movement_score,
                 'screen': screen_score,
-                'device': device_score
+                'device': device_score,
+                'open_mouth': open_mouth_score if self.mode == 'enrollment' else None,
+                'head_turn': head_turn_score if self.mode == 'enrollment' else None,
             },
             'bbox': bbox,
             'blink_count': blink_count,
-            'primary_score': primary_score
+            'open_mouth_count': open_mouth_count if self.mode == 'enrollment' else 0,
+            'head_turn_left': head_turn_data['left'] if self.mode == 'enrollment' else 0,
+            'head_turn_right': head_turn_data['right'] if self.mode == 'enrollment' else 0,
+            'primary_score': primary_score,
+            # Challenge feedback for UI
+            'challenges': {
+                'blink': {'required': 2 if self.mode == 'enrollment' else 1, 'completed': blink_count},
+                'open_mouth': {'required': 1, 'completed': open_mouth_count} if self.mode == 'enrollment' else None,
+                'head_turn_left': {'required': 1, 'completed': head_turn_data['left']} if self.mode == 'enrollment' else None,
+                'head_turn_right': {'required': 1, 'completed': head_turn_data['right']} if self.mode == 'enrollment' else None,
+            },
+            'current_feedback': self._get_current_feedback() if self.mode == 'enrollment' else None,
         }
         
-        print(f"details: {details}")
+        if self.debug:
+            print(f"details: {details}")
         
         return is_live, final_score, details
+    
+    def _get_current_feedback(self):
+        """Get current feedback for UI - what action to do next"""
+        blink_count = self.blink_detector.blink_counter
+        open_mouth_count = self.open_mouth_detector.open_mouth_count
+        left_turns = self.head_turn_detector.turn_left_count
+        right_turns = self.head_turn_detector.turn_right_count
+        
+        feedback = []
+        
+        if blink_count < 2:
+            feedback.append({
+                'action': 'blink',
+                'message': f'Blink your eyes ({blink_count}/2)',
+                'icon': '👁️',
+                'priority': 1
+            })
+        
+        if open_mouth_count < 1:
+            if self.open_mouth_detector.is_mouth_currently_open():
+                feedback.append({
+                    'action': 'open_mouth',
+                    'message': 'Good! Keep mouth open...',
+                    'icon': '👄',
+                    'priority': 2,
+                    'in_progress': True
+                })
+            else:
+                feedback.append({
+                    'action': 'open_mouth',
+                    'message': 'Open your mouth',
+                    'icon': '👄',
+                    'priority': 2
+                })
+        
+        if left_turns < 1:
+            current_dir = self.head_turn_detector.get_turn_direction()
+            if current_dir == 'left':
+                feedback.append({
+                    'action': 'turn_left',
+                    'message': 'Good! Keep turning left...',
+                    'icon': '⬅️',
+                    'priority': 3,
+                    'in_progress': True
+                })
+            else:
+                feedback.append({
+                    'action': 'turn_left',
+                    'message': 'Turn your head LEFT',
+                    'icon': '⬅️',
+                    'priority': 3
+                })
+        
+        if right_turns < 1:
+            current_dir = self.head_turn_detector.get_turn_direction()
+            if current_dir == 'right':
+                feedback.append({
+                    'action': 'turn_right',
+                    'message': 'Good! Keep turning right...',
+                    'icon': '➡️',
+                    'priority': 4,
+                    'in_progress': True
+                })
+            else:
+                feedback.append({
+                    'action': 'turn_right',
+                    'message': 'Turn your head RIGHT',
+                    'icon': '➡️',
+                    'priority': 4
+                })
+        
+        # Sort by priority and return the most important incomplete action
+        feedback.sort(key=lambda x: x['priority'])
+        return feedback[0] if feedback else {'action': 'complete', 'message': 'All challenges completed! ✓', 'icon': '✅'}
     
     def visualize_results(self, frame, details):
         """Visualize with detailed info"""
@@ -1194,21 +1703,22 @@ class OptimizedPassiveLivenessDetector:
 def main():
     import sys
     print("=" * 70)
-    print("OPTIMIZED PASSIVE LIVENESS DETECTION v2.2")
+    print("OPTIMIZED PASSIVE LIVENESS DETECTION v2.3")
     print("=" * 70)
-    print("\nMAJOR CHANGES v2.2 (STRICT MODE):")
-    print("  ✓ Configurable timeout: --auth (3s) or --enrollment (5s)")
-    print("  ✓ Blink: STRICT scoring - auth needs 1+, enrollment needs 2+ (weight: 40%)")
-    print("  ✓ Movement: Head rotation/nod only (weight: 35%)")
-    print("  ✓ Screen: Enhanced detection (weight: 25%)")
-    print("  ✓ Threshold: 0.50 (strict - harder to pass)")
+    print("\nMAJOR CHANGES v2.3 (ENHANCED ANTI-SPOOFING):")
+    print("  ✓ Configurable mode: --auth (3s) or --enrollment (8s)")
+    print("  ✓ Blink detection: STRICT scoring")
+    print("  ✓ NEW: Open Mouth detection (enrollment only)")
+    print("  ✓ NEW: Head Turn Left/Right detection (enrollment only)")
+    print("  ✓ Movement: Head rotation/nod analysis")
+    print("  ✓ Screen: Enhanced detection (Moiré + Reflection + Illumination)")
+    print("  ✓ Threshold: 0.55 (strict - harder to pass)")
     print("  ✓ Auto-timeout: Closes automatically after timeout")
-    print("  ✓ Reflection: HIGH reflection = SPOOF")
     print("=" * 70)
     
     # Parse mode argument
     mode = 'enrollment'  # default
-    max_duration = 5.0
+    max_duration = 8.0
     
     if '--auth' in sys.argv:
         mode = 'authentication'
@@ -1216,13 +1726,18 @@ def main():
         print(f"\n🔐 MODE: AUTHENTICATION (timeout: {max_duration}s, need: 1+ blinks)")
     elif '--enrollment' in sys.argv or len(sys.argv) == 1:
         mode = 'enrollment'
-        max_duration = 5.0
-        print(f"\n📝 MODE: ENROLLMENT (timeout: {max_duration}s, need: 2+ blinks)")
+        max_duration = 8.0
+        print(f"\n📝 MODE: ENROLLMENT (timeout: {max_duration}s)")
+        print("   CHALLENGES REQUIRED:")
+        print("     👁️  Blink 2+ times")
+        print("     👄  Open your mouth")
+        print("     ⬅️  Turn head LEFT")
+        print("     ➡️  Turn head RIGHT")
     
-    # Initialize with appropriate timeout
+    # Initialize with appropriate timeout and mode
     debug_mode = '--debug' in sys.argv
     
-    detector = OptimizedPassiveLivenessDetector(debug=debug_mode, max_duration=max_duration)
+    detector = OptimizedPassiveLivenessDetector(debug=debug_mode, max_duration=max_duration, mode=mode)
     cap = cv2.VideoCapture(0)
     
     if not cap.isOpened():
@@ -1233,24 +1748,19 @@ def main():
     print("  1. Look at camera naturally")
     if mode == 'authentication':
         print(f"  2. Blink at least 1 time within {max_duration} seconds")
+        print("  3. Add slight head movement")
     else:
-        print(f"  2. Blink 2-3 times within {max_duration} seconds (REQUIRED for good score)")
-    print("  3. Add slight head movement (nod/rotate)")
-    print("  4. Try showing photo/video from phone")
+        print(f"  2. Complete ALL challenges within {max_duration} seconds:")
+        print("     - Blink 2+ times")
+        print("     - Open your mouth wide")
+        print("     - Turn your head LEFT, return to center")
+        print("     - Turn your head RIGHT, return to center")
+    print("  4. Try showing photo/video from phone to test anti-spoofing")
     print(f"  5. ⚠️ AUTO-CLOSE after {max_duration} seconds with final decision")
-    print(f"\nSCORING ({mode.upper()} MODE):")
-    if mode == 'authentication':
-        print(f"  • 2+ blinks in {max_duration}s = Excellent (0.90-0.95)")
-        print(f"  • 1 blink in {max_duration}s = Good (0.75-0.85)")
-        print(f"  • 0 blinks in {max_duration}s = FAIL (0.0)")
-    else:
-        print(f"  • 2+ blinks in {max_duration}s = High score (0.85-0.95)")
-        print(f"  • 1 blink in {max_duration}s = Medium score (0.55-0.70)")
-        print(f"  • 0 blinks in {max_duration}s = FAIL (0.0)")
     print("\nControls:")
     print("  'q' - Quit")
     print("  'd' - Toggle debug mode")
-    print("  'r' - Reset timer")
+    print("  'r' - Reset timer and challenges")
     print()
     
     frame_count = 0
@@ -1272,29 +1782,77 @@ def main():
         
         # Display elapsed time and countdown
         elapsed = time.time() - detector.blink_detector.start_time
-        remaining = max(0, 5.0 - elapsed)
+        remaining = max(0, max_duration - elapsed)
         
         # Countdown bar
         bar_width = 300
         bar_x = 10
         bar_y = output.shape[0] - 40
-        filled_width = int((elapsed / 5.0) * bar_width)
+        filled_width = int((elapsed / max_duration) * bar_width)
         
         # Background bar
         cv2.rectangle(output, (bar_x, bar_y), (bar_x + bar_width, bar_y + 25), (50, 50, 50), -1)
         # Filled bar (changes color based on time)
-        if remaining > 2:
+        if remaining > max_duration * 0.4:
             bar_color = (0, 255, 0)  # Green
-        elif remaining > 1:
+        elif remaining > max_duration * 0.2:
             bar_color = (0, 255, 255)  # Yellow
         else:
             bar_color = (0, 0, 255)  # Red
         cv2.rectangle(output, (bar_x, bar_y), (bar_x + filled_width, bar_y + 25), bar_color, -1)
         
         # Time text
-        time_text = f"Time: {elapsed:.1f}s / 5.0s"
+        time_text = f"Time: {elapsed:.1f}s / {max_duration}s"
         cv2.putText(output, time_text, (bar_x + bar_width + 10, bar_y + 18),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        
+        # Challenge status for enrollment mode
+        if mode == 'enrollment' and 'challenges' in details:
+            y_pos = 90
+            challenges = details.get('challenges', {})
+            
+            # Blink status
+            blink_info = challenges.get('blink', {})
+            blink_done = blink_info.get('completed', 0) >= blink_info.get('required', 2)
+            cv2.putText(output, f"Blink: {blink_info.get('completed', 0)}/2 {'✓' if blink_done else ''}", 
+                       (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 
+                       (0, 255, 0) if blink_done else (255, 255, 255), 1)
+            y_pos += 20
+            
+            # Open mouth status
+            mouth_info = challenges.get('open_mouth', {})
+            if mouth_info:
+                mouth_done = mouth_info.get('completed', 0) >= mouth_info.get('required', 1)
+                cv2.putText(output, f"Open Mouth: {mouth_info.get('completed', 0)}/1 {'✓' if mouth_done else ''}", 
+                           (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                           (0, 255, 0) if mouth_done else (255, 255, 255), 1)
+                y_pos += 20
+            
+            # Head turn left status
+            left_info = challenges.get('head_turn_left', {})
+            if left_info:
+                left_done = left_info.get('completed', 0) >= left_info.get('required', 1)
+                cv2.putText(output, f"Turn LEFT: {left_info.get('completed', 0)}/1 {'✓' if left_done else ''}", 
+                           (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                           (0, 255, 0) if left_done else (255, 255, 255), 1)
+                y_pos += 20
+            
+            # Head turn right status
+            right_info = challenges.get('head_turn_right', {})
+            if right_info:
+                right_done = right_info.get('completed', 0) >= right_info.get('required', 1)
+                cv2.putText(output, f"Turn RIGHT: {right_info.get('completed', 0)}/1 {'✓' if right_done else ''}", 
+                           (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                           (0, 255, 0) if right_done else (255, 255, 255), 1)
+                y_pos += 20
+            
+            # Current feedback
+            feedback = details.get('current_feedback')
+            if feedback and feedback.get('action') != 'complete':
+                y_pos += 10
+                cv2.putText(output, f">> {feedback.get('message', '')}", 
+                           (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                           (0, 255, 255), 2)
         
         # FPS
         if frame_count % 30 == 0:
@@ -1305,11 +1863,14 @@ def main():
         cv2.putText(output, f"FPS: {fps:.1f}", (10, 30),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
         
-        if debug_mode:
-            cv2.putText(output, "DEBUG MODE", (10, 60),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        cv2.putText(output, f"Mode: {mode.upper()}", (10, 55),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1)
         
-        cv2.imshow('Optimized Liveness Detection', output)
+        if debug_mode:
+            cv2.putText(output, "DEBUG MODE", (10, 75),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+        
+        cv2.imshow('Optimized Liveness Detection v2.3', output)
         
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
@@ -1319,11 +1880,13 @@ def main():
             detector.debug = debug_mode
             print(f"Debug mode: {'ON' if debug_mode else 'OFF'}")
         elif key == ord('r'):
-            # Reset detector untuk test ulang
-            detector.blink_detector = ImprovedBlinkDetector()
+            # Reset ALL detectors for fresh test
+            detector.blink_detector = ImprovedBlinkDetector(max_duration=max_duration)
             detector.movement_analyzer = ImprovedMovementAnalyzer()
+            detector.open_mouth_detector = OpenMouthDetector(max_duration=max_duration)
+            detector.head_turn_detector = HeadTurnDetector(max_duration=max_duration)
             detector.final_scores.clear()
-            print("Timer reset! Starting new detection...")
+            print("Timer and challenges reset! Starting new detection...")
     
     cap.release()
     cv2.destroyAllWindows()

@@ -260,10 +260,14 @@ class FaceAuthWebSocketClient:
                 visual_data = data.get("visual_data", {})
                 obstacles = data.get("obstacles", [])
 
-                # Check status flags
+                # Check status flags for all challenges
                 blinks_ok = data.get("blinks_ok", False)
+                open_mouth_ok = data.get("open_mouth_ok", False)
+                turn_left_ok = data.get("turn_left_ok", False)
+                turn_right_ok = data.get("turn_right_ok", False)
                 motion_ok = data.get("motion_ok", False)
                 no_obstacles = data.get("no_obstacles", True)
+                all_challenges = data.get("all_challenges_completed", False)
 
                 print(
                     f"\n📊 Frame {data.get('frames_processed')}/{
@@ -271,22 +275,59 @@ class FaceAuthWebSocketClient:
                     }"
                 )
                 print(f"   Liveness Score: {data.get('liveness_score', 0):.2f}")
+                
+                # Blink challenge
                 print(
-                    f"   Blinks: {data.get('blinks_detected', 0)}/{
-                        data.get('blinks_required', 1)
+                    f"   👁️ Blinks: {data.get('blinks_detected', 0)}/{
+                        data.get('blinks_required', 2)
                     } {'✅' if blinks_ok else '❌'}"
                 )
+                
+                # Open mouth challenge
+                if data.get('open_mouth_required') is not None:
+                    print(
+                        f"   👄 Open Mouth: {data.get('open_mouth_count', 0)}/{
+                            data.get('open_mouth_required', 1)
+                        } {'✅' if open_mouth_ok else '❌'} (MAR: {
+                            data.get('mar', 0):.3f})"
+                    )
+                
+                # Head turn challenges
+                if data.get('turn_left_required') is not None:
+                    print(
+                        f"   👈 Turn Left: {data.get('turn_left_count', 0)}/{
+                            data.get('turn_left_required', 1)
+                        } {'✅' if turn_left_ok else '❌'}"
+                    )
+                    print(
+                        f"   👉 Turn Right: {data.get('turn_right_count', 0)}/{
+                            data.get('turn_right_required', 1)
+                        } {'✅' if turn_right_ok else '❌'} (YAW: {
+                            data.get('yaw', 0):.3f})"
+                    )
+                
+                # Current challenge feedback
+                current_challenge = data.get('current_challenge', '')
+                challenge_feedback = data.get('challenge_feedback', '')
+                if challenge_feedback:
+                    print(f"\n   🎯 {challenge_feedback}")
+                
+                # Motion info
                 print(
-                    f"   Motion: {data.get('motion_events', 0)}/{
+                    f"   🏃 Motion: {data.get('motion_events', 0)}/{
                         data.get('motion_required', 1)
                     } {'✅' if motion_ok else '❌'} (score: {
                         data.get('motion_score', 0):.2f})"
                 )
-                print(f"   No Obstacles: {'✅' if no_obstacles else '❌'}")
+                print(f"   ⛔ No Obstacles: {'✅' if no_obstacles else '❌'}")
                 print(
-                    f"   Quality: {data.get('quality_score', 0):.2f} (threshold: {
+                    f"   📷 Quality: {data.get('quality_score', 0):.2f} (threshold: {
                         data.get('quality_threshold', 0.65):.2f})"
                 )
+                
+                # All challenges status
+                if data.get('all_challenges_completed') is not None:
+                    print(f"   🏆 All Challenges: {'✅ COMPLETE!' if all_challenges else '⏳ In Progress...'}")
 
                 if obstacles:
                     print(f"   ⚠️  Obstacles: {', '.join(obstacles)}")
@@ -299,7 +340,7 @@ class FaceAuthWebSocketClient:
                         }"
                     )
 
-                print(f"   💬 {data.get('message', 'Continue')}")
+                print(f"\n   💬 {data.get('message', 'Continue')}")
             else:
                 error = data.get("error", "Unknown error")
                 obstacles = data.get("obstacles", [])
@@ -315,16 +356,35 @@ class FaceAuthWebSocketClient:
             print(f"   Message: {data.get('message', 'No message')}")
             print(f"   Frames processed: {data.get('frames_processed', 0)}")
             
-            # Show liveness requirements
+            # Show liveness requirements with all challenges
             if data.get('blinks_detected') is not None:
                 print(f"\n🔍 Liveness Check Results:")
-                print(f"   Blinks: {data.get('blinks_detected', 0)}/{data.get('blinks_required', 1)} {'✅' if data.get('blinks_detected', 0) >= data.get('blinks_required', 1) else '❌'}")
-                print(f"   Motion: {data.get('motion_events', 0)}/{data.get('motion_required', 1)} {'✅' if data.get('motion_events', 0) >= data.get('motion_required', 1) else '❌'}")
+                blinks = data.get('blinks_detected', 0)
+                blinks_req = data.get('blinks_required', 2)
+                print(f"   👁️ Blinks: {blinks}/{blinks_req} {'✅' if blinks >= blinks_req else '❌'}")
+                
+                open_mouth = data.get('open_mouth_count', 0)
+                open_mouth_req = data.get('open_mouth_required', 1)
+                print(f"   👄 Open Mouth: {open_mouth}/{open_mouth_req} {'✅' if open_mouth >= open_mouth_req else '❌'}")
+                
+                turn_left = data.get('turn_left_count', 0)
+                turn_left_req = data.get('turn_left_required', 1)
+                print(f"   👈 Turn Left: {turn_left}/{turn_left_req} {'✅' if turn_left >= turn_left_req else '❌'}")
+                
+                turn_right = data.get('turn_right_count', 0)
+                turn_right_req = data.get('turn_right_required', 1)
+                print(f"   👉 Turn Right: {turn_right}/{turn_right_req} {'✅' if turn_right >= turn_right_req else '❌'}")
+                
+                motion = data.get('motion_events', 0)
+                motion_req = data.get('motion_required', 1)
+                print(f"   🏃 Motion: {motion}/{motion_req} {'✅' if motion >= motion_req else '❌'}")
             
             print("\n💡 Tips:")
             print("   - Make sure your face is well-lit and clearly visible")
-            print("   - Blink naturally 1-2 times during enrollment")
-            print("   - Move your head slightly left/right or up/down")
+            print("   - 👁️ Blink naturally 2 times during enrollment")
+            print("   - 👄 Open your mouth wide once")
+            print("   - 👈 Turn your head to the LEFT")
+            print("   - 👉 Turn your head to the RIGHT")
             print("   - Keep your face centered in the frame")
             print("=" * 60)
             # Signal to stop sending frames
@@ -336,9 +396,16 @@ class FaceAuthWebSocketClient:
             print("=" * 60)
             print(f"   Enrollment ID: {data.get('enrollment_id')}")
             print(f"   Frames processed: {data.get('frames_processed')}")
-            print(f"   Blinks detected: {data.get('blinks_detected', 0)}")
-            print(f"   Motion verified: {'✓' if data.get('motion_verified') else '✗'}")
-            print(f"   Quality score: {data.get('quality_score', 0):.2f}")
+            print(f"   Liveness Score: {data.get('liveness_score', 0):.2f}")
+            
+            # Display all challenge results
+            print(f"\n🔒 LIVENESS CHALLENGES COMPLETED:")
+            print(f"   👁️ Blinks: {data.get('blinks_detected', 0)}/{data.get('blinks_required', 2)} ✅")
+            print(f"   👄 Open Mouth: {data.get('open_mouth_count', 0)}/{data.get('open_mouth_required', 1)} ✅")
+            print(f"   👈 Turn Left: {data.get('turn_left_count', 0)}/{data.get('turn_left_required', 1)} ✅")
+            print(f"   👉 Turn Right: {data.get('turn_right_count', 0)}/{data.get('turn_right_required', 1)} ✅")
+            print(f"   🏃 Motion verified: {'✅' if data.get('motion_verified') else '❌'}")
+            print(f"   📷 Quality score: {data.get('quality_score', 0):.2f}")
             
             # Display similarity with old photo if available
             similarity_score = data.get('similarity_with_old_photo')

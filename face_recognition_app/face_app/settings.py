@@ -396,7 +396,7 @@ CACHE_TTL = 60 * 30  # 30 minutes default cache timeout
 # Face Recognition Performance Settings
 FACE_EMBEDDING_CACHE_TTL = config("FACE_EMBEDDING_CACHE_TTL", default=3600, cast=int)  # 1 hour
 FACE_SEARCH_CACHE_TTL = config("FACE_SEARCH_CACHE_TTL", default=300, cast=int)  # 5 minutes
-FACE_MAX_FRAMES_PER_SESSION = config("FACE_MAX_FRAMES_PER_SESSION", default=20, cast=int)
+FACE_MAX_FRAMES_PER_SESSION = config("FACE_MAX_FRAMES_PER_SESSION", default=120, cast=int)
 FACE_ENGINE_WORKER_THREADS = config("FACE_ENGINE_WORKER_THREADS", default=5, cast=int)
 
 # Performance Optimization Toggles (can be set via environment variables)
@@ -486,9 +486,26 @@ FACE_RECOGNITION_CONFIG = {
     "QUALITY_TOLERANCE": 0.12,
     "FALLBACK_VERIFICATION_THRESHOLD": 0.28,
     "HEAD_POSE_THRESHOLD": 20,  # Max head pose angle in degrees
-    "LIVENESS_METHODS": ["blink_detection", "motion_detection", "head_pose_validation"],
+    "LIVENESS_METHODS": ["blink_detection", "motion_detection", "head_pose_validation", "open_mouth", "head_turn"],
     "USE_EMBEDDING_AVERAGING": True,  # Use embedding averaging for enrollment
     "SESSION_TIMEOUT_MINUTES": 1,  # Session timeout in minutes
+    
+    # ENROLLMENT LIVENESS CHALLENGES
+    "ENROLLMENT_LIVENESS_ENABLED": True,  # Enable enhanced liveness for enrollment
+    "ENROLLMENT_BLINK_REQUIRED": 2,  # Min blinks required for enrollment
+    "ENROLLMENT_OPEN_MOUTH_REQUIRED": 1,  # Min open mouth events required
+    "ENROLLMENT_TURN_LEFT_REQUIRED": 1,  # Min left head turns required
+    "ENROLLMENT_TURN_RIGHT_REQUIRED": 1,  # Min right head turns required
+    "ENROLLMENT_TIMEOUT_SECONDS": 10,  # Timeout for enrollment liveness
+    
+    # MAR (Mouth Aspect Ratio) thresholds
+    "MAR_OPEN_THRESHOLD": 0.3,  # Threshold for detecting open mouth
+    "MAR_CONSECUTIVE_FRAMES": 3,  # Consecutive frames required
+    
+    # YAW (Head Turn) thresholds
+    "YAW_LEFT_THRESHOLD": -0.15,  # Threshold for left turn detection
+    "YAW_RIGHT_THRESHOLD": 0.15,  # Threshold for right turn detection
+    "YAW_CONSECUTIVE_FRAMES": 3,  # Consecutive frames required
     
     # DUPLICATE FACE DETECTION SETTINGS
     # Threshold for detecting if a face belongs to another user (0.0 - 1.0)
