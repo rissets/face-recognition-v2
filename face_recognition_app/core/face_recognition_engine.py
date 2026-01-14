@@ -267,7 +267,7 @@ class LivenessDetector:
         self.ADAPTIVE_FACTOR = 0.75  # LOWERED from 0.80 - more aggressive adaptive threshold
         self.CONSECUTIVE_FRAMES = 1  # LOWERED from 2 - detect even brief blinks
         self.MIN_BLINK_DURATION = 1  # Minimum 1 frame
-        self.MAX_BLINK_DURATION = 15  # INCREASED from 10 - allow longer blinks
+        self.MAX_BLINK_DURATION = 5  # LOWERED from 10 - allow longer blinks
         self.MOTION_SENSITIVITY = 0.015  # SUPER SENSITIVE - lowered from 0.03 (2x more sensitive!)
         self.MOTION_EVENT_INTERVAL = 0.20  # FASTER - lowered from 0.25s
         

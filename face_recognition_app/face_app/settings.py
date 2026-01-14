@@ -496,7 +496,7 @@ FACE_RECOGNITION_CONFIG = {
     "ENROLLMENT_OPEN_MOUTH_REQUIRED": 1,  # Min open mouth events required
     "ENROLLMENT_TURN_LEFT_REQUIRED": 1,  # Min left head turns required
     "ENROLLMENT_TURN_RIGHT_REQUIRED": 1,  # Min right head turns required
-    "ENROLLMENT_TIMEOUT_SECONDS": 10,  # Timeout for enrollment liveness
+    "ENROLLMENT_TIMEOUT_SECONDS": 60,  # Timeout for enrollment liveness
     
     # MAR (Mouth Aspect Ratio) thresholds
     "MAR_OPEN_THRESHOLD": 0.3,  # Threshold for detecting open mouth
