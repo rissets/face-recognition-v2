@@ -499,8 +499,8 @@ FACE_RECOGNITION_CONFIG = {
     "ENROLLMENT_HOLD_STILL_REQUIRED": 1,  # Min hold still (diam) untuk capture foto profile yang jelas
     "ENROLLMENT_TIMEOUT_SECONDS": 60,  # Timeout for enrollment liveness
     
-    # HOLD STILL (Diam) settings untuk foto profile - LEBIH MUDAH & CEPAT
-    "HOLD_STILL_FRAMES_REQUIRED": 2,  # Berapa frame harus diam (2 frames = ~0.1s, lebih cepat dari 4)
+    # HOLD STILL (Diam) settings untuk foto profile - HARUS LAMA agar foto bagus (bukan saat mangap)
+    "HOLD_STILL_FRAMES_REQUIRED": 8,  # Berapa frame harus diam (8 frames = ~0.4s untuk memastikan mulut sudah tertutup)
     "HOLD_STILL_MOTION_THRESHOLD": 0.1,  # Threshold motion - naikkan untuk lebih toleran (0.015 -> 0.03)
     
     # MAR (Mouth Aspect Ratio) thresholds - PRODUCTION OPTIMIZED

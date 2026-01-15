@@ -978,7 +978,7 @@ class LivenessDetector:
                 
                 # Count hold_still when frames_required is reached
                 if self.consecutive_still_frames >= frames_required:
-                    if (current_time - self.last_hold_still_time) > 0.3:  # Production optimized for slow frame rate
+                    if (current_time - self.last_hold_still_time) > 0.8:  # Longer interval untuk memastikan foto tidak mangap
                         self.hold_still_count += 1
                         self.last_hold_still_time = current_time
                         logger.info(f"🎯 HOLD STILL DETECTED! Count: {self.hold_still_count}, Frames: {self.consecutive_still_frames}, Quality: {quality_score:.2f}, Motion: {motion:.4f}")
